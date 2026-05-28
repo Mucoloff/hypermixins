@@ -14,5 +14,31 @@ jobs:
         with:
           distribution: temurin
           java-version: 25
-      - name: Build and test
-        run: ./gradlew check --no-daemon
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # IntelliJ plugin module requires a local IDEA install — skip on CI.
+      - name: Runtime tests
+        run: ./gradlew --no-daemon :hypermixins-runtime:test
+
+      - name: Example KSP + descriptor integration tests
+        run: ./gradlew --no-daemon :hypermixins-example:test
+
+      - name: Agent shadow jar + premain integration test
+        run: ./gradlew --no-daemon :hypermixins-agent:test
+
+      - name: Upload failing test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**
