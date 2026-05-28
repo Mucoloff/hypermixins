@@ -6,5 +6,6 @@ rootProject.name = "hypermixins"
 include("hypermixins-annotations")
 include("hypermixins-processor")
 include("hypermixins-runtime")
+include("hypermixins-agent")
 include("hypermixins-example")
 include("hypermixins-intellij-plugin")
