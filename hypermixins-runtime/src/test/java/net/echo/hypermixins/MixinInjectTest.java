@@ -120,6 +120,58 @@ public class MixinInjectTest {
         assertFalse(bodyRan, "Target body must not execute when CallbackInfo.cancel() called");
     }
 
+    // ---- local-capture fixtures ----
+
+    public static volatile int capturedInt;
+    public static volatile String capturedString;
+
+    public static class CaptureTarget {
+        public int foo(int x, String tag) { bodyRan = true; return x; }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$CaptureTarget")
+    public static class CaptureMixin {
+        @Inject(method = "foo", at = @At(point = At.Point.HEAD))
+        public void onFoo(Object self, int x, String tag) {
+            capturedInt = x;
+            capturedString = tag;
+        }
+    }
+
+    public static class CaptureCancelTarget {
+        public int compute(int x) { bodyRan = true; return x * 2; }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$CaptureCancelTarget")
+    public static class CaptureCancelMixin {
+        @Inject(method = "compute", at = @At(point = At.Point.HEAD), cancellable = true)
+        public void onCompute(Object self, int x, CallbackInfoReturnable<Integer> cir) {
+            if (x < 0) cir.setReturnValue(-1);
+        }
+    }
+
+    @Test
+    void captureForwardsTargetParams() throws Exception {
+        Class<?> t = applyMixin(CaptureTarget.class, CaptureMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("foo", int.class, String.class).invoke(inst, 42, "hi");
+        assertEquals(42, result);
+        assertEquals(42, capturedInt);
+        assertEquals("hi", capturedString);
+        assertTrue(bodyRan);
+    }
+
+    @Test
+    void captureWithCancellable() throws Exception {
+        Class<?> t = applyMixin(CaptureCancelTarget.class, CaptureCancelMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // x >= 0 → not cancelled, body runs.
+        assertEquals(10, t.getMethod("compute", int.class).invoke(inst, 5));
+        assertTrue(bodyRan);
+        bodyRan = false;
+        // x < 0 → cancelled, returns -1.
+        assertEquals(-1, t.getMethod("compute", int.class).invoke(inst, -3));
+        assertFalse(bodyRan);
+    }
+
     // ---- INVOKE / FIELD / CONSTANT / JUMP fixtures ----
 
     public static class InvokeTarget {

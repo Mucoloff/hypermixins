@@ -428,7 +428,32 @@ public class MixinTransformer implements ClassFileTransformer {
         out.add(new FieldInsnNode(Opcodes.GETFIELD, owner.name, mixinField, mixinDesc));
         // self
         out.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        // (out-of-scope: captures of original args) — handler signature is (Object self, [CallbackInfo*])
+        // Local capture: between `self` and the optional trailing CallbackInfo, handler
+        // params are read straight from the target's incoming-parameter locals (slot 1+).
+        Type[] handlerArgs = Type.getArgumentTypes(handlerDesc);
+        int captureCount = handlerArgs.length - 1 - (inject.cancellable() ? 1 : 0);
+        if (captureCount > 0) {
+            Type[] targetArgs = Type.getArgumentTypes(target.desc);
+            if (captureCount > targetArgs.length) {
+                throw new IllegalStateException(
+                    "@Inject handler " + inject.handler() + " declares " + captureCount +
+                    " captured params but target " + target.name + target.desc + " has only " +
+                    targetArgs.length);
+            }
+            int slot = 1;
+            for (int i = 0; i < captureCount; i++) {
+                Type expected = handlerArgs[1 + i];
+                Type actual = targetArgs[i];
+                if (!expected.equals(actual)) {
+                    throw new IllegalStateException(
+                        "@Inject handler " + inject.handler() + " param " + i +
+                        " type " + expected + " does not match target " + target.name + target.desc +
+                        " param " + i + " type " + actual);
+                }
+                out.add(new VarInsnNode(actual.getOpcode(Opcodes.ILOAD), slot));
+                slot += actual.getSize();
+            }
+        }
         if (inject.cancellable()) {
             out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
         }
