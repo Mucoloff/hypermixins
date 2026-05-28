@@ -1,0 +1,378 @@
+package net.echo.hypermixins.agent;
+
+import net.echo.hypermixins.annotations.Call;
+import net.echo.hypermixins.registry.MixinRegistry;
+import org.objectweb.asm.*;
+import org.objectweb.asm.tree.*;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.instrument.ClassFileTransformer;
+import java.lang.reflect.Method;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.ProtectionDomain;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class MixinTransformer implements ClassFileTransformer {
+
+    private static final String REGISTRY_INTERNAL =
+        "net/echo/hypermixins/registry/MixinRegistry";
+    private static final String BOOTSTRAP_DESCRIPTOR =
+        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;" +
+        "Ljava/lang/invoke/MethodType;Ljava/lang/String;)Ljava/lang/invoke/CallSite;";
+
+    private final Map<String, MixinMapping> targets = new HashMap<>();
+    private final Map<String, MixinMapping> mixins  = new HashMap<>();
+    private final Set<Class<?>> transformedTargets   = ConcurrentHashMap.newKeySet();
+    private final List<String>  registeredKeys       = new ArrayList<>();
+
+    public MixinTransformer(List<MixinMapping> mappings) {
+        for (MixinMapping m : mappings) {
+            targets.put(m.getTargetClass().replace('.', '/'), m);
+            mixins.put(Type.getInternalName(m.getMixinClass()), m);
+        }
+    }
+
+    public List<String> registeredKeys() { return List.copyOf(registeredKeys); }
+    public Set<Class<?>> transformedTargets() { return Collections.unmodifiableSet(transformedTargets); }
+
+    @Override
+    public byte[] transform(
+        Module module, ClassLoader loader, String className,
+        Class<?> classBeingRedefined, ProtectionDomain protectionDomain,
+        byte[] classfileBuffer
+    ) {
+        MixinMapping mapping;
+        if ((mapping = targets.get(className)) != null) {
+            byte[] result = transformTarget(classfileBuffer, mapping, loader);
+            if (classBeingRedefined != null) transformedTargets.add(classBeingRedefined);
+            return result;
+        }
+        if ((mapping = mixins.get(className)) != null) {
+            return transformMixin(classfileBuffer, mapping, loader);
+        }
+        return null;
+    }
+
+    // ---- Target transformation ----
+
+    private byte[] transformTarget(byte[] classfile, MixinMapping mapping, ClassLoader loader) {
+        ClassReader reader = new ClassReader(classfile);
+        ClassNode node = new ClassNode();
+        reader.accept(node, 0);
+
+        String mixinField = "__mixin$" + mapping.getMixinClass().getName().replace('.', '$');
+        String mixinDesc  = Type.getDescriptor(mapping.getMixinClass());
+
+        boolean hasMixinField = node.fields.stream().anyMatch(f -> f.name.equals(mixinField));
+        if (!hasMixinField) {
+            node.fields.add(new FieldNode(Opcodes.ACC_PRIVATE, mixinField, mixinDesc, null, null));
+        }
+
+        Map<String, List<RedirectMapping>> redirectByDesc = new HashMap<>();
+        for (RedirectMapping r : mapping.getRedirects()) {
+            redirectByDesc.computeIfAbsent(r.invokeDesc(), k -> new ArrayList<>()).add(r);
+        }
+
+        List<MethodNode> extraMethods = new ArrayList<>();
+        Set<String> addedKeys = new HashSet<>();
+
+        for (MethodNode method : node.methods) {
+            applyRedirects(method, redirectByDesc);
+
+            if (method.name.equals("<init>")) {
+                patchConstructor(method, node, mapping, mixinField);
+            }
+
+            String key = method.name + method.desc;
+            Method overwrite = mapping.getOverwrites().get(key);
+            if (overwrite != null) {
+                if ((method.access & Opcodes.ACC_STATIC) != 0) {
+                    throw new IllegalStateException(
+                        "Cannot @Overwrite static method: " + method.name + method.desc + " in " + node.name);
+                }
+                MethodNode[] copies = applyOverwrite(node, method, overwrite, mixinField);
+                for (MethodNode copy : copies) {
+                    String copyKey = copy.name + copy.desc;
+                    if (addedKeys.add(copyKey)) extraMethods.add(copy);
+                }
+            }
+        }
+
+        node.methods.addAll(extraMethods);
+        ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, loader);
+        node.accept(writer);
+        return writer.toByteArray();
+    }
+
+    /**
+     * Rewrites {@code target} body as {@code INVOKEDYNAMIC}, creates two synthetic helpers:
+     * <ul>
+     *   <li>{@code __original$name$hash} — the unmodified original body (pre-mixin).</li>
+     *   <li>{@code __dispatch$name$hash} — the mixin-calling body (GETFIELD + INVOKEVIRTUAL).</li>
+     * </ul>
+     * Returns both helpers; caller must add them to the class.
+     */
+    private MethodNode[] applyOverwrite(
+        ClassNode owner, MethodNode target, Method mixinMethod, String mixinFieldName
+    ) {
+        // 1. Clone original body
+        MethodNode originalCopy = cloneAsOriginal(target);
+
+        // 2. Create __dispatch$xxx with mixin-calling body
+        String dispName = dispatchName(target.name, target.desc);
+        int synthAcc = Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC;
+        MethodNode dispatchCopy = new MethodNode(
+            synthAcc, dispName, target.desc, target.signature,
+            target.exceptions == null ? null : target.exceptions.toArray(new String[0])
+        );
+        {
+            InsnList di = new InsnList();
+            di.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            di.add(new FieldInsnNode(Opcodes.GETFIELD, owner.name, mixinFieldName,
+                Type.getDescriptor(mixinMethod.getDeclaringClass())));
+            di.add(new VarInsnNode(Opcodes.ALOAD, 0)); // self
+            Type[] targetArgs = Type.getArgumentTypes(target.desc);
+            int slot = 1;
+            for (Type t : targetArgs) { di.add(new VarInsnNode(t.getOpcode(Opcodes.ILOAD), slot)); slot += t.getSize(); }
+            di.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                Type.getInternalName(mixinMethod.getDeclaringClass()),
+                mixinMethod.getName(), Type.getMethodDescriptor(mixinMethod), false));
+            Type ret = Type.getReturnType(target.desc);
+            di.add(new InsnNode(ret.getOpcode(Opcodes.IRETURN)));
+            dispatchCopy.instructions.add(di);
+        }
+
+        // 3. Register pending lazy-install for the bootstrap
+        String key = owner.name + "#" + target.name + target.desc;
+        MixinRegistry.registerPending(key, originalCopy.name, dispName);
+        registeredKeys.add(key);
+
+        // 4. Replace target body with INVOKEDYNAMIC
+        target.instructions.clear();
+        target.tryCatchBlocks.clear();
+        target.localVariables = null;
+
+        // Call-site descriptor: (LTargetType;params...)ret
+        String callSiteDesc = "(L" + owner.name + ";" + target.desc.substring(1);
+
+        Handle bsm = new Handle(Opcodes.H_INVOKESTATIC, REGISTRY_INTERNAL,
+            "bootstrap", BOOTSTRAP_DESCRIPTOR, false);
+
+        InsnList body = new InsnList();
+        body.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        Type[] args = Type.getArgumentTypes(target.desc);
+        int slot = 1;
+        for (Type t : args) { body.add(new VarInsnNode(t.getOpcode(Opcodes.ILOAD), slot)); slot += t.getSize(); }
+        body.add(new InvokeDynamicInsnNode("dispatch", callSiteDesc, bsm, key));
+        body.add(new InsnNode(Type.getReturnType(target.desc).getOpcode(Opcodes.IRETURN)));
+        target.instructions.add(body);
+
+        return new MethodNode[]{originalCopy, dispatchCopy};
+    }
+
+    // ---- Mixin transformation (@Original trampolines) ----
+
+    private byte[] transformMixin(byte[] classfile, MixinMapping mapping, ClassLoader loader) {
+        ClassReader reader = new ClassReader(classfile);
+        ClassNode node = new ClassNode();
+        reader.accept(node, 0);
+
+        for (MethodNode method : node.methods) {
+            String key = method.name + method.desc;
+            if (!mapping.getOriginals().containsKey(key)) continue;
+
+            Type[] args = Type.getArgumentTypes(method.desc);
+            if (args.length == 0) {
+                throw new IllegalStateException(
+                    "@Original method must declare Object self as first parameter: " + method.name + method.desc);
+            }
+
+            Type returnType  = Type.getReturnType(method.desc);
+            Type[] targetArgs = Arrays.copyOfRange(args, 1, args.length);
+            String targetDesc = Type.getMethodDescriptor(returnType, targetArgs);
+
+            if ((method.access & Opcodes.ACC_NATIVE) != 0) method.access &= ~Opcodes.ACC_NATIVE;
+            method.instructions.clear();
+            method.tryCatchBlocks.clear();
+            method.localVariables = null;
+
+            String mappedTarget  = mapping.getTargetClass().replace('.', '/');
+            String targetName    = mapping.getOriginals().get(key);
+            String originalName  = mangledName(targetName, targetDesc);
+
+            InsnList insns = new InsnList();
+            insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
+            insns.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
+            int slotOrig = 2;
+            for (Type arg : targetArgs) {
+                insns.add(new VarInsnNode(arg.getOpcode(Opcodes.ILOAD), slotOrig));
+                slotOrig += arg.getSize();
+            }
+            insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, originalName, targetDesc, false));
+            insns.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
+            method.instructions.add(insns);
+        }
+
+        ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, loader);
+        node.accept(writer);
+        return writer.toByteArray();
+    }
+
+    // ---- Constructor patching ----
+
+    private static void patchConstructor(
+        MethodNode ctor, ClassNode owner, MixinMapping mapping, String mixinFieldName
+    ) {
+        for (AbstractInsnNode insn = ctor.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn instanceof MethodInsnNode mi
+                && mi.getOpcode() == Opcodes.INVOKESPECIAL
+                && mi.name.equals("<init>") && mi.owner.equals(owner.name)) return; // this(...)
+        }
+
+        AbstractInsnNode superCall = null;
+        for (AbstractInsnNode insn = ctor.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn instanceof MethodInsnNode mi
+                && mi.getOpcode() == Opcodes.INVOKESPECIAL
+                && mi.name.equals("<init>") && mi.owner.equals(owner.superName)) {
+                superCall = insn; break;
+            }
+        }
+        if (superCall == null) throw new IllegalStateException("No super() in constructor of " + owner.name);
+
+        String mixinInternal = Type.getInternalName(mapping.getMixinClass());
+        String mixinDesc     = Type.getDescriptor(mapping.getMixinClass());
+        InsnList inject = new InsnList();
+        inject.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        inject.add(new TypeInsnNode(Opcodes.NEW, mixinInternal));
+        inject.add(new InsnNode(Opcodes.DUP));
+        inject.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, mixinInternal, "<init>", "()V", false));
+        inject.add(new FieldInsnNode(Opcodes.PUTFIELD, owner.name, mixinFieldName, mixinDesc));
+        ctor.instructions.insert(superCall, inject);
+    }
+
+    // ---- Redirect application (direct injection, no INVOKEDYNAMIC for now) ----
+
+    private static void applyRedirects(MethodNode method, Map<String, List<RedirectMapping>> redirectByDesc) {
+        if (method.instructions == null) return;
+        Map<RedirectMapping, Integer> invokeCount = new HashMap<>();
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (!(insn instanceof MethodInsnNode mi)) continue;
+            String invokeKey = mi.owner + "." + mi.name + mi.desc;
+            List<RedirectMapping> candidates = redirectByDesc.get(invokeKey);
+            if (candidates == null) continue;
+            for (RedirectMapping redirect : candidates) {
+                if (!method.name.equals(redirect.targetMethod())) continue;
+                int count = invokeCount.getOrDefault(redirect, 0);
+                invokeCount.put(redirect, count + 1);
+                if (count != redirect.index()) continue;
+                validateRedirect(redirect, mi);
+                method.instructions.set(mi, new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    Type.getInternalName(redirect.handler().getDeclaringClass()),
+                    redirect.handler().getName(),
+                    redirect.handlerDesc(), false));
+                break;
+            }
+        }
+    }
+
+    private static void validateRedirect(RedirectMapping redirect, MethodInsnNode mi) {
+        Call expected = redirect.call();
+        int opcode = mi.getOpcode();
+        switch (expected) {
+            case INVOKESTATIC -> { if (opcode != Opcodes.INVOKESTATIC) mismatch(expected, opcode); }
+            case INVOKEVIRTUAL -> {
+                if (opcode != Opcodes.INVOKEVIRTUAL && opcode != Opcodes.INVOKEINTERFACE) mismatch(expected, opcode);
+            }
+            case INVOKEINTERFACE -> { if (opcode != Opcodes.INVOKEINTERFACE) mismatch(expected, opcode); }
+            case INVOKESPECIAL   -> { if (opcode != Opcodes.INVOKESPECIAL)   mismatch(expected, opcode); }
+            case NEW, GETFIELD, PUTFIELD, GETSTATIC, PUTSTATIC ->
+                throw new IllegalArgumentException("Call." + expected + " is a field/alloc opcode; use matching @At point");
+        }
+        Type[] origArgs = Type.getArgumentTypes(mi.desc);
+        Type[] handlerArgs = Type.getArgumentTypes(redirect.handlerDesc());
+        int expectedCount = (expected == Call.INVOKESTATIC || expected == Call.INVOKESPECIAL)
+            ? origArgs.length : origArgs.length + 1;
+        if (handlerArgs.length != expectedCount)
+            throw new IllegalArgumentException("Argument count mismatch in redirect: " + redirect.handler());
+        if (!Type.getReturnType(mi.desc).equals(Type.getReturnType(redirect.handlerDesc())))
+            throw new IllegalArgumentException("Return type mismatch in redirect: " + redirect.handler());
+    }
+
+    private static void mismatch(Call expected, int actual) {
+        throw new IllegalArgumentException("Opcode mismatch: expected " + expected + " but found " + actual);
+    }
+
+    // ---- Helpers ----
+
+    private static MethodNode cloneAsOriginal(MethodNode original) {
+        int acc = (original.access & Opcodes.ACC_STATIC) != 0
+            ? (Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC)
+            : (Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC);
+        MethodNode copy = new MethodNode(acc, mangledName(original.name, original.desc), original.desc,
+            original.signature, original.exceptions == null ? null : original.exceptions.toArray(new String[0]));
+        original.accept(copy);
+        return copy;
+    }
+
+    /** Mangled name for {@code __original$} copies: {@code __original$name$sha1_16hex(desc)}. */
+    public static String mangledName(String methodName, String descriptor) {
+        return "__original$" + methodName + "$" + sha1Hex16(descriptor);
+    }
+
+    /** Mangled name for {@code __dispatch$} copies. */
+    public static String dispatchName(String methodName, String descriptor) {
+        return "__dispatch$" + methodName + "$" + sha1Hex16(descriptor);
+    }
+
+    private static String sha1Hex16(String input) {
+        try {
+            MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+            byte[] hash = sha1.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(16);
+            for (int i = 0; i < 8; i++) hex.append(String.format("%02x", hash[i]));
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** ClassWriter that resolves superclass via ClassLoader stream, avoiding Class.forName deadlocks. */
+    public static final class SafeClassWriter extends ClassWriter {
+        private final ClassLoader loader;
+        SafeClassWriter(int flags, ClassLoader loader) { super(flags); this.loader = loader; }
+
+        @Override
+        protected String getCommonSuperClass(String type1, String type2) {
+            if (type1.equals(type2)) return type1;
+            if (type1.equals("java/lang/Object") || type2.equals("java/lang/Object")) return "java/lang/Object";
+            try {
+                List<String> chain1 = superChain(type1);
+                Set<String> set1 = new HashSet<>(chain1);
+                for (String t : superChain(type2)) { if (set1.contains(t)) return t; }
+            } catch (IOException ignored) {}
+            return "java/lang/Object";
+        }
+
+        private List<String> superChain(String name) throws IOException {
+            List<String> chain = new ArrayList<>();
+            String cur = name;
+            while (cur != null && !cur.equals("java/lang/Object")) {
+                chain.add(cur); cur = superOf(cur);
+            }
+            chain.add("java/lang/Object");
+            return chain;
+        }
+
+        private String superOf(String name) throws IOException {
+            ClassLoader cl = loader != null ? loader : ClassLoader.getSystemClassLoader();
+            try (InputStream is = cl.getResourceAsStream(name + ".class")) {
+                if (is == null) return null;
+                return new ClassReader(is).getSuperName();
+            }
+        }
+    }
+}

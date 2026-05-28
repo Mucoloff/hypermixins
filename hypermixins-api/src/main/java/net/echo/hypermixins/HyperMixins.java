@@ -4,60 +4,68 @@ import net.echo.hypermixins.agent.MixinMapping;
 import net.echo.hypermixins.agent.MixinTransformer;
 
 import java.lang.instrument.Instrumentation;
-import java.util.ArrayList;
-import java.util.List;
+import java.lang.instrument.UnmodifiableClassException;
+import java.util.*;
 
 /**
  * Entry point for registering and applying HyperMixins through the Java Instrumentation API.
  * <p>
- * This class is intended to be used exclusively from within a Java agent
- * (typically inside the {@code premain} method).
- * It wires user-defined mixin classes to their target classes by installing
- * a {@link net.echo.hypermixins.agent.MixinTransformer} and triggering class retransformation.
+ * Intended for use inside a Java agent's {@code premain} method.
+ * Installs a {@link MixinTransformer} and triggers retransformation of the mixin and target classes.
  *
  * @author xEcho1337
- * @apiNote This API operates at bytecode level and relies on class retransformation.
- *          Calling it outside an agent context or after application startup
- *          may lead to undefined behavior or {@link UnsupportedOperationException}s.
  */
 public class HyperMixins {
-    
+
+    private HyperMixins() {}
+
     /**
-     * Registers one or more mixin classes and applies them via the provided
-     * {@link Instrumentation} instance.
-     * <p>
-     * Each mixin class is analyzed and converted into a {@link MixinMapping},
-     * which defines target classes, overwritten methods, and original method bindings.
-     * A single {@link MixinTransformer} is then installed to handle bytecode rewriting.
-     * <p>
-     * This method performs class retransformation and therefore requires the
-     * instrumentation instance to support retransformation.
+     * Registers mixin classes. If {@code preloadedTargets} is provided, retransforms those
+     * target classes immediately (needed when targets are already loaded before the agent attaches).
      *
-     * @param inst the {@link Instrumentation} instance provided by the Java agent
-     * @param mixinClasses one or more classes annotated as mixins to be applied
-     * @throws RuntimeException if mixin analysis, transformer installation, or class retransformation fails
-     * @implNote
-     *     This method must be invoked from {@code premain}.
-     *     Invoking it multiple times or after classes have already been transformed
-     *     may result in duplicate transformations or unexpected behavior.
+     * @param inst             the Instrumentation from the agent
+     * @param mixinClasses     mixin classes annotated with {@code @Mixin}
+     * @param preloadedTargets already-loaded target classes to force retransform
+     * @throws MixinRegistrationException if registration or retransformation fails
      */
     public static void register(
         Instrumentation inst,
-        Class<?>... mixinClasses
-    ) {
+        Class<?>[] mixinClasses,
+        Class<?>... preloadedTargets
+    ) throws MixinRegistrationException {
         try {
             List<MixinMapping> mappings = new ArrayList<>();
-            
-            for (Class<?> mixinClass : mixinClasses) {
-                mappings.add(new MixinMapping(mixinClass));
+            for (Class<?> mixin : mixinClasses) {
+                mappings.add(new MixinMapping(mixin));
             }
-            
+
             MixinTransformer transformer = new MixinTransformer(mappings);
-            
             inst.addTransformer(transformer, true);
             inst.retransformClasses(mixinClasses);
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
+
+            if (preloadedTargets.length > 0) {
+                inst.retransformClasses(preloadedTargets);
+            }
+        } catch (UnmodifiableClassException | IllegalArgumentException e) {
+            throw new MixinRegistrationException("Failed to register mixins", e);
+        }
+    }
+
+    /**
+     * Convenience overload — no preloaded targets.
+     *
+     * @param inst         the Instrumentation from the agent
+     * @param mixinClasses mixin classes annotated with {@code @Mixin}
+     * @throws MixinRegistrationException if registration or retransformation fails
+     */
+    public static void register(Instrumentation inst, Class<?>... mixinClasses) throws MixinRegistrationException {
+        register(inst, mixinClasses, new Class<?>[0]);
+    }
+
+    /** Typed exception wrapping any failure during mixin registration. */
+    public static final class MixinRegistrationException extends Exception {
+        public MixinRegistrationException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

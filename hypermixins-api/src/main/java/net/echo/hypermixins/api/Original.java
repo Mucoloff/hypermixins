@@ -1,21 +1,23 @@
 package net.echo.hypermixins.api;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.*;
 
 /**
- * Marks a method as a call to the original implementation
- * of a target method.
+ * Generates a trampoline stub that calls the saved original implementation
+ * of a method overwritten via {@link Overwrite}.
  * <p>
- * The method must declare {@code Object self} as its first parameter.
+ * The annotated method must declare {@code Object self} as its first parameter.
+ * Declare it {@code native} to suppress the compiler body requirement:
+ * <pre>{@code
+ * @Original("getPlayers")
+ * public native List<Player> getPlayersOrig(Object self);
+ * }</pre>
  *
  * @author xEcho1337
  */
 @Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
 public @interface Original {
-    
-    /**
-     * Name of the target method.
-     */
+    /** Name of the target method whose original body to call. */
     String value();
 }

@@ -1,6 +1,6 @@
 package net.echo.hypermixins.agent;
 
-import net.echo.hypermixins.api.*;
+import net.echo.hypermixins.annotations.*;
 import org.objectweb.asm.Type;
 
 import java.lang.reflect.Method;
