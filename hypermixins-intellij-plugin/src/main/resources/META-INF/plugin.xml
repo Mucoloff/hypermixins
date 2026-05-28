@@ -1,0 +1,40 @@
+<idea-plugin>
+    <id>net.echo.hypermixins</id>
+    <name>HyperMixins</name>
+    <vendor url="https://github.com/xEcho1337/hypermixins">xEcho1337</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+
+        <!-- Gutter icons: @Mixin class → target, @Overwrite/@Redirect/@Inject method → target -->
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="net.echo.hypermixins.idea.marker.MixinLineMarkerProvider"/>
+
+        <!-- Inspection: @Mixin.value() class not found / @Overwrite method not found in target -->
+        <localInspection
+                language="JAVA"
+                displayName="HyperMixins: target not found"
+                groupName="HyperMixins"
+                implementationClass="net.echo.hypermixins.idea.inspection.TargetNotFoundInspection"
+                enabledByDefault="true"
+                level="ERROR"/>
+
+        <!-- Inspection: @Overwrite first param not Object / @Redirect descriptor mismatch -->
+        <localInspection
+                language="JAVA"
+                displayName="HyperMixins: signature mismatch"
+                groupName="HyperMixins"
+                implementationClass="net.echo.hypermixins.idea.inspection.SignatureMismatchInspection"
+                enabledByDefault="true"
+                level="WARNING"/>
+
+        <!-- Autocomplete for @At(desc = "...") call-site descriptors -->
+        <completion.contributor
+                language="JAVA"
+                implementationClass="net.echo.hypermixins.idea.completion.AtDescCompletionContributor"/>
+
+    </extensions>
+</idea-plugin>
