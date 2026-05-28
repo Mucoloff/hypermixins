@@ -84,6 +84,30 @@ public final class MixinRegistry {
     }
 
     /**
+     * Removes the mixin handler for {@code key} so future calls dispatch to the original
+     * implementation. Call-site stays installed (the target class's INVOKEDYNAMIC will keep
+     * resolving against this key), but {@link #enable} on the same key becomes a no-op until
+     * a new handler is {@link #install installed} or {@link #reinstall reinstalled}.
+     */
+    public static void uninstall(String key) {
+        MIXINS.remove(key);
+        PENDING.remove(key);
+        MethodHandle orig = ORIGINALS.get(key);
+        MutableCallSite cs = SITES.get(key);
+        if (cs != null && orig != null) cs.setTarget(orig.asType(cs.type()));
+    }
+
+    /**
+     * Hot-swaps the mixin handler for {@code key}. Use after redefining the mixin class
+     * (e.g., during dev-time code reload). The original handle is preserved.
+     */
+    public static void reinstall(String key, MethodHandle newMixin) {
+        MIXINS.put(key, newMixin);
+        MutableCallSite cs = SITES.get(key);
+        if (cs != null) cs.setTarget(newMixin.asType(cs.type()));
+    }
+
+    /**
      * Clears all registry state. Visible for tests only — production code must never call this.
      */
     public static void clearForTests() {

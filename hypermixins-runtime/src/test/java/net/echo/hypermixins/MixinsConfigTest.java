@@ -94,4 +94,20 @@ public class MixinsConfigTest {
     void inlineListUnsupported() {
         assertThrows(IOException.class, () -> parse("mixins: [A, B]\n"));
     }
+
+    @Test
+    void discoverAllFindsAllProjectYamls() throws Exception {
+        var configs = net.echo.hypermixins.config.MixinsConfig.discoverAll(
+            getClass().getClassLoader());
+        // The two test fixtures under src/test/resources/META-INF/hypermixins/.
+        long alpha = configs.stream().flatMap(c -> c.mixinClassNames().stream())
+            .filter(s -> s.equals("net.echo.sample.a.AlphaMixin")).count();
+        long beta  = configs.stream().flatMap(c -> c.mixinClassNames().stream())
+            .filter(s -> s.equals("net.echo.sample.b.BetaMixin")).count();
+        long gamma = configs.stream().flatMap(c -> c.mixinClassNames().stream())
+            .filter(s -> s.equals("net.echo.sample.b.GammaMixin")).count();
+        assertEquals(1, alpha);
+        assertEquals(1, beta);
+        assertEquals(1, gamma);
+    }
 }

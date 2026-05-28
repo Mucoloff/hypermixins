@@ -60,13 +60,20 @@ public final class MixinHandle {
     }
 
     /**
-     * Disables the mixin and removes its transformer from the Instrumentation chain.
-     * Future class loads/retransforms will not apply this mixin.
-     * Already-transformed classes retain the injected schema (field + shadow method).
+     * Fully removes this mixin from the dispatch chain.
+     * <ul>
+     *   <li>Every call-site key managed by this handle is uninstalled — future calls hit the
+     *       original implementation, and {@link #enable()} on a stale handle becomes a no-op.</li>
+     *   <li>The transformer is removed from the Instrumentation chain.</li>
+     * </ul>
+     * Already-transformed classes retain the injected schema (field + {@code __original$}
+     * trampoline). They are harmless: the {@code INVOKEDYNAMIC} call-site simply forwards to
+     * the original via the unhooked dispatch.
      */
     public void unregister() {
-        disable();
+        keys.forEach(MixinRegistry::uninstall);
         inst.removeTransformer(transformer);
+        active = false;
     }
 
     /** Whether this handle is currently active (mixin handlers are in use). */

@@ -1,0 +1,3 @@
+package: net.echo.sample.a
+mixins:
+  - AlphaMixin

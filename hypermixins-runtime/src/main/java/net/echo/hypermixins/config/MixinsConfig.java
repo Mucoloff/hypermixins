@@ -1,14 +1,20 @@
 package net.echo.hypermixins.config;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.JarURLConnection;
 import java.net.URL;
+import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 /**
  * Parsed view of a {@code .mixins.yml} descriptor.
@@ -94,16 +100,68 @@ public final class MixinsConfig {
         try (InputStream is = url.openStream()) { return fromStream(is); }
     }
 
-    /** Loads every {@code .mixins.yml} / {@code mixins.yml} resource found by {@code loader}. */
+    /**
+     * Loads every {@code META-INF/hypermixins/*.mixins.yml} resource on the classpath of
+     * {@code loader}. Sponge-style: each module ships one or more YAMLs under that directory.
+     * Also honors legacy root-level {@code mixins.yml} / {@code .mixins.yml} resources.
+     */
     public static List<MixinsConfig> discoverAll(ClassLoader loader) throws IOException {
         ClassLoader cl = loader != null ? loader : ClassLoader.getSystemClassLoader();
         List<MixinsConfig> configs = new ArrayList<>();
-        for (String name : List.of("mixins.yml", ".mixins.yml")) {
-            for (URL url : Collections.list(cl.getResources(name))) {
-                configs.add(fromUrl(url));
-            }
+
+        // Project-level YAMLs under META-INF/hypermixins/.
+        for (URL root : enumerateResourceRoots(cl, "META-INF/hypermixins/")) {
+            for (URL yaml : listYamlsUnder(root)) configs.add(fromUrl(yaml));
+        }
+
+        // Legacy root-level names (pre-Sponge layout).
+        for (String legacy : List.of("mixins.yml", ".mixins.yml")) {
+            for (URL url : Collections.list(cl.getResources(legacy))) configs.add(fromUrl(url));
         }
         return configs;
+    }
+
+    private static List<URL> enumerateResourceRoots(ClassLoader cl, String prefix) throws IOException {
+        return Collections.list(cl.getResources(prefix));
+    }
+
+    /** Lists all {@code *.mixins.yml} URLs under a single classpath root URL. */
+    private static List<URL> listYamlsUnder(URL root) {
+        List<URL> result = new ArrayList<>();
+        try {
+            String protocol = root.getProtocol();
+            if ("file".equals(protocol)) {
+                File dir = new File(root.toURI());
+                if (dir.isDirectory()) {
+                    File[] entries = dir.listFiles();
+                    if (entries != null) {
+                        for (File f : entries) {
+                            if (f.isFile() && f.getName().endsWith(".mixins.yml")) result.add(f.toURI().toURL());
+                        }
+                    }
+                }
+            } else if ("jar".equals(protocol)) {
+                URLConnection conn = root.openConnection();
+                if (conn instanceof JarURLConnection jc) {
+                    JarFile jar = jc.getJarFile();
+                    String entryPrefix = jc.getEntryName();
+                    if (entryPrefix == null) return result;
+                    if (!entryPrefix.endsWith("/")) entryPrefix += "/";
+                    Enumeration<JarEntry> entries = jar.entries();
+                    while (entries.hasMoreElements()) {
+                        JarEntry e = entries.nextElement();
+                        String name = e.getName();
+                        if (e.isDirectory() || !name.startsWith(entryPrefix)) continue;
+                        String rel = name.substring(entryPrefix.length());
+                        if (rel.indexOf('/') >= 0 || !rel.endsWith(".mixins.yml")) continue;
+                        result.add(new URL("jar:" + jc.getJarFileURL() + "!/" + name));
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Fail closed for this root — discoverAll moves on.
+        }
+        return result;
     }
 
     private static String stripComment(String line) {

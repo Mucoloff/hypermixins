@@ -1,0 +1,4 @@
+package: net.echo.sample.b
+mixins:
+  - BetaMixin
+  - GammaMixin
