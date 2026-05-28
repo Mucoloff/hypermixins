@@ -7,6 +7,7 @@ import org.objectweb.asm.util.CheckClassAdapter;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +52,37 @@ final class TransformerTestSupport {
         Class<?> targetDefined = loader.define(targetClass.getName(), transformedTarget);
         cache.put(targetClass.getName(), targetDefined);
         return targetDefined;
+    }
+
+    /**
+     * Applies multiple mixin classes to the same target in a single transformer pass — covers
+     * scenarios where two mods independently overwrite or inject on the same class. All mixin
+     * classes plus the target are defined in a shared in-memory loader so that virtual dispatch
+     * across the {@code __mixin$X} fields wires correctly.
+     */
+    static Class<?> applyMixins(Class<?> targetClass, Class<?>... mixinClasses) throws Exception {
+        List<MixinMapping> mappings = new ArrayList<>();
+        for (Class<?> m : mixinClasses) mappings.add(new MixinMapping(m));
+        MixinTransformer transformer = new MixinTransformer(mappings);
+
+        String targetInternal = targetClass.getName().replace('.', '/');
+        byte[] originalTarget = loadBytecode(targetClass);
+        byte[] transformedTarget = transformer.transform(null, targetClass.getClassLoader(),
+            targetInternal, null, null, originalTarget);
+        assertNotNull(transformedTarget, "Transformer returned null for target " + targetClass);
+        verifyBytecode(transformedTarget);
+
+        InMemoryClassLoader loader = new InMemoryClassLoader(targetClass.getClassLoader());
+        for (Class<?> mixinClass : mixinClasses) {
+            String mixinInternal = mixinClass.getName().replace('.', '/');
+            byte[] originalMixin = loadBytecode(mixinClass);
+            byte[] transformedMixin = transformer.transform(null, mixinClass.getClassLoader(),
+                mixinInternal, null, null, originalMixin);
+            assertNotNull(transformedMixin, "Transformer returned null for mixin " + mixinClass);
+            verifyBytecode(transformedMixin);
+            loader.define(mixinClass.getName(), transformedMixin);
+        }
+        return loader.define(targetClass.getName(), transformedTarget);
     }
 
     static byte[] loadBytecode(Class<?> cls) throws Exception {

@@ -22,14 +22,14 @@ public class MixinTransformer implements ClassFileTransformer {
         "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;" +
         "Ljava/lang/invoke/MethodType;Ljava/lang/String;)Ljava/lang/invoke/CallSite;";
 
-    private final Map<String, MixinMapping> targets = new HashMap<>();
+    private final Map<String, List<MixinMapping>> targets = new HashMap<>();
     private final Map<String, MixinMapping> mixins  = new HashMap<>();
     private final Set<Class<?>> transformedTargets   = ConcurrentHashMap.newKeySet();
     private final List<String>  registeredKeys       = new ArrayList<>();
 
     public MixinTransformer(List<MixinMapping> mappings) {
         for (MixinMapping m : mappings) {
-            targets.put(m.getTargetClass().replace('.', '/'), m);
+            targets.computeIfAbsent(m.getTargetClass().replace('.', '/'), k -> new ArrayList<>()).add(m);
             mixins.put(Type.getInternalName(m.getMixinClass()), m);
         }
     }
@@ -43,72 +43,81 @@ public class MixinTransformer implements ClassFileTransformer {
         Class<?> classBeingRedefined, ProtectionDomain protectionDomain,
         byte[] classfileBuffer
     ) {
-        MixinMapping mapping;
-        if ((mapping = targets.get(className)) != null) {
-            byte[] result = transformTarget(classfileBuffer, mapping, loader);
+        List<MixinMapping> targetMappings = targets.get(className);
+        if (targetMappings != null) {
+            byte[] result = transformTarget(classfileBuffer, targetMappings, loader);
             if (classBeingRedefined != null) transformedTargets.add(classBeingRedefined);
             return result;
         }
-        if ((mapping = mixins.get(className)) != null) {
-            return transformMixin(classfileBuffer, mapping, loader);
+        MixinMapping mixinMapping = mixins.get(className);
+        if (mixinMapping != null) {
+            return transformMixin(classfileBuffer, mixinMapping, loader);
         }
         return null;
     }
 
     // ---- Target transformation ----
 
-    private byte[] transformTarget(byte[] classfile, MixinMapping mapping, ClassLoader loader) {
+    private byte[] transformTarget(byte[] classfile, List<MixinMapping> mappings, ClassLoader loader) {
         ClassReader reader = new ClassReader(classfile);
         ClassNode node = new ClassNode();
         reader.accept(node, 0);
 
-        String mixinField = "__mixin$" + mapping.getMixinClass().getName().replace('.', '$');
-        String mixinDesc  = Type.getDescriptor(mapping.getMixinClass());
-
-        boolean hasMixinField = node.fields.stream().anyMatch(f -> f.name.equals(mixinField));
-        if (!hasMixinField) {
-            node.fields.add(new FieldNode(Opcodes.ACC_PRIVATE, mixinField, mixinDesc, null, null));
-        }
-
-        Map<String, List<RedirectMapping>> redirectByDesc = new HashMap<>();
-        for (RedirectMapping r : mapping.getRedirects()) {
-            redirectByDesc.computeIfAbsent(r.invokeDesc(), k -> new ArrayList<>()).add(r);
-        }
-
         List<MethodNode> extraMethods = new ArrayList<>();
         Set<String> addedKeys = new HashSet<>();
+        Set<String> overwrittenKeys = new HashSet<>();
 
-        Map<String, String[]> synthetics = mapping.descriptor().synthetics();
+        for (MixinMapping mapping : mappings) {
+            String mixinField = "__mixin$" + mapping.getMixinClass().getName().replace('.', '$');
+            String mixinDesc  = Type.getDescriptor(mapping.getMixinClass());
 
-        for (MethodNode method : node.methods) {
-            applyRedirects(method, redirectByDesc);
-
-            if (method.name.equals("<init>")) {
-                patchConstructor(method, node, mapping, mixinField);
+            boolean hasMixinField = node.fields.stream().anyMatch(f -> f.name.equals(mixinField));
+            if (!hasMixinField) {
+                node.fields.add(new FieldNode(Opcodes.ACC_PRIVATE, mixinField, mixinDesc, null, null));
             }
 
-            List<InjectMapping> injectsForMethod = mapping.getInjects().get(method.name);
-            if (injectsForMethod != null && !injectsForMethod.isEmpty()
-                && !method.name.equals("<init>") && !method.name.equals("<clinit>")) {
-                applyInjects(node, method, injectsForMethod, mixinField);
+            Map<String, List<RedirectMapping>> redirectByDesc = new HashMap<>();
+            for (RedirectMapping r : mapping.getRedirects()) {
+                redirectByDesc.computeIfAbsent(r.invokeDesc(), k -> new ArrayList<>()).add(r);
             }
 
-            String key = method.name + method.desc;
-            Method overwrite = mapping.getOverwrites().get(key);
-            if (overwrite != null) {
-                if ((method.access & Opcodes.ACC_STATIC) != 0) {
-                    throw new IllegalStateException(
-                        "Cannot @Overwrite static method: " + method.name + method.desc + " in " + node.name);
+            Map<String, String[]> synthetics = mapping.descriptor().synthetics();
+
+            for (MethodNode method : node.methods) {
+                applyRedirects(method, redirectByDesc);
+
+                if (method.name.equals("<init>")) {
+                    patchConstructor(method, node, mapping, mixinField);
                 }
-                String[] names = synthetics.get(key);
-                if (names == null) {
-                    throw new IllegalStateException(
-                        "Missing precomputed synthetic names for " + node.name + "#" + key);
+
+                List<InjectMapping> injectsForMethod = mapping.getInjects().get(method.name);
+                if (injectsForMethod != null && !injectsForMethod.isEmpty()
+                    && !method.name.equals("<init>") && !method.name.equals("<clinit>")) {
+                    applyInjects(node, method, injectsForMethod, mixinField);
                 }
-                MethodNode[] copies = applyOverwrite(node, method, overwrite, mixinField, names[0], names[1]);
-                for (MethodNode copy : copies) {
-                    String copyKey = copy.name + copy.desc;
-                    if (addedKeys.add(copyKey)) extraMethods.add(copy);
+
+                String key = method.name + method.desc;
+                Method overwrite = mapping.getOverwrites().get(key);
+                if (overwrite != null) {
+                    if (!overwrittenKeys.add(node.name + "#" + key)) {
+                        throw new IllegalStateException(
+                            "Multiple mixins @Overwrite the same target method " + node.name + "#" + key +
+                            "; only one mixin may overwrite a given method per target");
+                    }
+                    if ((method.access & Opcodes.ACC_STATIC) != 0) {
+                        throw new IllegalStateException(
+                            "Cannot @Overwrite static method: " + method.name + method.desc + " in " + node.name);
+                    }
+                    String[] names = synthetics.get(key);
+                    if (names == null) {
+                        throw new IllegalStateException(
+                            "Missing precomputed synthetic names for " + node.name + "#" + key);
+                    }
+                    MethodNode[] copies = applyOverwrite(node, method, overwrite, mixinField, names[0], names[1]);
+                    for (MethodNode copy : copies) {
+                        String copyKey = copy.name + copy.desc;
+                        if (addedKeys.add(copyKey)) extraMethods.add(copy);
+                    }
                 }
             }
         }
