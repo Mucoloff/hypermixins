@@ -1,3 +1,0 @@
-rootProject.name = 'hypermixins'
-include 'hypermixins-api'
-include 'hypermixins-example'
