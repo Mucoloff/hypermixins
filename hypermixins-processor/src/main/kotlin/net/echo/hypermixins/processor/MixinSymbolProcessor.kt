@@ -218,6 +218,10 @@ class MixinSymbolProcessor(
         val point = readEnumArg(atAnn?.arg("point"), "HEAD")
         val atDesc = (atAnn?.arg("desc") as? String) ?: ""
         val atIndex = (atAnn?.arg("index") as? Int) ?: 0
+        if ((point == "INVOKE" || point == "FIELD" || point == "CONSTANT") && atDesc.isBlank()) {
+            logger.error("@Inject point $point requires @At#desc() on ${fn.simpleName.asString()}", fn)
+            return
+        }
         out += InjectEntry(method, point, atDesc, atIndex, cancellable, returnable, fn.simpleName.asString(), descriptor(fn))
     }
 

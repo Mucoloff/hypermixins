@@ -291,14 +291,90 @@ public class MixinTransformer implements ClassFileTransformer {
                     if (first == null) target.instructions.add(block);
                     else target.instructions.insertBefore(first, block);
                 }
-                case TAIL -> {
-                    // For TAIL we inject before every return — equivalent to RETURN when targets have explicit returns.
-                    injectBeforeReturns(owner, target, inject, mixinField, targetReturn);
-                }
-                case RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn);
+                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn);
+                case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn,
+                    insn -> matchesInvoke(insn, inject));
+                case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn,
+                    insn -> matchesField(insn, inject));
+                case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn,
+                    insn -> matchesConstant(insn, inject));
+                case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn,
+                    MixinTransformer::isConditionalJump);
                 default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
             }
         }
+    }
+
+    /**
+     * Injects the handler call before each instruction matched by {@code predicate}, honoring
+     * {@code inject.index()} as a zero-based occurrence selector (negative or zero matches all,
+     * positive matches only the Nth occurrence — mirrors the existing {@code @Redirect#index}).
+     */
+    private static void injectAtMatchingSites(
+        ClassNode owner, MethodNode target, InjectMapping inject,
+        String mixinField, Type targetReturn,
+        java.util.function.Predicate<AbstractInsnNode> predicate
+    ) {
+        List<AbstractInsnNode> sites = new ArrayList<>();
+        int matchCount = 0;
+        for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (!predicate.test(insn)) continue;
+            if (inject.index() <= 0 || matchCount == inject.index()) sites.add(insn);
+            matchCount++;
+            if (inject.index() > 0 && matchCount > inject.index()) break;
+        }
+        if (sites.isEmpty()) {
+            throw new IllegalStateException(
+                "@Inject " + inject.point() + " found no matching site for "
+                + inject.handler() + " (atDesc=" + inject.atDesc() + ", index=" + inject.index() + ")");
+        }
+        for (AbstractInsnNode site : sites) {
+            target.instructions.insertBefore(site, emitInjectCall(owner, target, inject, mixinField, targetReturn));
+        }
+    }
+
+    private static boolean matchesInvoke(AbstractInsnNode insn, InjectMapping inject) {
+        if (!(insn instanceof MethodInsnNode mi)) return false;
+        return (mi.owner + "." + mi.name + mi.desc).equals(inject.atDesc());
+    }
+
+    private static boolean matchesField(AbstractInsnNode insn, InjectMapping inject) {
+        if (!(insn instanceof FieldInsnNode fi)) return false;
+        return (fi.owner + "." + fi.name + ":" + fi.desc).equals(inject.atDesc());
+    }
+
+    /**
+     * Constant match form: {@code "<type>:<value>"}. Supported types:
+     * <pre>
+     *   I:42                     int constant
+     *   J:1234                   long
+     *   F:3.14                   float
+     *   D:2.718                  double
+     *   Ljava/lang/String;:foo   string constant (raw value, no quoting)
+     * </pre>
+     */
+    private static boolean matchesConstant(AbstractInsnNode insn, InjectMapping inject) {
+        if (!(insn instanceof LdcInsnNode ldc)) return false;
+        String desc = inject.atDesc();
+        int sep = desc.indexOf(':');
+        if (sep < 0) return false;
+        String type = desc.substring(0, sep);
+        String value = desc.substring(sep + 1);
+        Object cst = ldc.cst;
+        return switch (type) {
+            case "I" -> cst instanceof Integer i && i == Integer.parseInt(value);
+            case "J" -> cst instanceof Long l && l == Long.parseLong(value);
+            case "F" -> cst instanceof Float f && f == Float.parseFloat(value);
+            case "D" -> cst instanceof Double d && d == Double.parseDouble(value);
+            case "Ljava/lang/String;" -> cst instanceof String s && s.equals(value);
+            default -> false;
+        };
+    }
+
+    private static boolean isConditionalJump(AbstractInsnNode insn) {
+        if (!(insn instanceof JumpInsnNode jump)) return false;
+        int op = jump.getOpcode();
+        return op != Opcodes.GOTO && op != Opcodes.JSR;
     }
 
     private static void injectBeforeReturns(

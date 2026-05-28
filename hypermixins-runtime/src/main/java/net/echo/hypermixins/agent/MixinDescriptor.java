@@ -227,8 +227,10 @@ public final class MixinDescriptor {
                 }
                 At at = in.at();
                 At.Point point = at.point();
-                if (point != At.Point.HEAD && point != At.Point.RETURN && point != At.Point.TAIL) {
-                    throw new IllegalArgumentException("@Inject point " + point + " not supported yet (HEAD/RETURN/TAIL only): " + method);
+                if ((point == At.Point.INVOKE || point == At.Point.FIELD || point == At.Point.CONSTANT)
+                    && at.desc().isEmpty()) {
+                    throw new IllegalArgumentException(
+                        "@Inject point " + point + " requires @At#desc() on " + method);
                 }
                 injects.add(new InjectEntry(in.method(), point, at.desc(), at.index(),
                     cancellable, returnable, method.getName(), Type.getMethodDescriptor(method)));

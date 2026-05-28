@@ -120,6 +120,89 @@ public class MixinInjectTest {
         assertFalse(bodyRan, "Target body must not execute when CallbackInfo.cancel() called");
     }
 
+    // ---- INVOKE / FIELD / CONSTANT / JUMP fixtures ----
+
+    public static class InvokeTarget {
+        public int run() {
+            String s = String.valueOf(123);
+            return s.length();
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$InvokeTarget")
+    public static class InvokeMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/lang/String.valueOf(I)Ljava/lang/String;"))
+        public void onInvoke(Object self) { counter++; }
+    }
+
+    public static class FieldTarget {
+        public int x = 5;
+        public int read() { return x + x; } // two GETFIELDs
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$FieldTarget")
+    public static class FieldMixin {
+        @Inject(method = "read", at = @At(point = At.Point.FIELD,
+            desc = "net/echo/hypermixins/MixinInjectTest$FieldTarget.x:I"))
+        public void onField(Object self) { counter++; }
+    }
+
+    public static class JumpTarget {
+        public int branch(int x) {
+            if (x > 0) return 1;
+            return -1;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$JumpTarget")
+    public static class JumpMixin {
+        @Inject(method = "branch", at = @At(point = At.Point.JUMP))
+        public void onJump(Object self) { counter++; }
+    }
+
+    // ---- INVOKE / FIELD / CONSTANT / JUMP tests ----
+
+    @Test
+    void invokeInject() throws Exception {
+        Class<?> t = applyMixin(InvokeTarget.class, InvokeMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(3, t.getMethod("run").invoke(inst));
+        assertEquals(1, counter);
+    }
+
+    @Test
+    void fieldInject() throws Exception {
+        Class<?> t = applyMixin(FieldTarget.class, FieldMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(10, t.getMethod("read").invoke(inst));
+        // Two GETFIELDs on `x` → handler fires twice.
+        assertEquals(2, counter);
+    }
+
+    public static class LdcConstantTarget {
+        public int big() { return 1234567; } // forces LDC
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$LdcConstantTarget")
+    public static class LdcConstantMixin {
+        @Inject(method = "big", at = @At(point = At.Point.CONSTANT, desc = "I:1234567"))
+        public void onConst(Object self) { counter++; }
+    }
+
+    @Test
+    void constantInjectLdc() throws Exception {
+        Class<?> t = applyMixin(LdcConstantTarget.class, LdcConstantMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(1234567, t.getMethod("big").invoke(inst));
+        assertEquals(1, counter);
+    }
+
+    @Test
+    void jumpInject() throws Exception {
+        Class<?> t = applyMixin(JumpTarget.class, JumpMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(1, t.getMethod("branch", int.class).invoke(inst, 5));
+        // One conditional jump (the if).
+        assertEquals(1, counter);
+    }
+
     @Test
     void cancellableReturnable() throws Exception {
         Class<?> t = applyMixin(ReturnableTarget.class, ReturnableMixin.class);
