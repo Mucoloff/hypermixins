@@ -15,6 +15,9 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -29,6 +32,21 @@ import java.util.Map;
  * from runtime annotation reflection (legacy / test fallback).
  * <p>
  * Once loaded, this object is immutable and shared across all registrations of the same mixin.
+ *
+ * <h2>Generated descriptor ABI</h2>
+ * The KSP processor and this loader share a fixed column layout per entries() table. Changing
+ * any row schema requires updating both sides in lock-step or runtime decoding will misalign.
+ * <pre>
+ *   overwriteEntries:  [targetName, targetDesc, handlerName, handlerDesc]
+ *   originalEntries:   [handlerName, handlerDesc, targetName]
+ *   redirectEntries:   [targetMethod, invokeDesc, index, call, handlerName, handlerDesc]
+ *   injectEntries:     [targetMethod, point, atDesc, atIndex,
+ *                       cancellable, returnable, handlerName, handlerDesc]
+ *   syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
+ * </pre>
+ * Scalar columns are encoded as {@code Integer.toString} / {@code Boolean.toString}. Enum
+ * columns ({@code call}, {@code point}) hold the unqualified enum constant name and are
+ * decoded via {@code Enum.valueOf}.
  */
 public final class MixinDescriptor {
 
@@ -165,9 +183,10 @@ public final class MixinDescriptor {
                 String targetDesc = targetDescriptorOf(method);
                 String handlerDesc = Type.getMethodDescriptor(method);
                 overwrites.add(new OverwriteEntry(ow.value(), targetDesc, method.getName(), handlerDesc));
+                String hash = sha1Hex16(targetDesc);
                 synths.put(ow.value() + targetDesc, new String[]{
-                    NameMangling.mangledOriginalName(ow.value(), targetDesc),
-                    NameMangling.dispatchName(ow.value(), targetDesc)
+                    "__original$" + ow.value() + "$" + hash,
+                    "__dispatch$" + ow.value() + "$" + hash
                 });
             }
             if (or != null) {
@@ -216,6 +235,19 @@ public final class MixinDescriptor {
             }
         }
         return new MixinDescriptor(mixinClass, targetInternal, overwrites, originals, redirects, injects, synths);
+    }
+
+    /** Inlined SHA-1/16-hex digest used only by the legacy {@link #fromAnnotations} path. */
+    private static String sha1Hex16(String input) {
+        try {
+            MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+            byte[] hash = sha1.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(16);
+            for (int i = 0; i < 8; i++) hex.append(String.format("%02x", hash[i]));
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static String targetDescriptorOf(Method mixinMethod) {

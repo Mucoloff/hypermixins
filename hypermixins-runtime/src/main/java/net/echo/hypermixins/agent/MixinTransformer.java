@@ -10,8 +10,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.reflect.Method;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.ProtectionDomain;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,6 +78,8 @@ public class MixinTransformer implements ClassFileTransformer {
         List<MethodNode> extraMethods = new ArrayList<>();
         Set<String> addedKeys = new HashSet<>();
 
+        Map<String, String[]> synthetics = mapping.descriptor().synthetics();
+
         for (MethodNode method : node.methods) {
             applyRedirects(method, redirectByDesc);
 
@@ -100,7 +100,12 @@ public class MixinTransformer implements ClassFileTransformer {
                     throw new IllegalStateException(
                         "Cannot @Overwrite static method: " + method.name + method.desc + " in " + node.name);
                 }
-                MethodNode[] copies = applyOverwrite(node, method, overwrite, mixinField);
+                String[] names = synthetics.get(key);
+                if (names == null) {
+                    throw new IllegalStateException(
+                        "Missing precomputed synthetic names for " + node.name + "#" + key);
+                }
+                MethodNode[] copies = applyOverwrite(node, method, overwrite, mixinField, names[0], names[1]);
                 for (MethodNode copy : copies) {
                     String copyKey = copy.name + copy.desc;
                     if (addedKeys.add(copyKey)) extraMethods.add(copy);
@@ -123,13 +128,13 @@ public class MixinTransformer implements ClassFileTransformer {
      * Returns both helpers; caller must add them to the class.
      */
     private MethodNode[] applyOverwrite(
-        ClassNode owner, MethodNode target, Method mixinMethod, String mixinFieldName
+        ClassNode owner, MethodNode target, Method mixinMethod, String mixinFieldName,
+        String mangledOriginalName, String dispName
     ) {
         // 1. Clone original body
-        MethodNode originalCopy = cloneAsOriginal(target);
+        MethodNode originalCopy = cloneAsOriginal(target, mangledOriginalName);
 
         // 2. Create __dispatch$xxx with mixin-calling body
-        String dispName = dispatchName(target.name, target.desc);
         int synthAcc = Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC;
         MethodNode dispatchCopy = new MethodNode(
             synthAcc, dispName, target.desc, target.signature,
@@ -208,7 +213,12 @@ public class MixinTransformer implements ClassFileTransformer {
 
             String mappedTarget  = mapping.getTargetClass().replace('.', '/');
             String targetName    = mapping.getOriginals().get(key);
-            String originalName  = mangledName(targetName, targetDesc);
+            String[] synths      = mapping.descriptor().synthetics().get(targetName + targetDesc);
+            if (synths == null) {
+                throw new IllegalStateException(
+                    "Missing precomputed synthetic names for @Original target " + targetName + targetDesc);
+            }
+            String originalName  = synths[0];
 
             InsnList insns = new InsnList();
             insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
@@ -455,36 +465,14 @@ public class MixinTransformer implements ClassFileTransformer {
 
     // ---- Helpers ----
 
-    private static MethodNode cloneAsOriginal(MethodNode original) {
+    private static MethodNode cloneAsOriginal(MethodNode original, String mangledName) {
         int acc = (original.access & Opcodes.ACC_STATIC) != 0
             ? (Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC)
             : (Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC);
-        MethodNode copy = new MethodNode(acc, mangledName(original.name, original.desc), original.desc,
+        MethodNode copy = new MethodNode(acc, mangledName, original.desc,
             original.signature, original.exceptions == null ? null : original.exceptions.toArray(new String[0]));
         original.accept(copy);
         return copy;
-    }
-
-    /** Mangled name for {@code __original$} copies: {@code __original$name$sha1_16hex(desc)}. */
-    public static String mangledName(String methodName, String descriptor) {
-        return "__original$" + methodName + "$" + sha1Hex16(descriptor);
-    }
-
-    /** Mangled name for {@code __dispatch$} copies. */
-    public static String dispatchName(String methodName, String descriptor) {
-        return "__dispatch$" + methodName + "$" + sha1Hex16(descriptor);
-    }
-
-    private static String sha1Hex16(String input) {
-        try {
-            MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
-            byte[] hash = sha1.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(16);
-            for (int i = 0; i < 8; i++) hex.append(String.format("%02x", hash[i]));
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     /** ClassWriter that resolves superclass via ClassLoader stream, avoiding Class.forName deadlocks. */

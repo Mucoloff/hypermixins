@@ -24,6 +24,11 @@ public class WorldMixin {
         LockSupport.parkNanos((long) (millis * 1e6));
     }
     
+    @Inject(method = "addPlayer", at = @At(point = At.Point.HEAD))
+    public void onAddPlayer(Object self) {
+        System.out.println("[hypermixins] addPlayer intercepted");
+    }
+
     @Original("getPlayers")
     public native List<Player> getPlayersOrig(Object self);
     

@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.JarURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
@@ -154,7 +155,7 @@ public final class MixinsConfig {
                         if (e.isDirectory() || !name.startsWith(entryPrefix)) continue;
                         String rel = name.substring(entryPrefix.length());
                         if (rel.indexOf('/') >= 0 || !rel.endsWith(".mixins.yml")) continue;
-                        result.add(new URL("jar:" + jc.getJarFileURL() + "!/" + name));
+                        result.add(URI.create("jar:" + jc.getJarFileURL() + "!/" + name).toURL());
                     }
                 }
             }

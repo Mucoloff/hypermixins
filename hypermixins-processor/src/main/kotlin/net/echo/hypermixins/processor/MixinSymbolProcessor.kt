@@ -8,6 +8,14 @@ import java.io.OutputStreamWriter
 import java.lang.reflect.Modifier as JMod
 import javax.lang.model.element.Modifier
 
+// Generated descriptor ABI (must match MixinDescriptor.java in the runtime module):
+//   overwriteEntries:  [targetName, targetDesc, handlerName, handlerDesc]
+//   originalEntries:   [handlerName, handlerDesc, targetName]
+//   redirectEntries:   [targetMethod, invokeDesc, index, call, handlerName, handlerDesc]
+//   injectEntries:     [targetMethod, point, atDesc, atIndex,
+//                       cancellable, returnable, handlerName, handlerDesc]
+//   syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
+
 private const val MIXIN_FQN       = "net.echo.hypermixins.annotations.Mixin"
 private const val OVERWRITE_FQN   = "net.echo.hypermixins.annotations.Overwrite"
 private const val ORIGINAL_FQN    = "net.echo.hypermixins.annotations.Original"

@@ -161,15 +161,21 @@ public final class HyperMixins {
                 "Cannot acquire private lookup for " + mapping.getTargetClass(), e);
         }
 
+        Map<String, String[]> synthetics = mapping.descriptor().synthetics();
         for (Map.Entry<String, java.lang.reflect.Method> entry : mapping.getOverwrites().entrySet()) {
             String targetMethodKey = entry.getKey(); // "methodName(params...)ret"
             int parenIdx = targetMethodKey.indexOf('(');
             String methodName = targetMethodKey.substring(0, parenIdx);
             String methodDesc = targetMethodKey.substring(parenIdx);
 
-            String key          = targetInternal + "#" + methodName + methodDesc;
-            String originalName = MixinTransformer.mangledName(methodName, methodDesc);
-            String dispatchName = MixinTransformer.dispatchName(methodName, methodDesc);
+            String key = targetInternal + "#" + methodName + methodDesc;
+            String[] names = synthetics.get(targetMethodKey);
+            if (names == null) {
+                throw new MixinRegistrationException(
+                    "Missing precomputed synthetic names for " + targetMethodKey, null);
+            }
+            String originalName = names[0];
+            String dispatchName = names[1];
 
             try {
                 MethodType methodType = MethodType.fromMethodDescriptorString(
