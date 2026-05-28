@@ -1,5 +1,6 @@
 package net.echo.hypermixins.agent;
 
+import net.echo.hypermixins.annotations.At;
 import net.echo.hypermixins.annotations.Call;
 import net.echo.hypermixins.registry.MixinRegistry;
 import org.objectweb.asm.*;
@@ -84,6 +85,12 @@ public class MixinTransformer implements ClassFileTransformer {
 
             if (method.name.equals("<init>")) {
                 patchConstructor(method, node, mapping, mixinField);
+            }
+
+            List<InjectMapping> injectsForMethod = mapping.getInjects().get(method.name);
+            if (injectsForMethod != null && !injectsForMethod.isEmpty()
+                && !method.name.equals("<init>") && !method.name.equals("<clinit>")) {
+                applyInjects(node, method, injectsForMethod, mixinField);
             }
 
             String key = method.name + method.desc;
@@ -251,6 +258,146 @@ public class MixinTransformer implements ClassFileTransformer {
         inject.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, mixinInternal, "<init>", "()V", false));
         inject.add(new FieldInsnNode(Opcodes.PUTFIELD, owner.name, mixinFieldName, mixinDesc));
         ctor.instructions.insert(superCall, inject);
+    }
+
+    // ---- Inject application (HEAD / RETURN / TAIL) ----
+
+    private static final String CB_INFO_INTERNAL = "net/echo/hypermixins/annotations/CallbackInfo";
+    private static final String CB_INFO_DESC     = "Lnet/echo/hypermixins/annotations/CallbackInfo;";
+    private static final String CB_RET_INTERNAL  = "net/echo/hypermixins/annotations/CallbackInfoReturnable";
+    private static final String CB_RET_DESC      = "Lnet/echo/hypermixins/annotations/CallbackInfoReturnable;";
+
+    private static void applyInjects(
+        ClassNode owner, MethodNode target, List<InjectMapping> injects, String mixinField
+    ) {
+        if ((target.access & Opcodes.ACC_ABSTRACT) != 0) return;
+        Type targetReturn = Type.getReturnType(target.desc);
+
+        for (InjectMapping inject : injects) {
+            switch (inject.point()) {
+                case HEAD -> {
+                    AbstractInsnNode first = target.instructions.getFirst();
+                    InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn);
+                    if (first == null) target.instructions.add(block);
+                    else target.instructions.insertBefore(first, block);
+                }
+                case TAIL -> {
+                    // For TAIL we inject before every return — equivalent to RETURN when targets have explicit returns.
+                    injectBeforeReturns(owner, target, inject, mixinField, targetReturn);
+                }
+                case RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn);
+                default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
+            }
+        }
+    }
+
+    private static void injectBeforeReturns(
+        ClassNode owner, MethodNode target, InjectMapping inject, String mixinField, Type targetReturn
+    ) {
+        List<AbstractInsnNode> returns = new ArrayList<>();
+        for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            int op = insn.getOpcode();
+            if (op >= Opcodes.IRETURN && op <= Opcodes.RETURN) returns.add(insn);
+        }
+        for (AbstractInsnNode ret : returns) {
+            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn);
+            target.instructions.insertBefore(ret, block);
+        }
+    }
+
+    /**
+     * Emits bytecode that:
+     * 1. allocates a CallbackInfo / CallbackInfoReturnable (when cancellable) and stores it in a fresh local,
+     * 2. invokes the mixin handler (this.mixinField, self=this, [...captures...], [ci]),
+     * 3. if cancellable: checks isCancelled() → if true, returns (with override value for returnable).
+     */
+    private static InsnList emitInjectCall(
+        ClassNode owner, MethodNode target, InjectMapping inject,
+        String mixinField, Type targetReturn
+    ) {
+        InsnList out = new InsnList();
+        Class<?> mixinClass = inject.handler().getDeclaringClass();
+        String mixinInternal = Type.getInternalName(mixinClass);
+        String mixinDesc     = Type.getDescriptor(mixinClass);
+        String handlerDesc   = Type.getMethodDescriptor(inject.handler());
+
+        int ciLocal = -1;
+        if (inject.cancellable()) {
+            // Allocate CallbackInfo[Returnable] via static `of(String)` factory; store in fresh local.
+            ciLocal = target.maxLocals;
+            target.maxLocals += 1;
+            out.add(new LdcInsnNode(inject.targetMethod()));
+            if (inject.returnable()) {
+                out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CB_RET_INTERNAL, "of",
+                    "(Ljava/lang/String;)L" + CB_RET_INTERNAL + ";", false));
+            } else {
+                out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CB_INFO_INTERNAL, "of",
+                    "(Ljava/lang/String;)L" + CB_INFO_INTERNAL + ";", false));
+            }
+            out.add(new VarInsnNode(Opcodes.ASTORE, ciLocal));
+        }
+
+        // this.mixinField — the mixin instance
+        out.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        out.add(new FieldInsnNode(Opcodes.GETFIELD, owner.name, mixinField, mixinDesc));
+        // self
+        out.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        // (out-of-scope: captures of original args) — handler signature is (Object self, [CallbackInfo*])
+        if (inject.cancellable()) {
+            out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
+        }
+        out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mixinInternal,
+            inject.handler().getName(), handlerDesc, false));
+
+        if (inject.cancellable()) {
+            LabelNode notCancelled = new LabelNode();
+            out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
+            String cancelOwner = inject.returnable() ? CB_RET_INTERNAL : CB_INFO_INTERNAL;
+            out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, cancelOwner, "isCancelled", "()Z", false));
+            out.add(new JumpInsnNode(Opcodes.IFEQ, notCancelled));
+            // Cancelled: emit return matching target return type.
+            if (inject.returnable()) {
+                // Load override value, unbox/cast.
+                out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, CB_RET_INTERNAL, "getReturnValue",
+                    "()Ljava/lang/Object;", false));
+                unboxOrCast(out, targetReturn);
+                out.add(new InsnNode(targetReturn.getOpcode(Opcodes.IRETURN)));
+            } else {
+                // Void cancel — must be void target; emit RETURN.
+                if (targetReturn.getSort() != Type.VOID) {
+                    throw new IllegalStateException(
+                        "@Inject(cancellable=true) with CallbackInfo on non-void target " +
+                        target.name + target.desc + " — use CallbackInfoReturnable");
+                }
+                out.add(new InsnNode(Opcodes.RETURN));
+            }
+            out.add(notCancelled);
+        }
+        return out;
+    }
+
+    private static void unboxOrCast(InsnList out, Type target) {
+        switch (target.getSort()) {
+            case Type.BOOLEAN -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Boolean"));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false)); }
+            case Type.BYTE    -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Byte"));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Byte", "byteValue", "()B", false)); }
+            case Type.CHAR    -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Character"));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Character", "charValue", "()C", false)); }
+            case Type.SHORT   -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Short"));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Short", "shortValue", "()S", false)); }
+            case Type.INT     -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Integer"));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false)); }
+            case Type.LONG    -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Long"));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Long", "longValue", "()J", false)); }
+            case Type.FLOAT   -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Float"));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Float", "floatValue", "()F", false)); }
+            case Type.DOUBLE  -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Double"));
+                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false)); }
+            case Type.OBJECT, Type.ARRAY -> out.add(new TypeInsnNode(Opcodes.CHECKCAST, target.getInternalName()));
+            default -> {} // VOID — nothing
+        }
     }
 
     // ---- Redirect application (direct injection, no INVOKEDYNAMIC for now) ----

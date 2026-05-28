@@ -171,7 +171,7 @@ class MixinSymbolProcessor(
             )
         }
         val index = (atAnn?.arg("index") as? Int) ?: 0
-        val call  = (atAnn?.arg("call") as? KSType)?.declaration?.simpleName?.asString() ?: "INVOKEVIRTUAL"
+        val call  = readEnumArg(atAnn?.arg("call"), "INVOKEVIRTUAL")
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
     }
 
@@ -194,7 +194,7 @@ class MixinSymbolProcessor(
             }
         }
         val atAnn = fn.findAnnotation("net.echo.hypermixins.annotations.At")
-        val point = (atAnn?.arg("point") as? KSType)?.declaration?.simpleName?.asString() ?: "HEAD"
+        val point = readEnumArg(atAnn?.arg("point"), "HEAD")
         val atDesc = (atAnn?.arg("desc") as? String) ?: ""
         val atIndex = (atAnn?.arg("index") as? Int) ?: 0
         out += InjectEntry(method, point, atDesc, atIndex, cancellable, fn.simpleName.asString(), descriptor(fn))
@@ -235,6 +235,11 @@ class MixinSymbolProcessor(
             "kotlin.Double",  "java.lang.Double",   "double" -> "D"
             "kotlin.Any",     "java.lang.Object"            -> "Ljava/lang/Object;"
             "kotlin.String",  "java.lang.String"            -> "Ljava/lang/String;"
+            "java.util.List", "kotlin.collections.List", "kotlin.collections.MutableList" -> "Ljava/util/List;"
+            "java.util.Map",  "kotlin.collections.Map",  "kotlin.collections.MutableMap"  -> "Ljava/util/Map;"
+            "java.util.Set",  "kotlin.collections.Set",  "kotlin.collections.MutableSet"  -> "Ljava/util/Set;"
+            "java.util.Collection", "kotlin.collections.Collection", "kotlin.collections.MutableCollection" -> "Ljava/util/Collection;"
+            "java.lang.Iterable", "kotlin.collections.Iterable" -> "Ljava/lang/Iterable;"
             else -> {
                 if (decl is KSClassDeclaration && decl.classKind == ClassKind.ENUM_CLASS)
                     "L${fqn.replace('.', '/')};"
@@ -316,6 +321,15 @@ class MixinSymbolProcessor(
 
     private fun KSAnnotation.arg(name: String): Any? =
         arguments.firstOrNull { it.name?.asString() == name }?.value
+
+    private fun readEnumArg(value: Any?, default: String): String = when (value) {
+        null -> default
+        is String -> value
+        is KSType -> value.declaration.simpleName.asString()
+        is KSClassDeclaration -> value.simpleName.asString()
+        is KSDeclaration -> value.simpleName.asString()
+        else -> value.toString().substringAfterLast('.').ifBlank { default }
+    }
 
     // ---- Internal records ----
 

@@ -3,13 +3,16 @@ package net.echo.hypermixins;
 import net.echo.hypermixins.agent.MixinMapping;
 import net.echo.hypermixins.agent.MixinTransformer;
 import net.echo.hypermixins.api.MixinHandle;
+import net.echo.hypermixins.config.MixinsConfig;
 import net.echo.hypermixins.registry.MixinRegistry;
 
+import java.io.IOException;
 import java.lang.instrument.Instrumentation;
 import java.lang.instrument.UnmodifiableClassException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +73,61 @@ public final class HyperMixins {
     public static MixinHandle register(Instrumentation inst, Class<?>... mixinClasses)
         throws MixinRegistrationException {
         return register(inst, mixinClasses, new Class<?>[0]);
+    }
+
+    /**
+     * Loads a {@code .mixins.yml} from {@code configUrl} and registers every mixin class listed.
+     *
+     * @param inst    agent instrumentation
+     * @param config  parsed mixin manifest
+     * @param loader  ClassLoader used to resolve mixin class names
+     */
+    public static MixinHandle registerFromConfig(
+        Instrumentation inst, MixinsConfig config, ClassLoader loader
+    ) throws MixinRegistrationException {
+        ClassLoader cl = loader != null ? loader : Thread.currentThread().getContextClassLoader();
+        if (cl == null) cl = ClassLoader.getSystemClassLoader();
+        Class<?>[] mixinClasses = new Class<?>[config.mixinClassNames().size()];
+        for (int i = 0; i < mixinClasses.length; i++) {
+            String name = config.mixinClassNames().get(i);
+            try {
+                mixinClasses[i] = Class.forName(name, false, cl);
+            } catch (ClassNotFoundException e) {
+                throw new MixinRegistrationException("Mixin class not found: " + name, e);
+            }
+        }
+        return register(inst, mixinClasses);
+    }
+
+    /** Overload: parse YAML from {@code configUrl} and register. */
+    public static MixinHandle registerFromYaml(
+        Instrumentation inst, URL configUrl, ClassLoader loader
+    ) throws MixinRegistrationException {
+        try {
+            return registerFromConfig(inst, MixinsConfig.fromUrl(configUrl), loader);
+        } catch (IOException e) {
+            throw new MixinRegistrationException("Failed to read mixin config: " + configUrl, e);
+        }
+    }
+
+    /**
+     * Discovers every {@code mixins.yml} / {@code .mixins.yml} on the classpath of {@code loader}
+     * and registers all listed mixin classes. Returns the list of handles, one per discovered config.
+     */
+    public static List<MixinHandle> registerFromClasspath(
+        Instrumentation inst, ClassLoader loader
+    ) throws MixinRegistrationException {
+        List<MixinsConfig> configs;
+        try {
+            configs = MixinsConfig.discoverAll(loader);
+        } catch (IOException e) {
+            throw new MixinRegistrationException("Failed to discover mixins.yml resources", e);
+        }
+        List<MixinHandle> handles = new ArrayList<>(configs.size());
+        for (MixinsConfig config : configs) {
+            handles.add(registerFromConfig(inst, config, loader));
+        }
+        return handles;
     }
 
     /**

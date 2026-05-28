@@ -14,6 +14,7 @@ public class MixinMapping {
     private final Map<String, Method> overwrites;
     private final Map<String, String> originals;
     private final List<RedirectMapping> redirects;
+    private final Map<String, List<InjectMapping>> injects;
 
     public MixinMapping(Class<?> mixinClass) {
         this.mixinClass = mixinClass;
@@ -26,6 +27,7 @@ public class MixinMapping {
         this.overwrites = new HashMap<>();
         this.originals = new HashMap<>();
         this.redirects = new ArrayList<>();
+        this.injects = new HashMap<>();
 
         for (Method method : mixinClass.getDeclaredMethods()) {
             if (method.isAnnotationPresent(Original.class)) {
@@ -34,6 +36,8 @@ public class MixinMapping {
                 handleOverwrite(method, mixin);
             } else if (method.isAnnotationPresent(Redirect.class)) {
                 handleRedirect(method);
+            } else if (method.isAnnotationPresent(Inject.class)) {
+                handleInject(method);
             }
         }
     }
@@ -43,6 +47,7 @@ public class MixinMapping {
     public Map<String, Method> getOverwrites() { return Collections.unmodifiableMap(overwrites); }
     public Map<String, String> getOriginals() { return Collections.unmodifiableMap(originals); }
     public List<RedirectMapping> getRedirects() { return Collections.unmodifiableList(redirects); }
+    public Map<String, List<InjectMapping>> getInjects() { return Collections.unmodifiableMap(injects); }
 
     private void handleOriginal(Method method) {
         Original original = method.getAnnotation(Original.class);
@@ -120,6 +125,38 @@ public class MixinMapping {
         }
 
         redirects.add(new RedirectMapping(redirect.method(), at.desc(), at.index(), at.call(), method));
+    }
+
+    private void handleInject(Method method) {
+        Inject inject = method.getAnnotation(Inject.class);
+        if (inject.method().isEmpty()) {
+            throw new IllegalArgumentException("@Inject#method() is empty on " + method);
+        }
+        if (Modifier.isStatic(method.getModifiers())) {
+            throw new IllegalArgumentException("@Inject method must be non-static: " + method);
+        }
+        Class<?>[] params = method.getParameterTypes();
+        if (params.length == 0 || params[0] != Object.class) {
+            throw new IllegalArgumentException("@Inject first parameter must be Object self on " + method);
+        }
+        boolean cancellable = inject.cancellable() || method.isAnnotationPresent(Cancellable.class);
+        boolean returnable = false;
+        if (cancellable) {
+            Class<?> last = params[params.length - 1];
+            if (last != CallbackInfo.class && last != CallbackInfoReturnable.class) {
+                throw new IllegalArgumentException(
+                    "@Inject with cancellable=true requires CallbackInfo or CallbackInfoReturnable as last param on " + method);
+            }
+            returnable = (last == CallbackInfoReturnable.class);
+        }
+        At at = inject.at();
+        At.Point point = at.point();
+        if (point != At.Point.HEAD && point != At.Point.RETURN && point != At.Point.TAIL) {
+            throw new IllegalArgumentException("@Inject point " + point + " not supported yet (use HEAD/RETURN/TAIL): " + method);
+        }
+        InjectMapping mapping = new InjectMapping(
+            inject.method(), point, at.index(), at.desc(), cancellable, returnable, method);
+        injects.computeIfAbsent(inject.method(), k -> new ArrayList<>()).add(mapping);
     }
 
     /** Descriptor for the target method derived from a mixin @Overwrite handler (drops first Object self param). */

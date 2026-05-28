@@ -32,11 +32,11 @@ public final class MixinRegistry {
      */
     public static CallSite bootstrap(MethodHandles.Lookup lookup, String name, MethodType type, String key) {
         MutableCallSite cs = SITES.computeIfAbsent(key, k -> new MutableCallSite(type));
-        if (cs.getTarget() == null) {
+        if (!MIXINS.containsKey(key) && !ORIGINALS.containsKey(key)) {
             tryLazyInstall(lookup, type, key);
-            MethodHandle initial = MIXINS.getOrDefault(key, ORIGINALS.get(key));
-            if (initial != null) cs.setTarget(initial.asType(type));
         }
+        MethodHandle initial = MIXINS.getOrDefault(key, ORIGINALS.get(key));
+        if (initial != null) cs.setTarget(initial.asType(type));
         return cs;
     }
 
@@ -81,6 +81,16 @@ public final class MixinRegistry {
         MutableCallSite cs = SITES.get(key);
         MethodHandle mixin = MIXINS.get(key);
         return cs != null && mixin != null && cs.getTarget().equals(mixin.asType(cs.type()));
+    }
+
+    /**
+     * Clears all registry state. Visible for tests only — production code must never call this.
+     */
+    public static void clearForTests() {
+        SITES.clear();
+        ORIGINALS.clear();
+        MIXINS.clear();
+        PENDING.clear();
     }
 
     private static void tryLazyInstall(MethodHandles.Lookup lookup, MethodType callSiteType, String key) {
