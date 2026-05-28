@@ -31,3 +31,17 @@ tasks.shadowJar {
         )
     }
 }
+
+val exampleJarTask = rootProject.project(":hypermixins-example").tasks.named("jar")
+
+tasks.test {
+    dependsOn(tasks.shadowJar, exampleJarTask)
+    systemProperty("hypermixins.agent.jar",
+        tasks.shadowJar.flatMap { it.archiveFile }.get().asFile.absolutePath)
+    systemProperty("hypermixins.example.jar",
+        exampleJarTask.get().outputs.files.singleFile.absolutePath)
+    systemProperty("hypermixins.testworld.jar",
+        "${rootProject.projectDir}/hypermixins-example/run/test-world-1.0.jar")
+    systemProperty("hypermixins.java.home",
+        System.getProperty("java.home"))
+}
