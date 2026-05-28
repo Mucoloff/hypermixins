@@ -1,62 +1,124 @@
 # HyperMixins — Continuation Context
 
-## What's done
-- `hypermixins-annotations`: complete (29 annotations, pure Java, zero deps)
-- `hypermixins-processor`: KSP processor, generates `$$Descriptor` Java source + `META-INF/hypermixins/index.txt`
-- `hypermixins-runtime`: INVOKEDYNAMIC dispatch via `MixinRegistry` + `MutableCallSite`, `MixinHandle` enable/disable
-- `hypermixins-example`: compiles, KSP generates `WorldMixin$$Descriptor.java`
-- `hypermixins-intellij-plugin`: F1-F4 implemented (gutter nav, inspections, completion)
+## Architecture
 
-## Known issues to fix
-
-### 1. Descriptor: Java collection types mapped to Kotlin internal types
-`WorldMixin$$Descriptor.java` `overwriteEntries` shows `()Lkotlin/collections/MutableList;` — wrong.
-Fix `toJvmDesc()` in `hypermixins-processor/src/main/kotlin/net/echo/hypermixins/processor/MixinSymbolProcessor.kt`:
-add cases before the `else`:
-```kotlin
-"java.util.List", "kotlin.collections.List", "kotlin.collections.MutableList" -> "Ljava/util/List;"
-"java.util.Map",  "kotlin.collections.Map",  "kotlin.collections.MutableMap"  -> "Ljava/util/Map;"
-"java.util.Set",  "kotlin.collections.Set",  "kotlin.collections.MutableSet"  -> "Ljava/util/Set;"
-"java.util.Collection", "kotlin.collections.Collection", "kotlin.collections.MutableCollection" -> "Ljava/util/Collection;"
+```
+KSP processor (compile time)              Runtime
+─────────────────────────────             ─────────────────────────────────
+@Mixin/@Overwrite/@Original/...    ──►    MixinDescriptor.load(Class)
+   │                                      ▲
+   ├─►  <MixinFQN>$$Descriptor.java       │ (no annotation reflection)
+   │      mixinClass()                    │
+   │      targetClass()                   │
+   │      overwriteEntries()              │
+   │      originalEntries()               │
+   │      redirectEntries()               │
+   │      injectEntries()                 │
+   │      syntheticNames()      ──────────┘
+   │
+   └─►  META-INF/hypermixins/<pkg>.mixins.yml
+              │
+              ▼
+        MixinsConfig.discoverAll(loader)
+              │
+              ▼
+        HyperMixins.registerFromClasspath
+              │
+              ▼
+        MixinTransformer  ──►  ASM rewrite (INVOKEDYNAMIC)
+              │
+              ▼
+        MixinRegistry (MutableCallSite per key)
+              │
+              ▼
+        MixinHandle (enable / disable / unregister)
 ```
 
-### 2. Descriptor: `Call` enum arg reads as `INVOKEVIRTUAL` (wrong default)
-`redirectEntries` shows `"INVOKEVIRTUAL"` but `WorldMixin.java` declares `call = Call.INVOKESTATIC`.
-In `validateAndCollectRedirect` (same file, line ~174):
-```kotlin
-val call = (atAnn?.arg("call") as? KSType)?.declaration?.simpleName?.asString() ?: "INVOKEVIRTUAL"
+## Conventions
+
+### Generated descriptor ABI
+Column layout is locked between processor and runtime; changing it requires
+updating both `MixinSymbolProcessor.kt` and `MixinDescriptor.java` in lock-step.
+
 ```
-The `KSType` cast may be wrong for Java enum annotation args — KSP might return the value as `KSClassDeclaration` or the enum entry name differently.
-Try: check if `atAnn?.arg("call")` is a `KSType` and trace what it actually returns. May need:
-```kotlin
-val callVal = atAnn?.arg("call")
-val call = when (callVal) {
-    is KSType -> callVal.declaration.simpleName.asString()
-    is String -> callVal
-    else -> "INVOKEVIRTUAL"
-}
+overwriteEntries:  [targetName, targetDesc, handlerName, handlerDesc]
+originalEntries:   [handlerName, handlerDesc, targetName]
+redirectEntries:   [targetMethod, invokeDesc, index, call, handlerName, handlerDesc]
+injectEntries:     [targetMethod, point, atDesc, atIndex,
+                    cancellable, returnable, handlerName, handlerDesc]
+syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
 ```
 
-## Next tasks (in order)
-1. Fix `toJvmDesc` for Java collection types (5 min)
-2. Fix `Call` enum arg reading in `validateAndCollectRedirect` (10 min, may need debug print)
-3. `rm -rf hypermixins-example/build/generated/ksp && ./gradlew :hypermixins-example:jar` — verify clean descriptor
-4. Write runtime tests: INVOKEDYNAMIC swap, disable/enable, `__original$` fallback  
-   Tests live in `hypermixins-api/src/test/` — see existing `MixinTransformerTest`
-5. `@Inject` transformer support (HEAD/RETURN/TAIL injection in `MixinTransformer.java`)
-6. `.mixins.yml` registration support — auto-register mixin classes from YAML without calling `HyperMixins.register()` programmatically
+### `.mixins.yml` layout (sponge-style)
+Each module emits one YAML per package under
+`META-INF/hypermixins/<package-with-dashes>.mixins.yml`. Runtime
+`MixinsConfig.discoverAll` scans every `*.mixins.yml` under that directory across
+all classpath roots (file + jar), plus the legacy root-level `mixins.yml` /
+`.mixins.yml`.
 
-## Build commands
+### Hot-reload primitives
+- `MixinRegistry.uninstall(key)` — steer call-site back to original, forget mixin.
+- `MixinRegistry.reinstall(key, MethodHandle)` — atomic swap to a fresh handler.
+- `MixinHandle.unregister()` — full cleanup: uninstall all keys + removeTransformer.
+
+A high-level `MixinHandle.reload(Instrumentation, Class<?>)` is **not** shipped:
+swapping to a different mixin Class<?> would require retransforming targets whose
+`__mixin$X` field is typed against the old class. Use `uninstall` + a fresh
+`register` for that scenario, or redefine the existing class's bytecode in place
+(virtual dispatch picks up the new code automatically — no reinstall needed).
+
+## Modules
+
+| Module | Purpose |
+|---|---|
+| `hypermixins-annotations` | `@Mixin`, `@Overwrite`, `@Original`, `@Redirect`, `@Inject`, `@At`, `CallbackInfo[Returnable]` |
+| `hypermixins-processor` | KSP processor: emits `$$Descriptor` + `META-INF/hypermixins/*.mixins.yml` |
+| `hypermixins-runtime` | `MixinDescriptor`, `MixinTransformer`, `MixinRegistry`, `MixinHandle`, `HyperMixins`, `MixinsConfig` |
+| `hypermixins-example` | `WorldMixin` + `MixinDescriptorDemo` smoke main |
+| `hypermixins-intellij-plugin` | F1-F4 (gutter, inspections, completion). Needs IntelliJ IDEA installed locally to build |
+
+The legacy `hypermixins-api` module is removed — runtime is the single source of truth.
+
+## Build
+
 ```bash
-./gradlew :hypermixins-example:jar           # builds example + runs KSP
-./gradlew :hypermixins-runtime:test          # runtime tests
-./gradlew :hypermixins-processor:test        # processor tests
-./gradlew :hypermixins-intellij-plugin:buildPlugin  # plugin zip
+export JAVA_HOME=/home/sweety/.local/jdks/jdk-25.0.3+9   # KSP needs the JDK that built the processor
+./gradlew :hypermixins-runtime:test                       # 20 tests: dispatch, inject, reload, YAML
+./gradlew :hypermixins-example:jar                        # KSP + descriptor + YAML
+./gradlew :hypermixins-processor:jar                      # processor only
+./gradlew :hypermixins-intellij-plugin:buildPlugin        # needs IDEA install at the path in build.gradle.kts
 ```
+
+Smoke (no agent):
+```bash
+java -cp \
+  hypermixins-example/build/libs/hypermixins-example-1.2.jar:\
+hypermixins-runtime/build/libs/hypermixins-runtime-1.2.jar:\
+hypermixins-annotations/build/libs/hypermixins-annotations-1.2.jar:\
+hypermixins-example/run/test-world-1.0.jar \
+  net.echo.tests.MixinDescriptorDemo
+```
+
+## Backlog
+
+### Medium
+- True `MixinHandle.reload(Instrumentation, Class<?>)` — see hot-reload note above.
+- Processor unit tests via `dev.zacsweers.kctfork:core` (kotlin-compile-testing
+  KSP fork): cover descriptor shape + YAML emission + validation paths.
+
+### Bigger
+- `@At.Point.INVOKE / FIELD / CONSTANT / JUMP` support for `@Inject`.
+- `@Inject` local-capture: forward target locals beyond `Object self` + `CallbackInfo*`.
+- Standalone `hypermixins-agent` shadow jar with `Premain-Class` calling
+  `HyperMixins.registerFromClasspath(inst)` — drop-in `-javaagent:` for users.
 
 ## Key files
-- Processor: `hypermixins-processor/src/main/kotlin/net/echo/hypermixins/processor/MixinSymbolProcessor.kt`
-- Transformer: `hypermixins-runtime/src/main/java/net/echo/hypermixins/agent/MixinTransformer.java`
-- Registry: `hypermixins-runtime/src/main/java/net/echo/hypermixins/registry/MixinRegistry.java`
+
+- Processor: `hypermixins-processor/src/main/kotlin/.../MixinSymbolProcessor.kt`
+- Descriptor loader: `hypermixins-runtime/src/main/java/.../agent/MixinDescriptor.java`
+- Transformer: `hypermixins-runtime/src/main/java/.../agent/MixinTransformer.java`
+- Registry: `hypermixins-runtime/src/main/java/.../registry/MixinRegistry.java`
+- YAML loader: `hypermixins-runtime/src/main/java/.../config/MixinsConfig.java`
 - Example mixin: `hypermixins-example/src/main/java/net/echo/tests/WorldMixin.java`
+- Smoke main: `hypermixins-example/src/main/java/net/echo/tests/MixinDescriptorDemo.java`
 - Style guide: `style.md`
