@@ -1,6 +1,6 @@
 package net.echo.tests;
 
-import net.echo.hypermixins.api.*;
+import net.echo.hypermixins.annotations.*;
 import net.echo.testworld.Player;
 
 import java.util.ArrayList;
@@ -17,6 +17,7 @@ public class WorldMixin {
         at = @At(
             desc = "java/lang/Thread.sleep(J)V",
             index = 1 // takes the second Thread.sleep
+                ,call = Call.INVOKESTATIC
         )
     )
     public static void sleepOverridden(long millis) {
