@@ -103,8 +103,12 @@ hypermixins-example/run/test-world-1.0.jar \
 
 ### Medium
 - True `MixinHandle.reload(Instrumentation, Class<?>)` — see hot-reload note above.
-- Processor unit tests via `dev.zacsweers.kctfork:core` (kotlin-compile-testing
-  KSP fork): cover descriptor shape + YAML emission + validation paths.
+- Processor unit tests — first attempt with `dev.zacsweers.kctfork:core:0.7.1`
+  failed: opt-in markers for `KotlinCompilation` / `JvmCompilationResult` do not
+  propagate against Kotlin 2.3.20 (every member read flagged "experimental"
+  despite `@file:OptIn` + `compilerOptions.optIn`). Retry with a kctfork version
+  built against Kotlin 2.3, or wait for the canonical
+  `com.squareup.tools.testing:compile-testing` KSP support.
 
 ### Bigger
 - `@At.Point.INVOKE / FIELD / CONSTANT / JUMP` support for `@Inject`.
