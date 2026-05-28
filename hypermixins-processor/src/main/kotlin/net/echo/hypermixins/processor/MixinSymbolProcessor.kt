@@ -1,0 +1,326 @@
+package net.echo.hypermixins.processor
+
+import com.google.devtools.ksp.processing.*
+import com.google.devtools.ksp.symbol.*
+import com.google.devtools.ksp.validate
+import com.squareup.javapoet.*
+import java.io.OutputStreamWriter
+import java.lang.reflect.Modifier as JMod
+import javax.lang.model.element.Modifier
+
+private const val MIXIN_FQN       = "net.echo.hypermixins.annotations.Mixin"
+private const val OVERWRITE_FQN   = "net.echo.hypermixins.annotations.Overwrite"
+private const val ORIGINAL_FQN    = "net.echo.hypermixins.annotations.Original"
+private const val REDIRECT_FQN    = "net.echo.hypermixins.annotations.Redirect"
+private const val INJECT_FQN      = "net.echo.hypermixins.annotations.Inject"
+private const val CANCELLABLE_FQN = "net.echo.hypermixins.annotations.Cancellable"
+
+class MixinSymbolProcessor(
+    private val codeGenerator: CodeGenerator,
+    private val logger: KSPLogger,
+) : SymbolProcessor {
+
+    private val generatedDescriptors = mutableListOf<String>()
+    private var indexWritten = false
+
+    override fun process(resolver: Resolver): List<KSAnnotated> {
+        val symbols = resolver.getSymbolsWithAnnotation(MIXIN_FQN)
+        val deferred = symbols.filter { !it.validate() }.toList()
+
+        symbols
+            .filterIsInstance<KSClassDeclaration>()
+            .filter { it.validate() }
+            .forEach { processMixin(it) }
+
+        return deferred
+    }
+
+    override fun finish() {
+        if (generatedDescriptors.isNotEmpty() && !indexWritten) {
+            indexWritten = true
+            val out = codeGenerator.createNewFile(
+                Dependencies(false),
+                "",
+                "META-INF/hypermixins/index",
+                "txt"
+            )
+            OutputStreamWriter(out).use { w ->
+                generatedDescriptors.forEach { w.write("$it\n") }
+            }
+        }
+    }
+
+    // ---- Main processing ----
+
+    private fun processMixin(cls: KSClassDeclaration) {
+        val mixinAnn = cls.findAnnotation(MIXIN_FQN) ?: return
+        val targetClass = mixinAnn.arg("value") as? String ?: run {
+            logger.error("@Mixin#value() must not be empty", cls)
+            return
+        }
+        if (targetClass.isBlank()) {
+            logger.error("@Mixin#value() must not be empty", cls)
+            return
+        }
+
+        val hasNoArgCtor = cls.primaryConstructor?.parameters?.isEmpty() == true
+                || cls.declarations.filterIsInstance<KSFunctionDeclaration>()
+                    .filter { it.simpleName.asString() == "<init>" }
+                    .any { it.parameters.isEmpty() }
+        if (!hasNoArgCtor) {
+            logger.error("@Mixin class must declare a public no-arg constructor ()V: ${cls.qualifiedName?.asString()}", cls)
+            return
+        }
+
+        val overwrites = mutableListOf<OverwriteEntry>()
+        val originals  = mutableListOf<OriginalEntry>()
+        val redirects  = mutableListOf<RedirectEntry>()
+        val injects    = mutableListOf<InjectEntry>()
+
+        cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
+            when {
+                fn.hasAnnotation(OVERWRITE_FQN)  -> validateAndCollectOverwrite(fn, targetClass, overwrites)
+                fn.hasAnnotation(ORIGINAL_FQN)   -> validateAndCollectOriginal(fn, originals)
+                fn.hasAnnotation(REDIRECT_FQN)   -> validateAndCollectRedirect(fn, redirects)
+                fn.hasAnnotation(INJECT_FQN)     -> validateAndCollectInject(fn, injects)
+            }
+        }
+
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects)
+    }
+
+    // ---- Validation + collection ----
+
+    private fun validateAndCollectOverwrite(
+        fn: KSFunctionDeclaration, targetClass: String, out: MutableList<OverwriteEntry>
+    ) {
+        if (Modifier.STATIC in fn.modifiers()) {
+            logger.error("@Overwrite method must not be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val ann = fn.findAnnotation(OVERWRITE_FQN)!!
+        val targetName = ann.arg("value") as? String ?: run {
+            logger.error("@Overwrite#value() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (targetName.isBlank()) {
+            logger.error("@Overwrite#value() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val params = fn.parameters
+        if (params.isEmpty()) {
+            logger.error("@Overwrite method must have 'Object self' as first parameter: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val firstType = params[0].type.resolve().declaration.qualifiedName?.asString()
+        if (firstType != "kotlin.Any" && firstType != "java.lang.Object") {
+            logger.error("@Overwrite first parameter must be Object/Any (found $firstType): ${fn.simpleName.asString()}", fn)
+            return
+        }
+        params.forEach { p ->
+            if (p.type.resolve().declaration.qualifiedName?.asString() == targetClass) {
+                logger.error("@Overwrite parameters must not reference target class $targetClass directly; use Object self", fn)
+                return
+            }
+        }
+        val targetDesc = buildTargetDescriptor(fn)
+        out += OverwriteEntry(targetName, targetDesc, fn.simpleName.asString(), descriptor(fn))
+    }
+
+    private fun validateAndCollectOriginal(fn: KSFunctionDeclaration, out: MutableList<OriginalEntry>) {
+        val ann = fn.findAnnotation(ORIGINAL_FQN)!!
+        val targetName = ann.arg("value") as? String ?: ""
+        if (targetName.isBlank()) {
+            logger.error("@Original#value() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (fn.parameters.isEmpty()) {
+            logger.error("@Original method must have at least 'Object self' as first parameter: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        out += OriginalEntry(fn.simpleName.asString(), descriptor(fn), targetName)
+    }
+
+    private fun validateAndCollectRedirect(fn: KSFunctionDeclaration, out: MutableList<RedirectEntry>) {
+        if (Modifier.STATIC !in fn.modifiers()) {
+            logger.error("@Redirect method must be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val ann = fn.findAnnotation(REDIRECT_FQN)!!
+        val method = ann.arg("method") as? String ?: ""
+        if (method.isBlank()) {
+            logger.error("@Redirect#method() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val atAnn = ann.arg("at") as? KSAnnotation
+        val desc  = atAnn?.arg("desc") as? String ?: ""
+        if (desc.isBlank()) {
+            logger.error("@At#desc() must not be empty on @Redirect ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val parenIdx = desc.indexOf('(')
+        if (parenIdx < 0) {
+            logger.error("@At#desc() missing '(' in @Redirect on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val invokeSignature = desc.substring(parenIdx)
+        val handlerDesc = descriptor(fn)
+        if (handlerDesc != invokeSignature) {
+            logger.error(
+                "@Redirect handler signature mismatch on ${fn.simpleName.asString()}: expected $invokeSignature found $handlerDesc", fn
+            )
+        }
+        val index = (atAnn?.arg("index") as? Int) ?: 0
+        val call  = (atAnn?.arg("call") as? KSType)?.declaration?.simpleName?.asString() ?: "INVOKEVIRTUAL"
+        out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    private fun validateAndCollectInject(fn: KSFunctionDeclaration, out: MutableList<InjectEntry>) {
+        val ann = fn.findAnnotation(INJECT_FQN)!!
+        val method = ann.arg("method") as? String ?: ""
+        if (method.isBlank()) {
+            logger.error("@Inject#method() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val cancellable = (ann.arg("cancellable") as? Boolean) == true
+                || fn.hasAnnotation(CANCELLABLE_FQN)
+        if (cancellable) {
+            val hasCallback = fn.parameters.any { p ->
+                val fqn = p.type.resolve().declaration.qualifiedName?.asString() ?: ""
+                "CallbackInfo" in fqn
+            }
+            if (!hasCallback) {
+                logger.error("@Inject with cancellable=true requires a CallbackInfo parameter: ${fn.simpleName.asString()}", fn)
+            }
+        }
+        val atAnn = fn.findAnnotation("net.echo.hypermixins.annotations.At")
+        val point = (atAnn?.arg("point") as? KSType)?.declaration?.simpleName?.asString() ?: "HEAD"
+        val atDesc = (atAnn?.arg("desc") as? String) ?: ""
+        val atIndex = (atAnn?.arg("index") as? Int) ?: 0
+        out += InjectEntry(method, point, atDesc, atIndex, cancellable, fn.simpleName.asString(), descriptor(fn))
+    }
+
+    // ---- Descriptor helpers ----
+
+    private fun KSFunctionDeclaration.modifiers(): Set<Modifier> {
+        val result = mutableSetOf<Modifier>()
+        if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC in this.modifiers) result += Modifier.STATIC
+        return result
+    }
+
+    private fun buildTargetDescriptor(fn: KSFunctionDeclaration): String {
+        val params = fn.parameters.drop(1)
+        return "(" + params.joinToString("") { toJvmDesc(it.type.resolve()) } +
+                ")" + toJvmDesc(fn.returnType?.resolve())
+    }
+
+    private fun descriptor(fn: KSFunctionDeclaration): String =
+        "(" + fn.parameters.joinToString("") { toJvmDesc(it.type.resolve()) } +
+                ")" + toJvmDesc(fn.returnType?.resolve())
+
+    private fun toJvmDesc(type: KSType?): String {
+        if (type == null) return "V"
+        val decl = type.declaration
+        val fqn  = decl.qualifiedName?.asString() ?: return "Ljava/lang/Object;"
+        if (type.isMarkedNullable && fqn == "kotlin.Unit") return "V"
+        return when (fqn) {
+            "kotlin.Unit", "java.lang.Void", "void"   -> "V"
+            "kotlin.Boolean", "java.lang.Boolean", "boolean" -> "Z"
+            "kotlin.Byte",    "java.lang.Byte",    "byte"    -> "B"
+            "kotlin.Char",    "java.lang.Character","char"   -> "C"
+            "kotlin.Short",   "java.lang.Short",   "short"   -> "S"
+            "kotlin.Int",     "java.lang.Integer",  "int"    -> "I"
+            "kotlin.Long",    "java.lang.Long",     "long"   -> "J"
+            "kotlin.Float",   "java.lang.Float",    "float"  -> "F"
+            "kotlin.Double",  "java.lang.Double",   "double" -> "D"
+            "kotlin.Any",     "java.lang.Object"            -> "Ljava/lang/Object;"
+            "kotlin.String",  "java.lang.String"            -> "Ljava/lang/String;"
+            else -> {
+                if (decl is KSClassDeclaration && decl.classKind == ClassKind.ENUM_CLASS)
+                    "L${fqn.replace('.', '/')};"
+                else
+                    "L${fqn.replace('.', '/')};"
+            }
+        }
+    }
+
+    // ---- Code generation ----
+
+    private fun generateDescriptor(
+        cls: KSClassDeclaration,
+        targetClass: String,
+        overwrites: List<OverwriteEntry>,
+        originals: List<OriginalEntry>,
+        redirects: List<RedirectEntry>,
+        injects: List<InjectEntry>
+    ) {
+        val mixinFqn = cls.qualifiedName?.asString() ?: return
+        val descriptorFqn = "$mixinFqn\$\$Descriptor"
+        val pkg = if ('.' in descriptorFqn) descriptorFqn.substringBeforeLast('.') else ""
+        val simpleName = descriptorFqn.substringAfterLast('.')
+
+        val classBuilder = TypeSpec.classBuilder(simpleName)
+            .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
+            .addJavadoc("Generated by HyperMixins KSP processor. Do not edit.")
+
+        classBuilder.addMethod(
+            MethodSpec.methodBuilder("targetClass")
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .returns(String::class.java)
+                .addStatement("return \$S", targetClass.replace('.', '/'))
+                .build()
+        )
+
+        classBuilder.addMethod(entriesMethod("overwriteEntries", overwrites.map {
+            arrayOf(it.targetName, it.targetDesc, it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("redirectEntries", redirects.map {
+            arrayOf(it.targetMethod, it.invokeDesc, it.index.toString(), it.call, it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("injectEntries", injects.map {
+            arrayOf(it.targetMethod, it.point, it.atDesc, it.atIndex.toString(),
+                it.cancellable.toString(), it.handlerName, it.handlerDesc)
+        }))
+
+        val file = JavaFile.builder(pkg, classBuilder.build()).build()
+        val out = codeGenerator.createNewFile(
+            Dependencies(false, cls.containingFile!!),
+            pkg, simpleName, "java"
+        )
+        OutputStreamWriter(out).use { file.writeTo(it) }
+        generatedDescriptors += descriptorFqn
+    }
+
+    private fun entriesMethod(name: String, entries: List<Array<String>>): MethodSpec {
+        val stringArrayType = ArrayTypeName.of(String::class.java)
+        val listType = ParameterizedTypeName.get(ClassName.get(List::class.java), stringArrayType)
+        val block = CodeBlock.builder().add("return \$T.<\$T[]>of(\n", List::class.java, String::class.java)
+        entries.forEachIndexed { i, e ->
+            block.add("    new String[]{${e.joinToString(", ") { "\$S" }}}", *e)
+            if (i < entries.size - 1) block.add(",\n")
+        }
+        block.add("\n)")
+        return MethodSpec.methodBuilder(name)
+            .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+            .returns(listType)
+            .addStatement(block.build())
+            .build()
+    }
+
+    // ---- KSP helpers ----
+
+    private fun KSAnnotated.findAnnotation(fqn: String): KSAnnotation? =
+        annotations.firstOrNull { it.annotationType.resolve().declaration.qualifiedName?.asString() == fqn }
+
+    private fun KSAnnotated.hasAnnotation(fqn: String): Boolean = findAnnotation(fqn) != null
+
+    private fun KSAnnotation.arg(name: String): Any? =
+        arguments.firstOrNull { it.name?.asString() == name }?.value
+
+    // ---- Internal records ----
+
+    private data class OverwriteEntry(val targetName: String, val targetDesc: String, val handlerName: String, val handlerDesc: String)
+    private data class OriginalEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
+    private data class RedirectEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val call: String, val handlerName: String, val handlerDesc: String)
+    private data class InjectEntry(val targetMethod: String, val point: String, val atDesc: String, val atIndex: Int, val cancellable: Boolean, val handlerName: String, val handlerDesc: String)
+}
