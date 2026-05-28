@@ -48,6 +48,7 @@ public final class HyperMixins {
             for (Class<?> mixin : mixinClasses) {
                 mappings.add(new MixinMapping(mixin));
             }
+            checkNoDuplicateOverwrites(mappings);
 
             MixinTransformer transformer = new MixinTransformer(mappings);
             inst.addTransformer(transformer, true);
@@ -186,6 +187,29 @@ public final class HyperMixins {
             } catch (NoSuchMethodException | IllegalAccessException e) {
                 throw new MixinRegistrationException(
                     "Failed to install MethodHandles for " + key, e);
+            }
+        }
+    }
+
+    /**
+     * Rejects registrations where two distinct mixin classes both declare {@code @Overwrite}
+     * for the same target method. Catches the conflict before any retransform is queued, with
+     * a message naming both offending mixin classes so the user can pick which one wins.
+     */
+    private static void checkNoDuplicateOverwrites(List<MixinMapping> mappings)
+        throws MixinRegistrationException {
+        Map<String, Class<?>> seen = new java.util.HashMap<>();
+        for (MixinMapping m : mappings) {
+            String targetInternal = m.descriptor().targetClass();
+            for (String overwriteKey : m.getOverwrites().keySet()) {
+                String key = targetInternal + "#" + overwriteKey;
+                Class<?> prev = seen.putIfAbsent(key, m.getMixinClass());
+                if (prev != null && prev != m.getMixinClass()) {
+                    throw new MixinRegistrationException(
+                        "Duplicate @Overwrite for " + key + " in both "
+                            + prev.getName() + " and " + m.getMixinClass().getName()
+                            + " — only one mixin may overwrite a given method", null);
+                }
             }
         }
     }
