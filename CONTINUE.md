@@ -103,11 +103,14 @@ hypermixins-example/run/test-world-1.0.jar \
 
 ### Medium
 - True `MixinHandle.reload(Instrumentation, Class<?>)` — see hot-reload note above.
-- Processor unit tests — first attempt with `dev.zacsweers.kctfork:core:0.7.1`
-  failed: opt-in markers for `KotlinCompilation` / `JvmCompilationResult` do not
-  propagate against Kotlin 2.3.20 (every member read flagged "experimental"
-  despite `@file:OptIn` + `compilerOptions.optIn`). Retry with a kctfork version
-  built against Kotlin 2.3, or wait for the canonical
+- Processor unit tests — partial coverage via integration test in
+  `hypermixins-example` (`WorldMixinDescriptorTest`): asserts the KSP-generated
+  `WorldMixin$$Descriptor` exposes every entry table the runtime loader expects
+  and that the auto-generated `*.mixins.yml` is on the classpath. Pure unit
+  tests via `dev.zacsweers.kctfork` are blocked: 0.7.1 + 0.5.1 both fail under
+  Kotlin 2.3.20 — 0.7.1 hits an opt-in propagation bug; 0.5.1 lacks the
+  `ExperimentalCompilerApi` marker entirely and uses an older API shape.
+  Retry once a kctfork release tracks Kotlin 2.3, or wait for the canonical
   `com.squareup.tools.testing:compile-testing` KSP support.
 
 ### Bigger
