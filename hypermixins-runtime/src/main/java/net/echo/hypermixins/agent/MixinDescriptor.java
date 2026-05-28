@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Compile-time-baked view of a mixin class. Built once per {@code @Mixin} class either from
@@ -57,6 +58,8 @@ public final class MixinDescriptor {
     public record InjectEntry(String targetMethod, At.Point point, String atDesc, int atIndex,
                               boolean cancellable, boolean returnable,
                               String handlerName, String handlerDesc) {}
+
+    private static final ConcurrentHashMap<Class<?>, MixinDescriptor> CACHE = new ConcurrentHashMap<>();
 
     private final Class<?> mixinClass;
     private final String targetClass;
@@ -98,6 +101,19 @@ public final class MixinDescriptor {
      * builds should rely on the generated path for zero runtime reflection.
      */
     public static MixinDescriptor load(Class<?> mixinClass) {
+        MixinDescriptor cached = CACHE.get(mixinClass);
+        if (cached != null) return cached;
+        MixinDescriptor fresh = loadUncached(mixinClass);
+        MixinDescriptor previous = CACHE.putIfAbsent(mixinClass, fresh);
+        return previous != null ? previous : fresh;
+    }
+
+    /** Bypass for tests / hot-reload that need a fresh descriptor instance. */
+    public static void invalidateCache(Class<?> mixinClass) {
+        CACHE.remove(mixinClass);
+    }
+
+    private static MixinDescriptor loadUncached(Class<?> mixinClass) {
         String descriptorFqn = mixinClass.getName() + "$$Descriptor";
         Class<?> desc;
         try {

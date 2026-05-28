@@ -58,4 +58,35 @@ public class MultiMixinTest {
         t.getMethod("notify", String.class).invoke(inst, "ping");
         assertEquals(1, injectCounter);
     }
+
+    // ---- stacked injects ----
+
+    public static volatile java.util.List<String> injectOrder;
+
+    public static class StackedTarget {
+        public void step() { injectOrder.add("body"); }
+    }
+
+    @Mixin("net.echo.hypermixins.MultiMixinTest$StackedTarget")
+    public static class FirstInjectMixin {
+        @Inject(method = "step", at = @At(point = At.Point.HEAD))
+        public void onStep(Object self) { injectOrder.add("A"); }
+    }
+
+    @Mixin("net.echo.hypermixins.MultiMixinTest$StackedTarget")
+    public static class SecondInjectMixin {
+        @Inject(method = "step", at = @At(point = At.Point.HEAD))
+        public void onStep(Object self) { injectOrder.add("B"); }
+    }
+
+    @Test
+    void stackedHeadInjectsRunInRegistrationOrder() throws Exception {
+        injectOrder = new java.util.ArrayList<>();
+        Class<?> t = applyMixins(StackedTarget.class, FirstInjectMixin.class, SecondInjectMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        t.getMethod("step").invoke(inst);
+        // First mapping inserts at HEAD, then the second mapping inserts again at HEAD —
+        // the second insertion lands before the first one's block, so call order is B, A, body.
+        assertEquals(java.util.List.of("B", "A", "body"), injectOrder);
+    }
 }
