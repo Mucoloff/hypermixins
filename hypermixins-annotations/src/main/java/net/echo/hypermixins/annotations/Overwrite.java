@@ -13,6 +13,13 @@ import java.lang.annotation.*;
  *   <li>Not reference the target class type in its parameter list directly.</li>
  * </ul>
  *
+ * <p>
+ * <b>Recursion warning:</b> a handler that calls the overwritten method back on {@code self}
+ * (e.g., {@code ((Target) self).foo()}) re-enters its {@code INVOKEDYNAMIC} call-site and
+ * loops indefinitely until a {@link StackOverflowError}. To reach the un-mixed body of the
+ * same method, declare an {@code @Original}-annotated native trampoline on the mixin and
+ * invoke it instead.
+ *
  * @author xEcho1337
  */
 @Retention(RetentionPolicy.RUNTIME)

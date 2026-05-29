@@ -263,4 +263,48 @@ public class MixinInjectTest {
         assertEquals(42, result);
         assertFalse(bodyRan, "Target body must not execute when setReturnValue() called");
     }
+
+    // ---- exception propagation (uses JDK exception classes to avoid loader-cross issues) ----
+
+    public static class BoomHeadTarget {
+        public int run() { bodyRan = true; return 1; }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$BoomHeadTarget")
+    public static class BoomHeadMixin {
+        @Inject(method = "run", at = @At(point = At.Point.HEAD))
+        public void onRun(Object self) { throw new IllegalStateException("inject-head-boom"); }
+    }
+
+    public static class BoomCancellableTarget {
+        public void run() { bodyRan = true; }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$BoomCancellableTarget")
+    public static class BoomCancellableMixin {
+        @Inject(method = "run", at = @At(point = At.Point.HEAD), cancellable = true)
+        public void onRun(Object self, CallbackInfo ci) {
+            throw new IllegalStateException("before-cancel");
+        }
+    }
+
+    @Test
+    void injectHandlerExceptionPropagates() throws Exception {
+        Class<?> t = applyMixin(BoomHeadTarget.class, BoomHeadMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        var ex = assertThrows(java.lang.reflect.InvocationTargetException.class,
+            () -> t.getMethod("run").invoke(inst));
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertEquals("inject-head-boom", ex.getCause().getMessage());
+        assertFalse(bodyRan, "target body must not run when HEAD inject throws");
+    }
+
+    @Test
+    void cancellableHandlerExceptionPropagatesBeforeCancelTakesEffect() throws Exception {
+        Class<?> t = applyMixin(BoomCancellableTarget.class, BoomCancellableMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        var ex = assertThrows(java.lang.reflect.InvocationTargetException.class,
+            () -> t.getMethod("run").invoke(inst));
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertEquals("before-cancel", ((IllegalStateException) ex.getCause()).getMessage());
+        assertFalse(bodyRan);
+    }
 }

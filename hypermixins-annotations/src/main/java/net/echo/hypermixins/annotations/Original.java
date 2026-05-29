@@ -17,6 +17,12 @@ import java.lang.annotation.*;
  * public native List<Player> getPlayersOrig(Object self);
  * }</pre>
  *
+ * <p>
+ * <b>Limitation:</b> only instance target methods are supported. Pointing {@code @Original}
+ * at a static target method will fail at class link time (the generated trampoline assumes
+ * an {@code INVOKEVIRTUAL} dispatch with {@code self} on the stack). For static targets,
+ * write a plain static helper on your mixin and call it from your {@code @Overwrite} handler.
+ *
  * @author xEcho1337
  */
 @Retention(RetentionPolicy.RUNTIME)

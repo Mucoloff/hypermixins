@@ -37,6 +37,13 @@ public class MixinTransformer implements ClassFileTransformer {
     public List<String> registeredKeys() { return List.copyOf(registeredKeys); }
     public Set<Class<?>> transformedTargets() { return Collections.unmodifiableSet(transformedTargets); }
 
+    /**
+     * Drops strong references to every target class this transformer touched. Called by
+     * {@link net.echo.hypermixins.api.MixinHandle#unregister} so the host application doesn't
+     * keep pinning target classes (and their loaders) alive after a mixin is fully removed.
+     */
+    public void clearTransformedTargets() { transformedTargets.clear(); }
+
     @Override
     public byte[] transform(
         Module module, ClassLoader loader, String className,

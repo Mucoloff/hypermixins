@@ -1,5 +1,6 @@
 package net.echo.hypermixins.api;
 
+import net.echo.hypermixins.agent.MixinTransformer;
 import net.echo.hypermixins.registry.MixinRegistry;
 
 import java.lang.instrument.ClassFileTransformer;
@@ -82,6 +83,7 @@ public final class MixinHandle {
     public void unregister() {
         keys.forEach(MixinRegistry::uninstall);
         inst.removeTransformer(transformer);
+        if (transformer instanceof MixinTransformer mt) mt.clearTransformedTargets();
         active = false;
     }
 
