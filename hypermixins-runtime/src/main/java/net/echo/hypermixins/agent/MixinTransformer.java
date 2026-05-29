@@ -16,12 +16,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class MixinTransformer implements ClassFileTransformer {
 
-    private static final String REGISTRY_INTERNAL =
-        "net/echo/hypermixins/registry/MixinRegistry";
-    private static final String BOOTSTRAP_DESCRIPTOR =
-        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;" +
-        "Ljava/lang/invoke/MethodType;Ljava/lang/String;)Ljava/lang/invoke/CallSite;";
-
     private final Map<String, List<MixinMapping>> targets = new HashMap<>();
     private final Map<String, MixinMapping> mixins  = new HashMap<>();
     private final Set<Class<?>> transformedTargets   = ConcurrentHashMap.newKeySet();
@@ -164,7 +158,7 @@ public class MixinTransformer implements ClassFileTransformer {
                         throw new IllegalStateException(
                             "Missing precomputed synthetic names for " + node.name + "#" + key);
                     }
-                    MethodNode[] copies = applyOverwrite(node, method, overwrite, mixinField, names[0], names[1], targetIsStatic, mapping);
+                    MethodNode[] copies = OverwritePass.apply(node, method, overwrite, mixinField, names[0], names[1], targetIsStatic, mapping, registeredKeys);
                     for (MethodNode copy : copies) {
                         String copyKey = copy.name + copy.desc;
                         if (addedKeys.add(copyKey)) extraMethods.add(copy);
@@ -177,88 +171,6 @@ public class MixinTransformer implements ClassFileTransformer {
         ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, loader);
         node.accept(writer);
         return writer.toByteArray();
-    }
-
-    /**
-     * Rewrites {@code target} body as {@code INVOKEDYNAMIC}, creates two synthetic helpers:
-     * <ul>
-     *   <li>{@code __original$name$hash} — the unmodified original body (pre-mixin).</li>
-     *   <li>{@code __dispatch$name$hash} — the mixin-calling body (GETFIELD + INVOKEVIRTUAL).</li>
-     * </ul>
-     * Returns both helpers; caller must add them to the class.
-     */
-    private MethodNode[] applyOverwrite(
-        ClassNode owner, MethodNode target, Method mixinMethod, String mixinFieldName,
-        String mangledOriginalName, String dispName, boolean targetIsStatic, MixinMapping mapping
-    ) {
-        // 1. Clone original body — keep ACC_STATIC matching the target.
-        MethodNode originalCopy = cloneAsOriginal(target, mangledOriginalName);
-
-        // 2. Create __dispatch$xxx with mixin-calling body
-        int synthAcc = Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC | (targetIsStatic ? Opcodes.ACC_STATIC : 0);
-        MethodNode dispatchCopy = new MethodNode(
-            synthAcc, dispName, target.desc, target.signature,
-            target.exceptions == null ? null : target.exceptions.toArray(new String[0])
-        );
-        {
-            InsnList di = new InsnList();
-            String mixinDescStr = Type.getDescriptor(mixinMethod.getDeclaringClass());
-            if (targetIsStatic) {
-                di.add(new FieldInsnNode(Opcodes.GETSTATIC, owner.name,
-                    StaticMixinField.name(mapping), mixinDescStr));
-                di.add(new InsnNode(Opcodes.ACONST_NULL)); // self for static target → null
-                Type[] targetArgs = Type.getArgumentTypes(target.desc);
-                int slot = 0;
-                for (Type t : targetArgs) { di.add(new VarInsnNode(t.getOpcode(Opcodes.ILOAD), slot)); slot += t.getSize(); }
-            } else {
-                di.add(new VarInsnNode(Opcodes.ALOAD, 0));
-                di.add(new FieldInsnNode(Opcodes.GETFIELD, owner.name, mixinFieldName, mixinDescStr));
-                di.add(new VarInsnNode(Opcodes.ALOAD, 0)); // self
-                Type[] targetArgs = Type.getArgumentTypes(target.desc);
-                int slot = 1;
-                for (Type t : targetArgs) { di.add(new VarInsnNode(t.getOpcode(Opcodes.ILOAD), slot)); slot += t.getSize(); }
-            }
-            di.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
-                Type.getInternalName(mixinMethod.getDeclaringClass()),
-                mixinMethod.getName(), Type.getMethodDescriptor(mixinMethod), false));
-            Type ret = Type.getReturnType(target.desc);
-            di.add(new InsnNode(ret.getOpcode(Opcodes.IRETURN)));
-            dispatchCopy.instructions.add(di);
-        }
-
-        // 3. Register pending lazy-install for the bootstrap
-        String key = owner.name + "#" + target.name + target.desc;
-        MixinRegistry.registerPending(key, originalCopy.name, dispName);
-        registeredKeys.add(key);
-
-        // 4. Replace target body with INVOKEDYNAMIC
-        target.instructions.clear();
-        target.tryCatchBlocks.clear();
-        target.localVariables = null;
-
-        // Call-site descriptor: static targets keep target.desc; instance targets prepend owner.
-        String callSiteDesc = targetIsStatic
-            ? target.desc
-            : "(L" + owner.name + ";" + target.desc.substring(1);
-
-        Handle bsm = new Handle(Opcodes.H_INVOKESTATIC, REGISTRY_INTERNAL,
-            "bootstrap", BOOTSTRAP_DESCRIPTOR, false);
-
-        InsnList body = new InsnList();
-        Type[] args = Type.getArgumentTypes(target.desc);
-        int slot;
-        if (targetIsStatic) {
-            slot = 0;
-        } else {
-            body.add(new VarInsnNode(Opcodes.ALOAD, 0));
-            slot = 1;
-        }
-        for (Type t : args) { body.add(new VarInsnNode(t.getOpcode(Opcodes.ILOAD), slot)); slot += t.getSize(); }
-        body.add(new InvokeDynamicInsnNode("dispatch", callSiteDesc, bsm, key));
-        body.add(new InsnNode(Type.getReturnType(target.desc).getOpcode(Opcodes.IRETURN)));
-        target.instructions.add(body);
-
-        return new MethodNode[]{originalCopy, dispatchCopy};
     }
 
     // ---- Mixin transformation (@Original trampolines) ----
@@ -284,16 +196,4 @@ public class MixinTransformer implements ClassFileTransformer {
      * to {@code ALOAD 1; CHECKCAST targetInternal; (GETFIELD|PUTFIELD) targetInternal.targetName}.
      * Matches the canonical {@code this.foo} pattern emitted by javac.
      */
-    // ---- Constructor patching ----
-
-    private static MethodNode cloneAsOriginal(MethodNode original, String mangledName) {
-        int acc = (original.access & Opcodes.ACC_STATIC) != 0
-            ? (Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC)
-            : (Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC);
-        MethodNode copy = new MethodNode(acc, mangledName, original.desc,
-            original.signature, original.exceptions == null ? null : original.exceptions.toArray(new String[0]));
-        original.accept(copy);
-        return copy;
-    }
-
 }
