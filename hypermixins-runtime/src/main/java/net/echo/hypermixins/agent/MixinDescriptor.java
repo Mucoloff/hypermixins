@@ -90,6 +90,8 @@ public final class MixinDescriptor {
                                              int index, String handlerName, String handlerDesc) {}
     public record ModifyArgsEntry(String targetMethod, String invokeDesc,
                                   String handlerName, String handlerDesc) {}
+    public record ModifyReceiverEntry(String targetMethod, String invokeDesc,
+                                      String handlerName, String handlerDesc) {}
 
     private static final ConcurrentHashMap<Class<?>, MixinDescriptor> CACHE = new ConcurrentHashMap<>();
 
@@ -111,6 +113,7 @@ public final class MixinDescriptor {
     private final List<ModifyArgEntry> modifyArgs;
     private final List<ModifyExpressionValueEntry> modifyExpressionValues;
     private final List<ModifyArgsEntry> modifyArgsAll;
+    private final List<ModifyReceiverEntry> modifyReceivers;
     private final Map<String, String[]> synthetics;
     /** Target-method-key → true when the method is static. Populated best-effort at build time. */
     private final Set<String> staticTargetMethods;
@@ -133,6 +136,7 @@ public final class MixinDescriptor {
         List<ModifyArgEntry> modifyArgs,
         List<ModifyExpressionValueEntry> modifyExpressionValues,
         List<ModifyArgsEntry> modifyArgsAll,
+        List<ModifyReceiverEntry> modifyReceivers,
         Map<String, String[]> synthetics
     ) {
         this.mixinClass  = mixinClass;
@@ -153,6 +157,7 @@ public final class MixinDescriptor {
         this.modifyArgs = List.copyOf(modifyArgs);
         this.modifyExpressionValues = List.copyOf(modifyExpressionValues);
         this.modifyArgsAll = List.copyOf(modifyArgsAll);
+        this.modifyReceivers = List.copyOf(modifyReceivers);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
         this.staticTargetMethods = Set.of();
         this.privateShadowTargets = Set.of();
@@ -174,6 +179,7 @@ public final class MixinDescriptor {
         List<ModifyArgEntry> modifyArgs,
         List<ModifyExpressionValueEntry> modifyExpressionValues,
         List<ModifyArgsEntry> modifyArgsAll,
+        List<ModifyReceiverEntry> modifyReceivers,
         Map<String, String[]> synthetics,
         Set<String> staticTargetMethods,
         Set<String> privateShadowTargets
@@ -196,6 +202,7 @@ public final class MixinDescriptor {
         this.modifyArgs = List.copyOf(modifyArgs);
         this.modifyExpressionValues = List.copyOf(modifyExpressionValues);
         this.modifyArgsAll = List.copyOf(modifyArgsAll);
+        this.modifyReceivers = List.copyOf(modifyReceivers);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
         this.staticTargetMethods = Set.copyOf(staticTargetMethods);
         this.privateShadowTargets = Set.copyOf(privateShadowTargets);
@@ -220,6 +227,7 @@ public final class MixinDescriptor {
     public List<ModifyArgEntry> modifyArgs() { return modifyArgs; }
     public List<ModifyExpressionValueEntry> modifyExpressionValues() { return modifyExpressionValues; }
     public List<ModifyArgsEntry> modifyArgsAll() { return modifyArgsAll; }
+    public List<ModifyReceiverEntry> modifyReceivers() { return modifyReceivers; }
     /** Map {@code targetName+targetDesc → [mangledOriginalName, dispatchName]}. */
     public Map<String, String[]> synthetics() { return synthetics; }
 
@@ -284,6 +292,7 @@ public final class MixinDescriptor {
             List<String[]> modifyArgRows = invokeStringListOrEmpty(lookup, desc, "modifyArgEntries");
             List<String[]> modifyExprRows = invokeStringListOrEmpty(lookup, desc, "modifyExpressionValueEntries");
             List<String[]> modifyArgsRows = invokeStringListOrEmpty(lookup, desc, "modifyArgsEntries");
+            List<String[]> modifyRecvRows = invokeStringListOrEmpty(lookup, desc, "modifyReceiverEntries");
             List<String[]> staticTargetRows = invokeStringListOrEmpty(lookup, desc, "staticTargetMethods");
             List<String[]> privateShadowRows = invokeStringListOrEmpty(lookup, desc, "privateShadowTargetMethods");
             List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
@@ -344,11 +353,14 @@ public final class MixinDescriptor {
             List<ModifyArgsEntry> mxa = new ArrayList<>(modifyArgsRows.size());
             for (String[] r : modifyArgsRows) mxa.add(new ModifyArgsEntry(r[0], r[1], r[2], r[3]));
 
+            List<ModifyReceiverEntry> mxr = new ArrayList<>(modifyRecvRows.size());
+            for (String[] r : modifyRecvRows) mxr.add(new ModifyReceiverEntry(r[0], r[1], r[2], r[3]));
+
             Map<String, String[]> synths = new LinkedHashMap<>();
             for (String[] r : syntheticRows) synths.put(r[0] + r[1], new String[]{r[2], r[3]});
 
             MixinDescriptor base = new MixinDescriptor(
-                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, injShifts, shads, shadFields, shadStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, synths);
+                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, injShifts, shads, shadFields, shadStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, synths);
             return withTargetMaps(base, staticTargetRows, privateShadowRows);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
@@ -518,10 +530,24 @@ public final class MixinDescriptor {
         List<ModifyArgEntry> mas = collectModifyArgs(mixinClass);
         List<ModifyExpressionValueEntry> mxs = collectModifyExpressionValues(mixinClass);
         List<ModifyArgsEntry> mxa = collectModifyArgsAll(mixinClass);
+        List<ModifyReceiverEntry> mxr = collectModifyReceivers(mixinClass);
         Set<String> privateShadowMap = probePrivateShadowTargets(mixinClass, targetInternal, shadows, invs);
         return new MixinDescriptor(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals, injectShifts,
-            shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, synths, staticMap, privateShadowMap);
+            shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, synths, staticMap, privateShadowMap);
+    }
+
+    private static List<ModifyReceiverEntry> collectModifyReceivers(Class<?> mixinClass) {
+        List<ModifyReceiverEntry> out = new ArrayList<>();
+        for (Method m : mixinClass.getDeclaredMethods()) {
+            net.echo.hypermixins.annotations.ModifyReceiver ann =
+                m.getAnnotation(net.echo.hypermixins.annotations.ModifyReceiver.class);
+            if (ann == null) continue;
+            if (!Modifier.isStatic(m.getModifiers()))
+                throw new IllegalArgumentException("@ModifyReceiver must be static: " + m);
+            out.add(new ModifyReceiverEntry(ann.method(), ann.at().desc(), m.getName(), Type.getMethodDescriptor(m)));
+        }
+        return out;
     }
 
     private static Set<String> probePrivateShadowTargets(
@@ -727,7 +753,7 @@ public final class MixinDescriptor {
         for (String[] r : privateRows) priv.add(r[0] + r[1]);
         return new MixinDescriptor(base.mixinClass, base.targetClass,
             base.overwrites, base.originals, base.redirects, base.injects, base.injectLocals,
-            base.injectShifts, base.shadows, base.shadowFields, base.shadowStaticFields, base.modifyReturnValues, base.accessors, base.invokers, base.modifyConstants, base.modifyArgs, base.modifyExpressionValues, base.modifyArgsAll, base.synthetics, stat, priv);
+            base.injectShifts, base.shadows, base.shadowFields, base.shadowStaticFields, base.modifyReturnValues, base.accessors, base.invokers, base.modifyConstants, base.modifyArgs, base.modifyExpressionValues, base.modifyArgsAll, base.modifyReceivers, base.synthetics, stat, priv);
     }
 
     private static String resolveShadowName(String simpleName, String value, String prefix) {
