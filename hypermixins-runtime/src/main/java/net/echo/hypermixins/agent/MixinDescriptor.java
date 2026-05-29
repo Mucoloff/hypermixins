@@ -534,7 +534,7 @@ public final class MixinDescriptor {
             }
         }
 
-        Set<String> staticMap = probeStaticTargetMethods(
+        Set<String> staticMap = ReflectionProbes.staticTargetMethods(
             mixinClass, targetInternal, originals, overwrites);
         Map<String, At.Shift> injectShifts = collectInjectShifts(mixinClass, injects);
         List<ModifyReturnValueEntry> mrvs = collectModifyReturnValues(mixinClass);
@@ -545,7 +545,7 @@ public final class MixinDescriptor {
         List<ModifyExpressionValueEntry> mxs = collectModifyExpressionValues(mixinClass);
         List<ModifyArgsEntry> mxa = collectModifyArgsAll(mixinClass);
         List<ModifyReceiverEntry> mxr = collectModifyReceivers(mixinClass);
-        Set<String> privateShadowMap = probePrivateShadowTargets(mixinClass, targetInternal, shadows, invs);
+        Set<String> privateShadowMap = ReflectionProbes.privateShadowTargets(mixinClass, targetInternal, shadows, invs);
         return new MixinDescriptor(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals, injectShifts,
             shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, synths, staticMap, privateShadowMap);
@@ -562,46 +562,6 @@ public final class MixinDescriptor {
             out.add(new ModifyReceiverEntry(ann.method(), ann.at().desc(), m.getName(), Type.getMethodDescriptor(m)));
         }
         return out;
-    }
-
-    private static Set<String> probePrivateShadowTargets(
-        Class<?> mixinClass, String targetInternal,
-        List<ShadowEntry> shadows, List<InvokerEntry> invokers
-    ) {
-        Set<String> out = new HashSet<>();
-        Class<?> targetCls;
-        try {
-            targetCls = Class.forName(targetInternal.replace('/', '.'), false, mixinClass.getClassLoader());
-        } catch (Throwable t) {
-            return out;
-        }
-        for (ShadowEntry sh : shadows) {
-            recordIfPrivate(targetCls, sh.targetName(), dropFirstArgFromHandlerDesc(sh.handlerDesc()), out);
-        }
-        for (InvokerEntry iv : invokers) {
-            recordIfPrivate(targetCls, iv.targetName(), dropFirstArgFromHandlerDesc(iv.handlerDesc()), out);
-        }
-        return out;
-    }
-
-    private static void recordIfPrivate(Class<?> targetCls, String name, String desc, Set<String> out) {
-        try {
-            Type[] paramTypes = Type.getArgumentTypes(desc);
-            Class<?>[] params = new Class<?>[paramTypes.length];
-            for (int i = 0; i < paramTypes.length; i++) {
-                params[i] = classForType(paramTypes[i], targetCls.getClassLoader());
-            }
-            Method m = targetCls.getDeclaredMethod(name, params);
-            if (Modifier.isPrivate(m.getModifiers())) out.add(name + desc);
-        } catch (Throwable ignored) {}
-    }
-
-    private static String dropFirstArgFromHandlerDesc(String desc) {
-        Type[] all = Type.getArgumentTypes(desc);
-        if (all.length == 0) return desc;
-        Type ret = Type.getReturnType(desc);
-        Type[] rest = Arrays.copyOfRange(all, 1, all.length);
-        return Type.getMethodDescriptor(ret, rest);
     }
 
     private static List<ModifyArgsEntry> collectModifyArgsAll(Class<?> mixinClass) {
@@ -781,70 +741,6 @@ public final class MixinDescriptor {
      * resolve each target method that an {@code @Original} or {@code @Overwrite} refers to.
      * Failures are tolerated — the call site falls back to the instance dispatch path.
      */
-    private static Set<String> probeStaticTargetMethods(
-        Class<?> mixinClass, String targetInternal,
-        List<OriginalEntry> originals, List<OverwriteEntry> overwrites
-    ) {
-        Set<String> out = new HashSet<>();
-        Class<?> targetCls;
-        try {
-            targetCls = Class.forName(targetInternal.replace('/', '.'), false, mixinClass.getClassLoader());
-        } catch (Throwable t) {
-            return out;
-        }
-        java.util.Set<String> pairs = new java.util.HashSet<>();
-        for (OriginalEntry oe : originals) {
-            // OriginalEntry.handlerDesc starts with `(Ljava/lang/Object;...) → derive target desc by dropping first arg.
-            String td = dropFirstArg(oe.handlerDesc());
-            pairs.add(oe.targetName() + td);
-        }
-        for (OverwriteEntry oe : overwrites) {
-            pairs.add(oe.targetName() + oe.targetDesc());
-        }
-        for (String pair : pairs) {
-            int paren = pair.indexOf('(');
-            if (paren < 0) continue;
-            String name = pair.substring(0, paren);
-            String desc = pair.substring(paren);
-            try {
-                Type[] paramTypes = Type.getArgumentTypes(desc);
-                Class<?>[] params = new Class<?>[paramTypes.length];
-                for (int i = 0; i < paramTypes.length; i++) {
-                    params[i] = classForType(paramTypes[i], targetCls.getClassLoader());
-                }
-                java.lang.reflect.Method m = targetCls.getDeclaredMethod(name, params);
-                if (java.lang.reflect.Modifier.isStatic(m.getModifiers())) out.add(pair);
-            } catch (Throwable ignored) { /* leave default */ }
-        }
-        return out;
-    }
-
-    private static String dropFirstArg(String desc) {
-        // (Ljava/lang/Object;...) → (...)
-        int closeParen = desc.indexOf(')');
-        Type[] all = Type.getArgumentTypes(desc.substring(0, closeParen + 1));
-        if (all.length == 0) return desc;
-        Type ret = Type.getReturnType(desc);
-        Type[] rest = Arrays.copyOfRange(all, 1, all.length);
-        return Type.getMethodDescriptor(ret, rest);
-    }
-
-    private static Class<?> classForType(Type t, ClassLoader cl) throws ClassNotFoundException {
-        return switch (t.getSort()) {
-            case Type.BOOLEAN -> boolean.class;
-            case Type.BYTE -> byte.class;
-            case Type.CHAR -> char.class;
-            case Type.SHORT -> short.class;
-            case Type.INT -> int.class;
-            case Type.LONG -> long.class;
-            case Type.FLOAT -> float.class;
-            case Type.DOUBLE -> double.class;
-            case Type.VOID -> void.class;
-            case Type.ARRAY -> Class.forName(t.getDescriptor().replace('/', '.'), false, cl);
-            default -> Class.forName(t.getClassName(), false, cl);
-        };
-    }
-
     /** Inlined SHA-1/16-hex digest used only by the legacy {@link #fromAnnotations} path. */
     private static String sha1Hex16(String input) {
         try {
