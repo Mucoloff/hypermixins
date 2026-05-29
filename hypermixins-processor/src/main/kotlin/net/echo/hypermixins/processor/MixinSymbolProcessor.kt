@@ -8,6 +8,10 @@ import com.squareup.javapoet.*
 import java.io.OutputStreamWriter
 import java.lang.reflect.Modifier as JMod
 import javax.lang.model.element.Modifier
+import net.echo.hypermixins.processor.JvmDescriptors.buildTargetDescriptor
+import net.echo.hypermixins.processor.JvmDescriptors.descriptor
+import net.echo.hypermixins.processor.JvmDescriptors.dropFirstArgDesc
+import net.echo.hypermixins.processor.JvmDescriptors.toJvmDesc
 
 // Generated descriptor ABI (must match MixinDescriptor.java in the runtime module):
 //   overwriteEntries:  [targetName, targetDesc, handlerName, handlerDesc]
@@ -612,47 +616,6 @@ class MixinSymbolProcessor(
         return result
     }
 
-    private fun buildTargetDescriptor(fn: KSFunctionDeclaration): String {
-        val params = fn.parameters.drop(1)
-        return "(" + params.joinToString("") { toJvmDesc(it.type.resolve()) } +
-                ")" + toJvmDesc(fn.returnType?.resolve())
-    }
-
-    private fun descriptor(fn: KSFunctionDeclaration): String =
-        "(" + fn.parameters.joinToString("") { toJvmDesc(it.type.resolve()) } +
-                ")" + toJvmDesc(fn.returnType?.resolve())
-
-    private fun toJvmDesc(type: KSType?): String {
-        if (type == null) return "V"
-        val decl = type.declaration
-        val fqn  = decl.qualifiedName?.asString() ?: return "Ljava/lang/Object;"
-        if (type.isMarkedNullable && fqn == "kotlin.Unit") return "V"
-        return when (fqn) {
-            "kotlin.Unit", "java.lang.Void", "void"   -> "V"
-            "kotlin.Boolean", "java.lang.Boolean", "boolean" -> "Z"
-            "kotlin.Byte",    "java.lang.Byte",    "byte"    -> "B"
-            "kotlin.Char",    "java.lang.Character","char"   -> "C"
-            "kotlin.Short",   "java.lang.Short",   "short"   -> "S"
-            "kotlin.Int",     "java.lang.Integer",  "int"    -> "I"
-            "kotlin.Long",    "java.lang.Long",     "long"   -> "J"
-            "kotlin.Float",   "java.lang.Float",    "float"  -> "F"
-            "kotlin.Double",  "java.lang.Double",   "double" -> "D"
-            "kotlin.Any",     "java.lang.Object"            -> "Ljava/lang/Object;"
-            "kotlin.String",  "java.lang.String"            -> "Ljava/lang/String;"
-            "java.util.List", "kotlin.collections.List", "kotlin.collections.MutableList" -> "Ljava/util/List;"
-            "java.util.Map",  "kotlin.collections.Map",  "kotlin.collections.MutableMap"  -> "Ljava/util/Map;"
-            "java.util.Set",  "kotlin.collections.Set",  "kotlin.collections.MutableSet"  -> "Ljava/util/Set;"
-            "java.util.Collection", "kotlin.collections.Collection", "kotlin.collections.MutableCollection" -> "Ljava/util/Collection;"
-            "java.lang.Iterable", "kotlin.collections.Iterable" -> "Ljava/lang/Iterable;"
-            else -> {
-                if (decl is KSClassDeclaration && decl.classKind == ClassKind.ENUM_CLASS)
-                    "L${fqn.replace('.', '/')};"
-                else
-                    "L${fqn.replace('.', '/')};"
-            }
-        }
-    }
-
     // ---- Code generation ----
 
     private fun probePrivateShadowTargets(
@@ -713,12 +676,6 @@ class MixinSymbolProcessor(
             }
         }
         return result
-    }
-
-    private fun dropFirstArgDesc(desc: String): String {
-        // (Ljava/lang/Object;...args)ret → (args)ret
-        if (!desc.startsWith("(Ljava/lang/Object;")) return desc
-        return "(" + desc.removePrefix("(Ljava/lang/Object;")
     }
 
     private fun generateDescriptor(
