@@ -64,15 +64,15 @@ final class InjectPass {
                 }
                 case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
                 case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
-                    insn -> matchesInvoke(insn, inject));
+                    insn -> InjectSiteMatcher.matchesInvoke(insn, inject));
                 case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
-                    insn -> matchesField(insn, inject));
+                    insn -> InjectSiteMatcher.matchesField(insn, inject));
                 case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
-                    insn -> matchesConstant(insn, inject));
+                    insn -> InjectSiteMatcher.matchesConstant(insn, inject));
                 case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
-                    InjectPass::isConditionalJump);
+                    InjectSiteMatcher::isConditionalJump);
                 case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
-                    insn -> matchesNew(insn, inject));
+                    insn -> InjectSiteMatcher.matchesNew(insn, inject));
                 default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
             }
         }
@@ -105,46 +105,6 @@ final class InjectPass {
                 target.instructions.insertBefore(site, block);
             }
         }
-    }
-
-    private static boolean matchesInvoke(AbstractInsnNode insn, InjectMapping inject) {
-        if (!(insn instanceof MethodInsnNode mi)) return false;
-        return DescriptorMatcher.matches(inject.atDesc(), mi.owner + "." + mi.name + mi.desc);
-    }
-
-    private static boolean matchesField(AbstractInsnNode insn, InjectMapping inject) {
-        if (!(insn instanceof FieldInsnNode fi)) return false;
-        return DescriptorMatcher.matches(inject.atDesc(), fi.owner + "." + fi.name + ":" + fi.desc);
-    }
-
-    private static boolean matchesConstant(AbstractInsnNode insn, InjectMapping inject) {
-        if (!(insn instanceof LdcInsnNode ldc)) return false;
-        String desc = inject.atDesc();
-        int sep = desc.indexOf(':');
-        if (sep < 0) return false;
-        String type = desc.substring(0, sep);
-        String value = desc.substring(sep + 1);
-        Object cst = ldc.cst;
-        return switch (type) {
-            case "I" -> cst instanceof Integer i && i == Integer.parseInt(value);
-            case "J" -> cst instanceof Long l && l == Long.parseLong(value);
-            case "F" -> cst instanceof Float f && f == Float.parseFloat(value);
-            case "D" -> cst instanceof Double d && d == Double.parseDouble(value);
-            case "Ljava/lang/String;" -> cst instanceof String s && s.equals(value);
-            default -> false;
-        };
-    }
-
-    private static boolean matchesNew(AbstractInsnNode insn, InjectMapping inject) {
-        if (!(insn instanceof TypeInsnNode tn)) return false;
-        if (tn.getOpcode() != Opcodes.NEW) return false;
-        return tn.desc.equals(inject.atDesc());
-    }
-
-    private static boolean isConditionalJump(AbstractInsnNode insn) {
-        if (!(insn instanceof JumpInsnNode jump)) return false;
-        int op = jump.getOpcode();
-        return op != Opcodes.GOTO && op != Opcodes.JSR;
     }
 
     private static void injectBeforeReturns(
