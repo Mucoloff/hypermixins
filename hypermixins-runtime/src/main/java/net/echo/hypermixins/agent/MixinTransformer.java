@@ -74,13 +74,18 @@ public class MixinTransformer implements ClassFileTransformer {
         Set<String> addedKeys = new HashSet<>();
         Set<String> overwrittenKeys = new HashSet<>();
 
-        // Generate public synthetic accessors on the target for every private @Shadow target.
-        // Done up-front so subsequent passes can iterate node.methods safely.
+        // Generate public synthetic accessors on the target for every private @Shadow / @Invoker
+        // target. Done up-front so subsequent passes can iterate node.methods safely.
         for (MixinMapping mapping : mappings) {
             for (MixinDescriptor.ShadowEntry sh : mapping.descriptor().shadows()) {
                 String targetDesc = dropFirstArgFromDescriptor(sh.handlerDesc());
                 if (!mapping.descriptor().isPrivateShadowTarget(sh.targetName(), targetDesc)) continue;
                 addPrivateShadowAccessor(node, sh.targetName(), targetDesc, extraMethods, addedKeys);
+            }
+            for (MixinDescriptor.InvokerEntry iv : mapping.descriptor().invokers()) {
+                String targetDesc = dropFirstArgFromDescriptor(iv.handlerDesc());
+                if (!mapping.descriptor().isPrivateShadowTarget(iv.targetName(), targetDesc)) continue;
+                addPrivateShadowAccessor(node, iv.targetName(), targetDesc, extraMethods, addedKeys);
             }
         }
 
@@ -498,7 +503,10 @@ public class MixinTransformer implements ClassFileTransformer {
                     ins.add(new VarInsnNode(a.getOpcode(Opcodes.ILOAD), slot));
                     slot += a.getSize();
                 }
-                ins.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, iv.targetName(), targetDesc, false));
+                String invokerInvokedName = mapping.descriptor().isPrivateShadowTarget(iv.targetName(), targetDesc)
+                    ? privateShadowAccessorName(iv.targetName(), targetDesc)
+                    : iv.targetName();
+                ins.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, invokerInvokedName, targetDesc, false));
                 ins.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
                 method.instructions.add(ins);
             }

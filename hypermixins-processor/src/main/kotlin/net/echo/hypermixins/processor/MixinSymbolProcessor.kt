@@ -173,7 +173,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        val privateShadowTargets = probePrivateShadowTargets(resolver, targetClass, shadows)
+        val privateShadowTargets = probePrivateShadowTargets(resolver, targetClass, shadows, invokers)
         generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, modifyExprs, modifyArgsList, accessors, invokers, staticTargets, privateShadowTargets)
     }
 
@@ -632,22 +632,29 @@ class MixinSymbolProcessor(
     private fun probePrivateShadowTargets(
         resolver: Resolver,
         targetClass: String,
-        shadows: List<ShadowEntry>
+        shadows: List<ShadowEntry>,
+        invokers: List<InvokerEntry>
     ): Set<String> {
         val result = mutableSetOf<String>()
         val targetDecl = resolver.getClassDeclarationByName(
             resolver.getKSNameFromString(targetClass)
         ) ?: return result
-        for (sh in shadows) {
-            val td = dropFirstArgDesc(sh.handlerDesc)
-            val match = targetDecl.getDeclaredFunctions().firstOrNull {
-                it.simpleName.asString() == sh.targetName && descriptor(it) == td
-            } ?: continue
-            if (com.google.devtools.ksp.symbol.Modifier.PRIVATE in match.modifiers) {
-                result += sh.targetName + td
-            }
-        }
+        for (sh in shadows) recordIfPrivate(targetDecl, sh.targetName, dropFirstArgDesc(sh.handlerDesc), result)
+        for (iv in invokers) recordIfPrivate(targetDecl, iv.targetName, dropFirstArgDesc(iv.handlerDesc), result)
         return result
+    }
+
+    private fun recordIfPrivate(
+        targetDecl: KSClassDeclaration,
+        name: String, desc: String,
+        result: MutableSet<String>
+    ) {
+        val match = targetDecl.getDeclaredFunctions().firstOrNull {
+            it.simpleName.asString() == name && descriptor(it) == desc
+        } ?: return
+        if (com.google.devtools.ksp.symbol.Modifier.PRIVATE in match.modifiers) {
+            result += name + desc
+        }
     }
 
     private fun probeStaticTargets(

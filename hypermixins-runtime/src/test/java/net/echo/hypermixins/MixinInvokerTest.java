@@ -55,6 +55,28 @@ public class MixinInvokerTest {
         public int run(Object self) { return callTally(self, 21); }
     }
 
+    // ---- private-target @Invoker ----
+
+    public static class PrivateTarget {
+        private int privy() { return 99; }
+        public int read() { return 0; }
+    }
+    @Mixin("net.echo.hypermixins.MixinInvokerTest$PrivateTarget")
+    public static class PrivateMix {
+        @Invoker("privy")
+        public native int callPrivy(Object self);
+
+        @Overwrite("read")
+        public int read(Object self) { return callPrivy(self); }
+    }
+
+    @Test
+    void invokerOnPrivateTarget() throws Exception {
+        Class<?> t = applyMixin(PrivateTarget.class, PrivateMix.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(99, t.getMethod("read").invoke(inst));
+    }
+
     @Test
     void invokerNameAutoDerivedFromPrefix() throws Exception {
         Class<?> t = applyMixin(PrefixTarget.class, PrefixMix.class);

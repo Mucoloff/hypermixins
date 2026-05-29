@@ -516,14 +516,15 @@ public final class MixinDescriptor {
         List<ModifyArgEntry> mas = collectModifyArgs(mixinClass);
         List<ModifyExpressionValueEntry> mxs = collectModifyExpressionValues(mixinClass);
         List<ModifyArgsEntry> mxa = collectModifyArgsAll(mixinClass);
-        Map<String, Boolean> privateShadowMap = probePrivateShadowTargets(mixinClass, targetInternal, shadows);
+        Map<String, Boolean> privateShadowMap = probePrivateShadowTargets(mixinClass, targetInternal, shadows, invs);
         return new MixinDescriptor(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals, injectShifts,
             shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, synths, staticMap, privateShadowMap);
     }
 
     private static Map<String, Boolean> probePrivateShadowTargets(
-        Class<?> mixinClass, String targetInternal, List<ShadowEntry> shadows
+        Class<?> mixinClass, String targetInternal,
+        List<ShadowEntry> shadows, List<InvokerEntry> invokers
     ) {
         Map<String, Boolean> out = new HashMap<>();
         Class<?> targetCls;
@@ -533,18 +534,24 @@ public final class MixinDescriptor {
             return out;
         }
         for (ShadowEntry sh : shadows) {
-            String td = dropFirstArgFromHandlerDesc(sh.handlerDesc());
-            try {
-                Type[] paramTypes = Type.getArgumentTypes(td);
-                Class<?>[] params = new Class<?>[paramTypes.length];
-                for (int i = 0; i < paramTypes.length; i++) {
-                    params[i] = classForType(paramTypes[i], targetCls.getClassLoader());
-                }
-                Method m = targetCls.getDeclaredMethod(sh.targetName(), params);
-                if (Modifier.isPrivate(m.getModifiers())) out.put(sh.targetName() + td, true);
-            } catch (Throwable ignored) {}
+            recordIfPrivate(targetCls, sh.targetName(), dropFirstArgFromHandlerDesc(sh.handlerDesc()), out);
+        }
+        for (InvokerEntry iv : invokers) {
+            recordIfPrivate(targetCls, iv.targetName(), dropFirstArgFromHandlerDesc(iv.handlerDesc()), out);
         }
         return out;
+    }
+
+    private static void recordIfPrivate(Class<?> targetCls, String name, String desc, Map<String, Boolean> out) {
+        try {
+            Type[] paramTypes = Type.getArgumentTypes(desc);
+            Class<?>[] params = new Class<?>[paramTypes.length];
+            for (int i = 0; i < paramTypes.length; i++) {
+                params[i] = classForType(paramTypes[i], targetCls.getClassLoader());
+            }
+            Method m = targetCls.getDeclaredMethod(name, params);
+            if (Modifier.isPrivate(m.getModifiers())) out.put(name + desc, true);
+        } catch (Throwable ignored) {}
     }
 
     private static String dropFirstArgFromHandlerDesc(String desc) {
