@@ -537,6 +537,32 @@ public class MixinInjectTest {
         }
     }
 
+    // ---- bare @Local ambiguity at non-HEAD point ----
+
+    public static class SiteAmbiguousTarget {
+        public int run(int seed) {
+            int first = seed + 1;
+            int second = seed + 2;
+            return Math.max(first, second);
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteAmbiguousTarget")
+    public static class SiteAmbiguousMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/lang/Math.max(II)I"))
+        public void onMax(Object self, @net.echo.hypermixins.annotations.Local int picked) {}
+    }
+
+    @Test
+    void bareLocalAtNonHeadFailsOnAmbiguity() {
+        IllegalStateException ex = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> applyMixin(SiteAmbiguousTarget.class, SiteAmbiguousMixin.class));
+        org.junit.jupiter.api.Assertions.assertTrue(
+            ex.getMessage().contains("ambiguous"),
+            () -> "expected ambiguity message, got: " + ex.getMessage());
+    }
+
     @Test
     void captureLocalOrdinalAtInvokePoint() throws Exception {
         Class<?> t = applyMixin(SiteOrdinalTarget.class, SiteOrdinalMixin.class);

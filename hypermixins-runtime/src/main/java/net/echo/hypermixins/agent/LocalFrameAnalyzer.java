@@ -25,7 +25,7 @@ final class LocalFrameAnalyzer {
     private final MethodNode method;
     private Map<LabelNode, Integer> labelIndex;
 
-    LocalFrameAnalyzer(String ownerInternal, MethodNode method) {
+    LocalFrameAnalyzer(MethodNode method) {
         this.method = method;
     }
 

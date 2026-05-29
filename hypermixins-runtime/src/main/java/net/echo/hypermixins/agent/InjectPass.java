@@ -46,7 +46,7 @@ final class InjectPass {
             Set<Integer> argsOnlyParams = InjectLocalResolver.argsOnlyParams(entryMap);
             At.Shift shift = descriptor.injectShifts().getOrDefault(handlerKey, At.Shift.BEFORE);
             boolean useAnalyzer = requiresFrameAnalysis(inject.point()) && hasUnresolvedLocal(entryMap);
-            LocalFrameAnalyzer analyzer = useAnalyzer ? new LocalFrameAnalyzer(owner.name, target) : null;
+            LocalFrameAnalyzer analyzer = useAnalyzer ? new LocalFrameAnalyzer(target) : null;
             // The static slot map fits HEAD / TAIL / RETURN (incoming target params); for
             // non-HEAD points with bare @Local the analyzer handles every entry, so the static
             // map would error out on type lookups that only exist mid-method — skip it.
