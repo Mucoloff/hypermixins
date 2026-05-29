@@ -95,6 +95,10 @@ public static void premain(String args, Instrumentation inst) throws Exception {
 | `@Shadow("name")` | Forwards a `native` mixin method to a method on the target class. Also forwards `this.field` access on an `@Shadow` instance field to the target's field. Supports `prefix = "..."` for Sponge-style name resolution. |
 | `@Local(index = N)` | On an `@Inject` handler param: capture the target's local at slot `N` directly instead of relying on positional capture. |
 | `@ModifyReturnValue` | Static handler `T (T)` wraps the return value of a specific INVOKE inside the target method. |
+| `@ModifyConstant` | Static handler `T (T)` replaces a numeric / String constant load matching the typed `@Constant` clause. |
+| `@ModifyArg` | Static handler `T (T)` replaces the last argument of a specific INVOKE call site (v1 last-arg only). |
+| `@Accessor` | Native mixin method becomes a `GETFIELD`/`PUTFIELD` trampoline; field name auto-resolves from the `getFoo`/`setFoo`/`isFoo` convention. |
+| `@Invoker` | Native mixin method becomes an `INVOKEVIRTUAL` trampoline to a named target method (auto-derives via `invokeFoo`/`callFoo`). |
 
 Inject handlers may capture target parameters positionally between `Object self`
 and the optional trailing `CallbackInfo[Returnable]`:

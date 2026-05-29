@@ -85,6 +85,20 @@ master is the only published surface so far.
 - `@ModifyReturnValue` — static `T (T)` handler that wraps the return value
   of a specific INVOKE inside the target method (companion to `@Redirect`).
 
+### Added (annotation wave 2 — A → G phases)
+- `@Accessor` — native mixin method resolves to a direct `GETFIELD`/`PUTFIELD`
+  on the target via `Object self`. `getFoo`/`setFoo`/`isFoo` auto-derive.
+- `@Invoker` — native mixin method resolves to an `INVOKEVIRTUAL` against the
+  target. `invokeFoo`/`callFoo` auto-derive.
+- `@ModifyConstant` — replaces matching `LDC` / `ICONST_n` / `BIPUSH` /
+  `SIPUSH` / `LCONST_*` / `FCONST_*` / `DCONST_*` constants. v1 covers int,
+  long, float, double, and String constants.
+- `@ModifyArg` — replaces the last argument of a matched INVOKE call site
+  (other indices rejected at transform time in v1).
+- `@At#desc` wildcard / regex — `*` is treated as `.*` and `regex:<pat>`
+  short-circuits to a Java `Pattern`. Currently wired into `@Inject` INVOKE
+  and FIELD matchers.
+
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,
   module table.
