@@ -64,6 +64,16 @@ java -javaagent:hypermixins-agent.jar -cp app.jar com.example.Main
 The agent scans every `*.mixins.yml` under `META-INF/hypermixins/` across the
 classpath and calls `HyperMixins.registerFromClasspath(inst)` automatically.
 
+The agent accepts one optional argument:
+
+```bash
+java -javaagent:hypermixins-agent.jar=com.example.SomeAppClass -cp app.jar com.example.Main
+```
+
+The argument is a fully qualified class name; its `ClassLoader` is used as the
+search root for `META-INF/hypermixins/*.mixins.yml`. Omit it to scan the system
+class loader.
+
 Programmatic registration if you prefer:
 
 ```java

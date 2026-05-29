@@ -31,6 +31,20 @@ import java.util.concurrent.ConcurrentHashMap;
  * Compile-time-baked view of a mixin class. Built once per {@code @Mixin} class either from
  * the KSP-generated {@code <MixinFQN>$$Descriptor} (the zero-reflection production path) or
  * from runtime annotation reflection (legacy / test fallback).
+ *
+ * <h2>Usage</h2>
+ * <pre>{@code
+ * MixinDescriptor d = MixinDescriptor.load(WorldMixin.class);
+ * for (MixinDescriptor.OverwriteEntry e : d.overwrites()) {
+ *     System.out.println(e.targetName() + e.targetDesc() + " -> " + e.handlerName());
+ * }
+ * String[] synth = d.synthetics().get("getPlayers()Ljava/util/List;");
+ * // synth[0] = mangled __original$ name, synth[1] = __dispatch$ name
+ * }</pre>
+ *
+ * Results are cached per {@code Class<?>}; the first call resolves the
+ * {@code $$Descriptor} and subsequent calls return the cached instance.
+ * Use {@link #invalidateCache(Class)} after a class redefinition.
  * <p>
  * Once loaded, this object is immutable and shared across all registrations of the same mixin.
  *

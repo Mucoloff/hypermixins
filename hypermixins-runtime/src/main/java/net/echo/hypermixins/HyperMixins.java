@@ -23,6 +23,24 @@ import java.util.Map;
  * Returns a {@link MixinHandle} per-registration enabling atomic enable/disable of mixin
  * dispatch without bytecode retransformation (via {@link MixinRegistry} + {@code INVOKEDYNAMIC}).
  *
+ * <h2>Programmatic usage</h2>
+ * <pre>{@code
+ * public static void premain(String args, Instrumentation inst) throws Exception {
+ *     MixinHandle handle = HyperMixins.register(inst, WorldMixin.class);
+ *     // later, runtime toggle:
+ *     handle.disable();   // call-sites fall back to the original
+ *     handle.enable();    // back to the mixin handler
+ * }
+ * }</pre>
+ *
+ * <h2>YAML-driven usage (sponge-style)</h2>
+ * <pre>{@code
+ * public static void premain(String args, Instrumentation inst) throws Exception {
+ *     // scan every META-INF/hypermixins/*.mixins.yml on the classpath
+ *     HyperMixins.registerFromClasspath(inst);
+ * }
+ * }</pre>
+ *
  * @author xEcho1337
  */
 public final class HyperMixins {

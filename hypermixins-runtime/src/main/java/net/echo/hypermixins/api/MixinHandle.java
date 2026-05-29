@@ -18,6 +18,15 @@ import java.util.Objects;
  * {@code __original$} methods (schema cannot be rolled back via
  * {@link Instrumentation#retransformClasses}).
  *
+ * <h2>Usage</h2>
+ * <pre>{@code
+ * MixinHandle handle = HyperMixins.register(inst, MyMixin.class);
+ * // run target code — mixin handlers are active
+ * handle.disable();   // bypass mixin, calls go to original
+ * handle.enable();    // re-enable mixin
+ * handle.unregister(); // permanent: removes transformer + clears registry entries
+ * }</pre>
+ *
  * @author xEcho1337
  */
 public final class MixinHandle {

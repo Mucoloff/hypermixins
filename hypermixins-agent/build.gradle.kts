@@ -32,6 +32,36 @@ tasks.shadowJar {
     }
 }
 
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            artifact(tasks.shadowJar)
+            artifact(tasks.named("sourcesJar"))
+            artifact(tasks.named("javadocJar"))
+            groupId = project.group.toString()
+            artifactId = project.name
+            version = project.version.toString()
+            pom {
+                name.set("HyperMixins Agent")
+                description.set("Drop-in -javaagent: jar that auto-registers mixins from META-INF/hypermixins/*.mixins.yml on the classpath.")
+                url.set("https://github.com/xEcho1337/hypermixins")
+                licenses {
+                    license {
+                        name.set("MIT License")
+                        url.set("https://opensource.org/licenses/MIT")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("xEcho1337")
+                        name.set("xEcho1337")
+                    }
+                }
+            }
+        }
+    }
+}
+
 val exampleJarTask = rootProject.project(":hypermixins-example").tasks.named("jar")
 
 tasks.test {

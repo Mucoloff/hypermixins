@@ -19,6 +19,18 @@ import java.util.jar.JarFile;
 
 /**
  * Parsed view of a {@code .mixins.yml} descriptor.
+ *
+ * <h2>Usage</h2>
+ * <pre>{@code
+ * // explicit URL:
+ * MixinsConfig cfg = MixinsConfig.fromUrl(getClass().getResource("/my.mixins.yml"));
+ *
+ * // every YAML on the classpath:
+ * for (MixinsConfig c : MixinsConfig.discoverAll(classLoader)) {
+ *     System.out.println(c.packageName() + " -> " + c.mixinClassNames());
+ * }
+ * }</pre>
+ *
  * <p>
  * Supported schema:
  * <pre>{@code
