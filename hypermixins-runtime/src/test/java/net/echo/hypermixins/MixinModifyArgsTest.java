@@ -48,7 +48,7 @@ public class MixinModifyArgsTest {
         assertEquals("{swapped-orig=fixed}", result);
     }
 
-    // ---- primitive args rejected at transform time ----
+    // ---- primitive args boxed into Object[] ----
 
     public static class PrimitiveTarget {
         public int run(int x) {
@@ -59,16 +59,17 @@ public class MixinModifyArgsTest {
     public static class PrimitiveMix {
         @ModifyArgs(method = "run",
             at = @At(desc = "java/lang/Integer.max(II)I"))
-        public static void capture(Object[] args) { }
+        public static void capture(Object[] args) {
+            args[0] = ((Integer) args[0]) + 100;
+            args[1] = ((Integer) args[1]) + 1;
+        }
     }
 
     @Test
-    void modifyArgsRejectsPrimitiveArgsAtTransformTime() {
-        IllegalStateException ex = org.junit.jupiter.api.Assertions.assertThrows(
-            IllegalStateException.class,
-            () -> applyMixin(PrimitiveTarget.class, PrimitiveMix.class));
-        org.junit.jupiter.api.Assertions.assertTrue(
-            ex.getMessage().contains("reference-typed"),
-            "expected reference-typed diagnostic, got: " + ex.getMessage());
+    void modifyArgsBoxesPrimitivesInArray() throws Exception {
+        Class<?> t = applyMixin(PrimitiveTarget.class, PrimitiveMix.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // input 7 → Integer.max(7+100=107, 0+1=1) = 107
+        assertEquals(107, t.getMethod("run", int.class).invoke(inst, 7));
     }
 }

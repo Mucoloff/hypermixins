@@ -1191,19 +1191,19 @@ public class MixinTransformer implements ClassFileTransformer {
                 matchCount.put(ma, count + 1);
                 if (count != 0) continue;
                 Type[] argTypes = Type.getArgumentTypes(mi.desc);
-                for (Type t : argTypes) {
-                    if (t.getSort() != Type.OBJECT && t.getSort() != Type.ARRAY) {
-                        throw new IllegalStateException(
-                            "@ModifyArgs v1 supports reference-typed args only — got " + t + " on " + key);
-                    }
-                }
                 int n = argTypes.length;
-                int baseLocal = method.maxLocals;
-                method.maxLocals += n;
+                // Allocate per-arg temp locals respecting two-slot primitives.
+                int[] argLocals = new int[n];
+                int slotCursor = method.maxLocals;
+                for (int i = 0; i < n; i++) {
+                    argLocals[i] = slotCursor;
+                    slotCursor += argTypes[i].getSize();
+                }
+                method.maxLocals = slotCursor;
                 InsnList block = new InsnList();
-                // Store args into temp locals in reverse order (stack top = last arg).
+                // Stash args into temp locals in reverse order (stack top = last arg).
                 for (int i = n - 1; i >= 0; i--) {
-                    block.add(new VarInsnNode(Opcodes.ASTORE, baseLocal + i));
+                    block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ISTORE), argLocals[i]));
                 }
                 // Build Object[N].
                 block.add(intConst(n));
@@ -1214,23 +1214,38 @@ public class MixinTransformer implements ClassFileTransformer {
                 for (int i = 0; i < n; i++) {
                     block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
                     block.add(intConst(i));
-                    block.add(new VarInsnNode(Opcodes.ALOAD, baseLocal + i));
+                    block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ILOAD), argLocals[i]));
+                    emitBox(block, argTypes[i]);
                     block.add(new InsnNode(Opcodes.AASTORE));
                 }
                 // Invoke handler.
                 block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
                 block.add(new MethodInsnNode(Opcodes.INVOKESTATIC, mixinInternal,
                     ma.handlerName(), ma.handlerDesc(), false));
-                // Reload args from the (possibly mutated) array.
+                // Reload args from the (possibly mutated) array; unbox primitives.
                 for (int i = 0; i < n; i++) {
                     block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
                     block.add(intConst(i));
                     block.add(new InsnNode(Opcodes.AALOAD));
-                    block.add(new TypeInsnNode(Opcodes.CHECKCAST, argTypes[i].getInternalName()));
+                    unboxOrCast(block, argTypes[i]);
                 }
                 method.instructions.insertBefore(insn, block);
                 break;
             }
+        }
+    }
+
+    private static void emitBox(InsnList out, Type t) {
+        switch (t.getSort()) {
+            case Type.BOOLEAN -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Boolean",   "valueOf", "(Z)Ljava/lang/Boolean;",   false));
+            case Type.BYTE    -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Byte",      "valueOf", "(B)Ljava/lang/Byte;",      false));
+            case Type.CHAR    -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", false));
+            case Type.SHORT   -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Short",     "valueOf", "(S)Ljava/lang/Short;",     false));
+            case Type.INT     -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Integer",   "valueOf", "(I)Ljava/lang/Integer;",   false));
+            case Type.LONG    -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Long",      "valueOf", "(J)Ljava/lang/Long;",      false));
+            case Type.FLOAT   -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Float",     "valueOf", "(F)Ljava/lang/Float;",     false));
+            case Type.DOUBLE  -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Double",    "valueOf", "(D)Ljava/lang/Double;",    false));
+            default -> {} // reference type — already an Object
         }
     }
 

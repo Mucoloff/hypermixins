@@ -116,9 +116,9 @@ hypermixins-example/run/test-world-1.0.jar \
   + YAML emission end-to-end as a substitute.
 - **`@ModifyReceiver`** — annotation surface exists; runtime support
   deferred. Needs a SWAP/DUP_X1 stack-shuffle dance under existing args.
-  `@ModifyArgs` ships for reference-typed arg lists (primitive args still
-  rejected at transform time). `@ModifyExpressionValue` ships for INVOKE
-  / FIELD / CONSTANT.
+  `@ModifyArgs` boxes primitive args into the wrapper types and reloads
+  them via the existing `unboxOrCast` helper. `@ModifyExpressionValue`
+  ships for INVOKE / FIELD / CONSTANT.
 - **Local-variable capture beyond target parameters** — capture locals
   declared inside the target body, not just incoming params.
 - **Field-level `@Shadow`** — v1 implements method shadows only; field
