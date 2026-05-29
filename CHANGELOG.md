@@ -7,6 +7,21 @@ master is the only published surface so far.
 ## Unreleased
 
 ### Added
+- **Frame-driven `@Local` at every non-HEAD `@Inject` point.** Ordinal and bare
+  bindings now resolve through the target's preserved `LocalVariableTable`
+  (`LocalFrameAnalyzer`), so a handler can pick mid-method locals at TAIL /
+  RETURN / INVOKE / FIELD / CONSTANT / JUMP / NEW — not just incoming params.
+  `@Local(argsOnly = true)` at non-HEAD points relocates the injection block
+  to before the earliest preceding `*LOAD` of the source slot so the writeback
+  lands before the consuming push.
+- **Per-feature pass split** of `MixinTransformer` (1595 → 200 LOC),
+  `MixinDescriptor` (884 → 318 LOC), and `MixinSymbolProcessor` (900 → 183
+  LOC). Each annotation family lives in its own `*Pass` / `*Collector` /
+  `*Reader` class — see `CONTINUE.md` for the new architecture map.
+- **`style.md` §22 (Map<K, Boolean> → Set<K>) + §23 (no God classes)** with
+  the codebase already conforming.
+
+### Added (earlier in this cycle)
 - **Compile-time descriptor pipeline.** KSP processor emits `<MixinFQN>$$Descriptor.java`
   with pre-computed `overwriteEntries`, `originalEntries`, `redirectEntries`,
   `injectEntries`, `syntheticNames`, and `mixinClass()` / `targetClass()`.
