@@ -28,6 +28,7 @@ import javax.lang.model.element.Modifier
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   staticTargetMethods:[name, desc]   — only entries the resolver could see as static
+//   privateShadowTargetMethods:[name, desc]   — @Shadow targets the resolver saw as private
 //   syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
 
 private const val MIXIN_FQN       = "net.echo.hypermixins.annotations.Mixin"
@@ -172,7 +173,8 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, modifyExprs, modifyArgsList, accessors, invokers, staticTargets)
+        val privateShadowTargets = probePrivateShadowTargets(resolver, targetClass, shadows)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, modifyExprs, modifyArgsList, accessors, invokers, staticTargets, privateShadowTargets)
     }
 
     // ---- Validation + collection ----
@@ -627,6 +629,27 @@ class MixinSymbolProcessor(
 
     // ---- Code generation ----
 
+    private fun probePrivateShadowTargets(
+        resolver: Resolver,
+        targetClass: String,
+        shadows: List<ShadowEntry>
+    ): Set<String> {
+        val result = mutableSetOf<String>()
+        val targetDecl = resolver.getClassDeclarationByName(
+            resolver.getKSNameFromString(targetClass)
+        ) ?: return result
+        for (sh in shadows) {
+            val td = dropFirstArgDesc(sh.handlerDesc)
+            val match = targetDecl.getDeclaredFunctions().firstOrNull {
+                it.simpleName.asString() == sh.targetName && descriptor(it) == td
+            } ?: continue
+            if (com.google.devtools.ksp.symbol.Modifier.PRIVATE in match.modifiers) {
+                result += sh.targetName + td
+            }
+        }
+        return result
+    }
+
     private fun probeStaticTargets(
         resolver: Resolver,
         targetClass: String,
@@ -683,7 +706,8 @@ class MixinSymbolProcessor(
         modifyArgsList: List<ModifyArgsEntry>,
         accessors: List<AccessorEntry>,
         invokers: List<InvokerEntry>,
-        staticTargets: Set<String>
+        staticTargets: Set<String>,
+        privateShadowTargets: Set<String>
     ) {
         val mixinFqn = cls.qualifiedName?.asString() ?: return
         val descriptorFqn = "$mixinFqn\$\$Descriptor"
@@ -758,6 +782,10 @@ class MixinSymbolProcessor(
             arrayOf(it.targetMethod, it.invokeDesc, it.handlerName, it.handlerDesc)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
+            val paren = it.indexOf('(')
+            arrayOf(it.substring(0, paren), it.substring(paren))
+        }))
+        classBuilder.addMethod(entriesMethod("privateShadowTargetMethods", privateShadowTargets.map {
             val paren = it.indexOf('(')
             arrayOf(it.substring(0, paren), it.substring(paren))
         }))

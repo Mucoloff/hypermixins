@@ -119,9 +119,9 @@ hypermixins-example/run/test-world-1.0.jar \
   `@ModifyArgs` ships for reference-typed arg lists (primitive args still
   rejected at transform time). `@ModifyExpressionValue` ships for INVOKE
   / FIELD / CONSTANT.
-- **Private-target `@Shadow` / `@Invoker`** — requires a public synthetic
-  accessor on the target class so the trampoline's INVOKEVIRTUAL clears the
-  access check.
+- **Private-target `@Invoker`** — same public-synthetic-accessor pattern as
+  the private-target `@Shadow` path; `@Invoker` would need an equivalent
+  detection probe in the descriptor.
 - **Local-variable capture beyond target parameters** — capture locals
   declared inside the target body, not just incoming params.
 - **Field-level `@Shadow`** — v1 implements method shadows only; field

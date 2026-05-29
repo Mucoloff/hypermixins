@@ -112,6 +112,8 @@ public final class MixinDescriptor {
     private final Map<String, String[]> synthetics;
     /** Target-method-key → true when the method is static. Populated best-effort at build time. */
     private final Map<String, Boolean> staticTargetMethods;
+    /** Target-method-key (name+desc) → true when the target method is private. */
+    private final Map<String, Boolean> privateShadowTargets;
 
     private MixinDescriptor(
         Class<?> mixinClass, String targetClass,
@@ -151,6 +153,7 @@ public final class MixinDescriptor {
         this.modifyArgsAll = List.copyOf(modifyArgsAll);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
         this.staticTargetMethods = Map.of();
+        this.privateShadowTargets = Map.of();
     }
 
     private MixinDescriptor(
@@ -170,7 +173,8 @@ public final class MixinDescriptor {
         List<ModifyExpressionValueEntry> modifyExpressionValues,
         List<ModifyArgsEntry> modifyArgsAll,
         Map<String, String[]> synthetics,
-        Map<String, Boolean> staticTargetMethods
+        Map<String, Boolean> staticTargetMethods,
+        Map<String, Boolean> privateShadowTargets
     ) {
         this.mixinClass  = mixinClass;
         this.targetClass = targetClass;
@@ -192,6 +196,7 @@ public final class MixinDescriptor {
         this.modifyArgsAll = List.copyOf(modifyArgsAll);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
         this.staticTargetMethods = Collections.unmodifiableMap(new HashMap<>(staticTargetMethods));
+        this.privateShadowTargets = Collections.unmodifiableMap(new HashMap<>(privateShadowTargets));
     }
 
     public Class<?> mixinClass() { return mixinClass; }
@@ -222,6 +227,11 @@ public final class MixinDescriptor {
      */
     public boolean isStaticTargetMethod(String name, String desc) {
         return Boolean.TRUE.equals(staticTargetMethods.get(name + desc));
+    }
+
+    /** Whether the target method {@code name + desc} is private — drives private-target shadow trampoline gen. */
+    public boolean isPrivateShadowTarget(String name, String desc) {
+        return Boolean.TRUE.equals(privateShadowTargets.get(name + desc));
     }
 
     /**
@@ -273,6 +283,7 @@ public final class MixinDescriptor {
             List<String[]> modifyExprRows = invokeStringListOrEmpty(lookup, desc, "modifyExpressionValueEntries");
             List<String[]> modifyArgsRows = invokeStringListOrEmpty(lookup, desc, "modifyArgsEntries");
             List<String[]> staticTargetRows = invokeStringListOrEmpty(lookup, desc, "staticTargetMethods");
+            List<String[]> privateShadowRows = invokeStringListOrEmpty(lookup, desc, "privateShadowTargetMethods");
             List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
 
             List<OverwriteEntry> ows = new ArrayList<>(overwriteRows.size());
@@ -336,7 +347,7 @@ public final class MixinDescriptor {
 
             MixinDescriptor base = new MixinDescriptor(
                 mixinClass, targetInternal, ows, orig, reds, injs, injLocals, injShifts, shads, shadFields, shadStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, synths);
-            return withStaticTargets(base, staticTargetRows);
+            return withTargetMaps(base, staticTargetRows, privateShadowRows);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
         }
@@ -505,9 +516,43 @@ public final class MixinDescriptor {
         List<ModifyArgEntry> mas = collectModifyArgs(mixinClass);
         List<ModifyExpressionValueEntry> mxs = collectModifyExpressionValues(mixinClass);
         List<ModifyArgsEntry> mxa = collectModifyArgsAll(mixinClass);
+        Map<String, Boolean> privateShadowMap = probePrivateShadowTargets(mixinClass, targetInternal, shadows);
         return new MixinDescriptor(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals, injectShifts,
-            shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, synths, staticMap);
+            shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, synths, staticMap, privateShadowMap);
+    }
+
+    private static Map<String, Boolean> probePrivateShadowTargets(
+        Class<?> mixinClass, String targetInternal, List<ShadowEntry> shadows
+    ) {
+        Map<String, Boolean> out = new HashMap<>();
+        Class<?> targetCls;
+        try {
+            targetCls = Class.forName(targetInternal.replace('/', '.'), false, mixinClass.getClassLoader());
+        } catch (Throwable t) {
+            return out;
+        }
+        for (ShadowEntry sh : shadows) {
+            String td = dropFirstArgFromHandlerDesc(sh.handlerDesc());
+            try {
+                Type[] paramTypes = Type.getArgumentTypes(td);
+                Class<?>[] params = new Class<?>[paramTypes.length];
+                for (int i = 0; i < paramTypes.length; i++) {
+                    params[i] = classForType(paramTypes[i], targetCls.getClassLoader());
+                }
+                Method m = targetCls.getDeclaredMethod(sh.targetName(), params);
+                if (Modifier.isPrivate(m.getModifiers())) out.put(sh.targetName() + td, true);
+            } catch (Throwable ignored) {}
+        }
+        return out;
+    }
+
+    private static String dropFirstArgFromHandlerDesc(String desc) {
+        Type[] all = Type.getArgumentTypes(desc);
+        if (all.length == 0) return desc;
+        Type ret = Type.getReturnType(desc);
+        Type[] rest = Arrays.copyOfRange(all, 1, all.length);
+        return Type.getMethodDescriptor(ret, rest);
     }
 
     private static List<ModifyArgsEntry> collectModifyArgsAll(Class<?> mixinClass) {
@@ -663,13 +708,17 @@ public final class MixinDescriptor {
      * {@link #load} returns. Called from {@link #load} so the production path picks up
      * static-target info without triggering {@code Class.forName} on the target.
      */
-    private static MixinDescriptor withStaticTargets(MixinDescriptor base, List<String[]> rows) {
-        if (rows.isEmpty()) return base;
-        Map<String, Boolean> map = new HashMap<>();
-        for (String[] r : rows) map.put(r[0] + r[1], true);
+    private static MixinDescriptor withTargetMaps(
+        MixinDescriptor base, List<String[]> staticRows, List<String[]> privateRows
+    ) {
+        if (staticRows.isEmpty() && privateRows.isEmpty()) return base;
+        Map<String, Boolean> stat = new HashMap<>();
+        for (String[] r : staticRows) stat.put(r[0] + r[1], true);
+        Map<String, Boolean> priv = new HashMap<>();
+        for (String[] r : privateRows) priv.put(r[0] + r[1], true);
         return new MixinDescriptor(base.mixinClass, base.targetClass,
             base.overwrites, base.originals, base.redirects, base.injects, base.injectLocals,
-            base.injectShifts, base.shadows, base.shadowFields, base.shadowStaticFields, base.modifyReturnValues, base.accessors, base.invokers, base.modifyConstants, base.modifyArgs, base.modifyExpressionValues, base.modifyArgsAll, base.synthetics, map);
+            base.injectShifts, base.shadows, base.shadowFields, base.shadowStaticFields, base.modifyReturnValues, base.accessors, base.invokers, base.modifyConstants, base.modifyArgs, base.modifyExpressionValues, base.modifyArgsAll, base.synthetics, stat, priv);
     }
 
     private static String resolveShadowName(String simpleName, String value, String prefix) {

@@ -74,6 +74,16 @@ public class MixinTransformer implements ClassFileTransformer {
         Set<String> addedKeys = new HashSet<>();
         Set<String> overwrittenKeys = new HashSet<>();
 
+        // Generate public synthetic accessors on the target for every private @Shadow target.
+        // Done up-front so subsequent passes can iterate node.methods safely.
+        for (MixinMapping mapping : mappings) {
+            for (MixinDescriptor.ShadowEntry sh : mapping.descriptor().shadows()) {
+                String targetDesc = dropFirstArgFromDescriptor(sh.handlerDesc());
+                if (!mapping.descriptor().isPrivateShadowTarget(sh.targetName(), targetDesc)) continue;
+                addPrivateShadowAccessor(node, sh.targetName(), targetDesc, extraMethods, addedKeys);
+            }
+        }
+
         for (MixinMapping mapping : mappings) {
             String mixinField = "__mixin$" + mapping.getMixinClass().getName().replace('.', '$');
             String mixinDesc  = Type.getDescriptor(mapping.getMixinClass());
@@ -242,6 +252,51 @@ public class MixinTransformer implements ClassFileTransformer {
         target.instructions.add(body);
 
         return new MethodNode[]{originalCopy, dispatchCopy};
+    }
+
+    private static String dropFirstArgFromDescriptor(String desc) {
+        Type[] all = Type.getArgumentTypes(desc);
+        if (all.length == 0) return desc;
+        Type ret = Type.getReturnType(desc);
+        Type[] rest = Arrays.copyOfRange(all, 1, all.length);
+        return Type.getMethodDescriptor(ret, rest);
+    }
+
+    static String privateShadowAccessorName(String targetName, String targetDesc) {
+        return "__access$" + targetName + "$" + NameHash.hashHex(targetDesc);
+    }
+
+    /**
+     * Adds {@code public synthetic returnType __access$name$hash(args...) { ALOAD 0; args;
+     * INVOKESPECIAL Target.<name>; ?RETURN; }} to {@code node}. Lets the mixin trampoline reach
+     * a private target method via an INVOKEVIRTUAL on this accessor.
+     */
+    private static void addPrivateShadowAccessor(
+        ClassNode node, String targetName, String targetDesc,
+        List<MethodNode> extraMethods, Set<String> addedKeys
+    ) {
+        String accessor = privateShadowAccessorName(targetName, targetDesc);
+        String key = accessor + targetDesc;
+        if (!addedKeys.add(key)) return;
+        // Don't duplicate if already added by a previous mixin.
+        for (MethodNode existing : node.methods) {
+            if (existing.name.equals(accessor) && existing.desc.equals(targetDesc)) return;
+        }
+        MethodNode acc = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+            accessor, targetDesc, null, null);
+        InsnList ins = new InsnList();
+        ins.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        Type[] argTypes = Type.getArgumentTypes(targetDesc);
+        int slot = 1;
+        for (Type a : argTypes) {
+            ins.add(new VarInsnNode(a.getOpcode(Opcodes.ILOAD), slot));
+            slot += a.getSize();
+        }
+        ins.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, node.name, targetName, targetDesc, false));
+        Type ret = Type.getReturnType(targetDesc);
+        ins.add(new InsnNode(ret.getOpcode(Opcodes.IRETURN)));
+        acc.instructions.add(ins);
+        extraMethods.add(acc);
     }
 
     private static String staticMixinFieldName(MixinMapping mapping) {
@@ -483,7 +538,10 @@ public class MixinTransformer implements ClassFileTransformer {
                     insns.add(new VarInsnNode(arg.getOpcode(Opcodes.ILOAD), slotShad));
                     slotShad += arg.getSize();
                 }
-                insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, targetName, targetDesc, false));
+                String invokedName = mapping.descriptor().isPrivateShadowTarget(targetName, targetDesc)
+                    ? privateShadowAccessorName(targetName, targetDesc)
+                    : targetName;
+                insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, invokedName, targetDesc, false));
                 insns.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
                 method.instructions.add(insns);
             }

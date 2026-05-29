@@ -62,6 +62,28 @@ public class MixinShadowTest {
         public void write(Object self, int v) { health = v * 2; }
     }
 
+    // ---- private-target @Shadow method ----
+
+    public static class PrivateTarget {
+        private String secret() { return "secret"; }
+        public String describe() { return "stub"; }
+    }
+    @Mixin("net.echo.hypermixins.MixinShadowTest$PrivateTarget")
+    public static class PrivateShadowMixin {
+        @net.echo.hypermixins.annotations.Shadow("secret")
+        public native String reachSecret(Object self);
+
+        @net.echo.hypermixins.annotations.Overwrite("describe")
+        public String describe(Object self) { return reachSecret(self) + "!"; }
+    }
+
+    @org.junit.jupiter.api.Test
+    void shadowPrivateMethod() throws Exception {
+        Class<?> t = applyMixin(PrivateTarget.class, PrivateShadowMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals("secret!", t.getMethod("describe").invoke(inst));
+    }
+
     // ---- @Shadow(prefix = ...) ----
 
     public static class PrefixTarget {
