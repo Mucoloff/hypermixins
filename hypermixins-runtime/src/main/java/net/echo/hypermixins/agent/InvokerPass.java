@@ -52,7 +52,7 @@ final class InvokerPass {
                 slot += a.getSize();
             }
             String invokedName = mapping.descriptor().isPrivateShadowTarget(iv.targetName(), targetDesc)
-                ? MixinTransformer.privateShadowAccessorName(iv.targetName(), targetDesc)
+                ? PrivateShadowAccessorPass.accessorName(iv.targetName(), targetDesc)
                 : iv.targetName();
             ins.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, invokedName, targetDesc, false));
             ins.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));

@@ -78,14 +78,14 @@ public class MixinTransformer implements ClassFileTransformer {
         // target. Done up-front so subsequent passes can iterate node.methods safely.
         for (MixinMapping mapping : mappings) {
             for (MixinDescriptor.ShadowEntry sh : mapping.descriptor().shadows()) {
-                String targetDesc = dropFirstArgFromDescriptor(sh.handlerDesc());
+                String targetDesc = PrivateShadowAccessorPass.dropFirstArgFromDescriptor(sh.handlerDesc());
                 if (!mapping.descriptor().isPrivateShadowTarget(sh.targetName(), targetDesc)) continue;
-                addPrivateShadowAccessor(node, sh.targetName(), targetDesc, extraMethods, addedKeys);
+                PrivateShadowAccessorPass.add(node,sh.targetName(), targetDesc, extraMethods, addedKeys);
             }
             for (MixinDescriptor.InvokerEntry iv : mapping.descriptor().invokers()) {
-                String targetDesc = dropFirstArgFromDescriptor(iv.handlerDesc());
+                String targetDesc = PrivateShadowAccessorPass.dropFirstArgFromDescriptor(iv.handlerDesc());
                 if (!mapping.descriptor().isPrivateShadowTarget(iv.targetName(), targetDesc)) continue;
-                addPrivateShadowAccessor(node, iv.targetName(), targetDesc, extraMethods, addedKeys);
+                PrivateShadowAccessorPass.add(node,iv.targetName(), targetDesc, extraMethods, addedKeys);
             }
         }
 
@@ -129,7 +129,7 @@ public class MixinTransformer implements ClassFileTransformer {
             }
 
             for (MethodNode method : new ArrayList<>(node.methods)) {
-                applyRedirects(method, redirectByDesc);
+                RedirectPass.apply(method, redirectByDesc);
                 if (!mrvByDesc.isEmpty()) ModifyReturnValuePass.apply(method, mrvByDesc, mixinClassForMrv);
                 if (!mcs.isEmpty()) ModifyConstantPass.apply(method, mcs, mixinClassForMrv);
                 if (!masByDesc.isEmpty()) ModifyArgPass.apply(method, masByDesc, mixinClassForMrv);
@@ -259,51 +259,6 @@ public class MixinTransformer implements ClassFileTransformer {
         target.instructions.add(body);
 
         return new MethodNode[]{originalCopy, dispatchCopy};
-    }
-
-    private static String dropFirstArgFromDescriptor(String desc) {
-        Type[] all = Type.getArgumentTypes(desc);
-        if (all.length == 0) return desc;
-        Type ret = Type.getReturnType(desc);
-        Type[] rest = Arrays.copyOfRange(all, 1, all.length);
-        return Type.getMethodDescriptor(ret, rest);
-    }
-
-    static String privateShadowAccessorName(String targetName, String targetDesc) {
-        return "__access$" + targetName + "$" + NameHash.hashHex(targetDesc);
-    }
-
-    /**
-     * Adds {@code public synthetic returnType __access$name$hash(args...) { ALOAD 0; args;
-     * INVOKESPECIAL Target.<name>; ?RETURN; }} to {@code node}. Lets the mixin trampoline reach
-     * a private target method via an INVOKEVIRTUAL on this accessor.
-     */
-    private static void addPrivateShadowAccessor(
-        ClassNode node, String targetName, String targetDesc,
-        List<MethodNode> extraMethods, Set<String> addedKeys
-    ) {
-        String accessor = privateShadowAccessorName(targetName, targetDesc);
-        String key = accessor + targetDesc;
-        if (!addedKeys.add(key)) return;
-        // Don't duplicate if already added by a previous mixin.
-        for (MethodNode existing : node.methods) {
-            if (existing.name.equals(accessor) && existing.desc.equals(targetDesc)) return;
-        }
-        MethodNode acc = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
-            accessor, targetDesc, null, null);
-        InsnList ins = new InsnList();
-        ins.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        Type[] argTypes = Type.getArgumentTypes(targetDesc);
-        int slot = 1;
-        for (Type a : argTypes) {
-            ins.add(new VarInsnNode(a.getOpcode(Opcodes.ILOAD), slot));
-            slot += a.getSize();
-        }
-        ins.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, node.name, targetName, targetDesc, false));
-        Type ret = Type.getReturnType(targetDesc);
-        ins.add(new InsnNode(ret.getOpcode(Opcodes.IRETURN)));
-        acc.instructions.add(ins);
-        extraMethods.add(acc);
     }
 
     private static String staticMixinFieldName(MixinMapping mapping) {
@@ -456,7 +411,7 @@ public class MixinTransformer implements ClassFileTransformer {
                     slotShad += arg.getSize();
                 }
                 String invokedName = mapping.descriptor().isPrivateShadowTarget(targetName, targetDesc)
-                    ? privateShadowAccessorName(targetName, targetDesc)
+                    ? PrivateShadowAccessorPass.accessorName(targetName, targetDesc)
                     : targetName;
                 insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, invokedName, targetDesc, false));
                 insns.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
@@ -883,56 +838,6 @@ public class MixinTransformer implements ClassFileTransformer {
         }
     }
 
-    // ---- Redirect application (direct injection, no INVOKEDYNAMIC for now) ----
-
-    private static void applyRedirects(MethodNode method, Map<String, List<RedirectMapping>> redirectByDesc) {
-        if (method.instructions == null) return;
-        // Pre-compute wildcard candidates once so the hot loop iterates a flat list.
-        List<RedirectMapping> wildcards = redirectByDesc.entrySet().stream()
-            .filter(e -> e.getKey().indexOf('*') >= 0 || e.getKey().startsWith("regex:"))
-            .flatMap(e -> e.getValue().stream())
-            .toList();
-        Map<RedirectMapping, Integer> matchCount = new HashMap<>();
-        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            String matchKey;
-            if (insn instanceof MethodInsnNode mi) {
-                matchKey = mi.owner + "." + mi.name + mi.desc;
-            } else if (insn instanceof FieldInsnNode fi) {
-                matchKey = fi.owner + "." + fi.name + ":" + fi.desc;
-            } else continue;
-
-            List<RedirectMapping> candidates = redirectByDesc.get(matchKey);
-            if (candidates == null && wildcards.isEmpty()) continue;
-            if (candidates == null) candidates = List.of();
-            // Append wildcards whose pattern matches the candidate key.
-            List<RedirectMapping> effective = candidates;
-            if (!wildcards.isEmpty()) {
-                List<RedirectMapping> all = new ArrayList<>(candidates);
-                for (RedirectMapping w : wildcards) {
-                    if (DescriptorMatcher.matches(w.invokeDesc(), matchKey)) all.add(w);
-                }
-                effective = all;
-            }
-            for (RedirectMapping redirect : effective) {
-                if (!method.name.equals(redirect.targetMethod())) continue;
-                int count = matchCount.getOrDefault(redirect, 0);
-                matchCount.put(redirect, count + 1);
-                if (count != redirect.index()) continue;
-                if (insn instanceof MethodInsnNode mi) {
-                    validateRedirect(redirect, mi);
-                } else {
-                    validateFieldRedirect(redirect, (FieldInsnNode) insn);
-                }
-                method.instructions.set(insn, new MethodInsnNode(
-                    Opcodes.INVOKESTATIC,
-                    Type.getInternalName(redirect.handler().getDeclaringClass()),
-                    redirect.handler().getName(),
-                    redirect.handlerDesc(), false));
-                break;
-            }
-        }
-    }
-
     static int newarrayOperandForPrimitive(Type t) {
         return switch (t.getSort()) {
             case Type.BOOLEAN -> Opcodes.T_BOOLEAN;
@@ -967,53 +872,6 @@ public class MixinTransformer implements ClassFileTransformer {
         if (n >= Short.MIN_VALUE && n <= Short.MAX_VALUE) return new IntInsnNode(Opcodes.SIPUSH, n);
         return new LdcInsnNode(n);
     }
-
-    private static void validateFieldRedirect(RedirectMapping redirect, FieldInsnNode fi) {
-        Call expected = redirect.call();
-        int op = fi.getOpcode();
-        boolean ok = switch (expected) {
-            case GETFIELD  -> op == Opcodes.GETFIELD;
-            case PUTFIELD  -> op == Opcodes.PUTFIELD;
-            case GETSTATIC -> op == Opcodes.GETSTATIC;
-            case PUTSTATIC -> op == Opcodes.PUTSTATIC;
-            default -> false;
-        };
-        if (!ok) mismatch(expected, op);
-    }
-
-    private static void validateRedirect(RedirectMapping redirect, MethodInsnNode mi) {
-        Call expected = redirect.call();
-        int opcode = mi.getOpcode();
-        switch (expected) {
-            case INVOKESTATIC -> { if (opcode != Opcodes.INVOKESTATIC) mismatch(expected, opcode); }
-            case INVOKEVIRTUAL -> {
-                if (opcode != Opcodes.INVOKEVIRTUAL && opcode != Opcodes.INVOKEINTERFACE) mismatch(expected, opcode);
-            }
-            case INVOKEINTERFACE -> { if (opcode != Opcodes.INVOKEINTERFACE) mismatch(expected, opcode); }
-            case INVOKESPECIAL   -> { if (opcode != Opcodes.INVOKESPECIAL)   mismatch(expected, opcode); }
-            case NEW ->
-                throw new IllegalArgumentException("Call.NEW is an allocation opcode; not yet supported");
-            case GETFIELD, PUTFIELD, GETSTATIC, PUTSTATIC ->
-                // Reachable only if a FieldInsnNode was misinterpreted as a method site —
-                // applyRedirects routes field opcodes through validateFieldRedirect.
-                throw new IllegalArgumentException(
-                    "Call." + expected + " applied to a non-field instruction at " + mi.owner + "." + mi.name);
-        }
-        Type[] origArgs = Type.getArgumentTypes(mi.desc);
-        Type[] handlerArgs = Type.getArgumentTypes(redirect.handlerDesc());
-        int expectedCount = (expected == Call.INVOKESTATIC || expected == Call.INVOKESPECIAL)
-            ? origArgs.length : origArgs.length + 1;
-        if (handlerArgs.length != expectedCount)
-            throw new IllegalArgumentException("Argument count mismatch in redirect: " + redirect.handler());
-        if (!Type.getReturnType(mi.desc).equals(Type.getReturnType(redirect.handlerDesc())))
-            throw new IllegalArgumentException("Return type mismatch in redirect: " + redirect.handler());
-    }
-
-    private static void mismatch(Call expected, int actual) {
-        throw new IllegalArgumentException("Opcode mismatch: expected " + expected + " but found " + actual);
-    }
-
-    // ---- Helpers ----
 
     private static MethodNode cloneAsOriginal(MethodNode original, String mangledName) {
         int acc = (original.access & Opcodes.ACC_STATIC) != 0
