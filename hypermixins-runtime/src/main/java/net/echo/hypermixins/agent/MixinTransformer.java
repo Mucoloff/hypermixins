@@ -1,17 +1,23 @@
 package net.echo.hypermixins.agent;
 
-import net.echo.hypermixins.annotations.At;
-import net.echo.hypermixins.annotations.Call;
-import net.echo.hypermixins.registry.MixinRegistry;
-import org.objectweb.asm.*;
-import org.objectweb.asm.tree.*;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldNode;
+import org.objectweb.asm.tree.MethodNode;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.reflect.Method;
 import java.security.ProtectionDomain;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class MixinTransformer implements ClassFileTransformer {
@@ -191,9 +197,4 @@ public class MixinTransformer implements ClassFileTransformer {
         return writer.toByteArray();
     }
 
-    /**
-     * Rewrites every {@code ALOAD 0; (GETFIELD|PUTFIELD) mixin.shadowField} pair in {@code method}
-     * to {@code ALOAD 1; CHECKCAST targetInternal; (GETFIELD|PUTFIELD) targetInternal.targetName}.
-     * Matches the canonical {@code this.foo} pattern emitted by javac.
-     */
 }
