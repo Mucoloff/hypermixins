@@ -651,6 +651,60 @@ public class MixinInjectTest {
         assertEquals(60, siteJumpCaptured);
     }
 
+    // ---- @Local at CONSTANT point ----
+
+    public static volatile String siteConstantCaptured;
+
+    public static class SiteConstantTarget {
+        public int run() {
+            String label = "constant-tag";
+            return 1234567 + label.length();
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteConstantTarget")
+    public static class SiteConstantMixin {
+        @Inject(method = "run", at = @At(point = At.Point.CONSTANT, desc = "I:1234567"))
+        public void onConstant(Object self, @net.echo.hypermixins.annotations.Local String label) {
+            siteConstantCaptured = label;
+        }
+    }
+
+    @Test
+    void captureLocalAtConstantPoint() throws Exception {
+        Class<?> t = applyMixin(SiteConstantTarget.class, SiteConstantMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run").invoke(inst);
+        assertEquals(1234567 + "constant-tag".length(), result);
+        assertEquals("constant-tag", siteConstantCaptured);
+    }
+
+    // ---- @Local at NEW point ----
+
+    public static volatile String siteNewCaptured;
+
+    public static class SiteNewTarget {
+        public java.util.List<String> run() {
+            String seedTag = "new-tag";
+            return new java.util.ArrayList<>(java.util.List.of(seedTag));
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteNewTarget")
+    public static class SiteNewMixin {
+        @Inject(method = "run", at = @At(point = At.Point.NEW, desc = "java/util/ArrayList"))
+        public void onAlloc(Object self, @net.echo.hypermixins.annotations.Local String seedTag) {
+            siteNewCaptured = seedTag;
+        }
+    }
+
+    @Test
+    void captureLocalAtNewPoint() throws Exception {
+        Class<?> t = applyMixin(SiteNewTarget.class, SiteNewMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        Object result = t.getMethod("run").invoke(inst);
+        assertNotNull(result);
+        assertEquals("new-tag", siteNewCaptured);
+    }
+
     // ---- bare @Local ambiguity at non-HEAD point ----
 
     public static class SiteAmbiguousTarget {
