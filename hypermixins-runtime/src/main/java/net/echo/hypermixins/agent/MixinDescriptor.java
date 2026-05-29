@@ -23,9 +23,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -111,9 +113,9 @@ public final class MixinDescriptor {
     private final List<ModifyArgsEntry> modifyArgsAll;
     private final Map<String, String[]> synthetics;
     /** Target-method-key → true when the method is static. Populated best-effort at build time. */
-    private final Map<String, Boolean> staticTargetMethods;
-    /** Target-method-key (name+desc) → true when the target method is private. */
-    private final Map<String, Boolean> privateShadowTargets;
+    private final Set<String> staticTargetMethods;
+    /** Target-method-key (name+desc) for every target method seen as private. */
+    private final Set<String> privateShadowTargets;
 
     private MixinDescriptor(
         Class<?> mixinClass, String targetClass,
@@ -152,8 +154,8 @@ public final class MixinDescriptor {
         this.modifyExpressionValues = List.copyOf(modifyExpressionValues);
         this.modifyArgsAll = List.copyOf(modifyArgsAll);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
-        this.staticTargetMethods = Map.of();
-        this.privateShadowTargets = Map.of();
+        this.staticTargetMethods = Set.of();
+        this.privateShadowTargets = Set.of();
     }
 
     private MixinDescriptor(
@@ -173,8 +175,8 @@ public final class MixinDescriptor {
         List<ModifyExpressionValueEntry> modifyExpressionValues,
         List<ModifyArgsEntry> modifyArgsAll,
         Map<String, String[]> synthetics,
-        Map<String, Boolean> staticTargetMethods,
-        Map<String, Boolean> privateShadowTargets
+        Set<String> staticTargetMethods,
+        Set<String> privateShadowTargets
     ) {
         this.mixinClass  = mixinClass;
         this.targetClass = targetClass;
@@ -195,8 +197,8 @@ public final class MixinDescriptor {
         this.modifyExpressionValues = List.copyOf(modifyExpressionValues);
         this.modifyArgsAll = List.copyOf(modifyArgsAll);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
-        this.staticTargetMethods = Collections.unmodifiableMap(new HashMap<>(staticTargetMethods));
-        this.privateShadowTargets = Collections.unmodifiableMap(new HashMap<>(privateShadowTargets));
+        this.staticTargetMethods = Set.copyOf(staticTargetMethods);
+        this.privateShadowTargets = Set.copyOf(privateShadowTargets);
     }
 
     public Class<?> mixinClass() { return mixinClass; }
@@ -226,12 +228,12 @@ public final class MixinDescriptor {
      * {@code false} if the target class cannot be resolved at build time.
      */
     public boolean isStaticTargetMethod(String name, String desc) {
-        return Boolean.TRUE.equals(staticTargetMethods.get(name + desc));
+        return staticTargetMethods.contains(name + desc);
     }
 
     /** Whether the target method {@code name + desc} is private — drives private-target shadow trampoline gen. */
     public boolean isPrivateShadowTarget(String name, String desc) {
-        return Boolean.TRUE.equals(privateShadowTargets.get(name + desc));
+        return privateShadowTargets.contains(name + desc);
     }
 
     /**
@@ -506,7 +508,7 @@ public final class MixinDescriptor {
             }
         }
 
-        Map<String, Boolean> staticMap = probeStaticTargetMethods(
+        Set<String> staticMap = probeStaticTargetMethods(
             mixinClass, targetInternal, originals, overwrites);
         Map<String, At.Shift> injectShifts = collectInjectShifts(mixinClass, injects);
         List<ModifyReturnValueEntry> mrvs = collectModifyReturnValues(mixinClass);
@@ -516,17 +518,17 @@ public final class MixinDescriptor {
         List<ModifyArgEntry> mas = collectModifyArgs(mixinClass);
         List<ModifyExpressionValueEntry> mxs = collectModifyExpressionValues(mixinClass);
         List<ModifyArgsEntry> mxa = collectModifyArgsAll(mixinClass);
-        Map<String, Boolean> privateShadowMap = probePrivateShadowTargets(mixinClass, targetInternal, shadows, invs);
+        Set<String> privateShadowMap = probePrivateShadowTargets(mixinClass, targetInternal, shadows, invs);
         return new MixinDescriptor(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals, injectShifts,
             shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, synths, staticMap, privateShadowMap);
     }
 
-    private static Map<String, Boolean> probePrivateShadowTargets(
+    private static Set<String> probePrivateShadowTargets(
         Class<?> mixinClass, String targetInternal,
         List<ShadowEntry> shadows, List<InvokerEntry> invokers
     ) {
-        Map<String, Boolean> out = new HashMap<>();
+        Set<String> out = new HashSet<>();
         Class<?> targetCls;
         try {
             targetCls = Class.forName(targetInternal.replace('/', '.'), false, mixinClass.getClassLoader());
@@ -542,7 +544,7 @@ public final class MixinDescriptor {
         return out;
     }
 
-    private static void recordIfPrivate(Class<?> targetCls, String name, String desc, Map<String, Boolean> out) {
+    private static void recordIfPrivate(Class<?> targetCls, String name, String desc, Set<String> out) {
         try {
             Type[] paramTypes = Type.getArgumentTypes(desc);
             Class<?>[] params = new Class<?>[paramTypes.length];
@@ -550,7 +552,7 @@ public final class MixinDescriptor {
                 params[i] = classForType(paramTypes[i], targetCls.getClassLoader());
             }
             Method m = targetCls.getDeclaredMethod(name, params);
-            if (Modifier.isPrivate(m.getModifiers())) out.put(name + desc, true);
+            if (Modifier.isPrivate(m.getModifiers())) out.add(name + desc);
         } catch (Throwable ignored) {}
     }
 
@@ -719,10 +721,10 @@ public final class MixinDescriptor {
         MixinDescriptor base, List<String[]> staticRows, List<String[]> privateRows
     ) {
         if (staticRows.isEmpty() && privateRows.isEmpty()) return base;
-        Map<String, Boolean> stat = new HashMap<>();
-        for (String[] r : staticRows) stat.put(r[0] + r[1], true);
-        Map<String, Boolean> priv = new HashMap<>();
-        for (String[] r : privateRows) priv.put(r[0] + r[1], true);
+        Set<String> stat = new HashSet<>();
+        for (String[] r : staticRows) stat.add(r[0] + r[1]);
+        Set<String> priv = new HashSet<>();
+        for (String[] r : privateRows) priv.add(r[0] + r[1]);
         return new MixinDescriptor(base.mixinClass, base.targetClass,
             base.overwrites, base.originals, base.redirects, base.injects, base.injectLocals,
             base.injectShifts, base.shadows, base.shadowFields, base.shadowStaticFields, base.modifyReturnValues, base.accessors, base.invokers, base.modifyConstants, base.modifyArgs, base.modifyExpressionValues, base.modifyArgsAll, base.synthetics, stat, priv);
@@ -739,11 +741,11 @@ public final class MixinDescriptor {
      * resolve each target method that an {@code @Original} or {@code @Overwrite} refers to.
      * Failures are tolerated — the call site falls back to the instance dispatch path.
      */
-    private static Map<String, Boolean> probeStaticTargetMethods(
+    private static Set<String> probeStaticTargetMethods(
         Class<?> mixinClass, String targetInternal,
         List<OriginalEntry> originals, List<OverwriteEntry> overwrites
     ) {
-        Map<String, Boolean> out = new HashMap<>();
+        Set<String> out = new HashSet<>();
         Class<?> targetCls;
         try {
             targetCls = Class.forName(targetInternal.replace('/', '.'), false, mixinClass.getClassLoader());
@@ -771,7 +773,7 @@ public final class MixinDescriptor {
                     params[i] = classForType(paramTypes[i], targetCls.getClassLoader());
                 }
                 java.lang.reflect.Method m = targetCls.getDeclaredMethod(name, params);
-                if (java.lang.reflect.Modifier.isStatic(m.getModifiers())) out.put(pair, true);
+                if (java.lang.reflect.Modifier.isStatic(m.getModifiers())) out.add(pair);
             } catch (Throwable ignored) { /* leave default */ }
         }
         return out;
