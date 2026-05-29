@@ -23,6 +23,7 @@ import javax.lang.model.element.Modifier
 //   modifyConstantEntries: [targetMethod, type, value, index, handlerName, handlerDesc]
 //   modifyArgEntries:  [targetMethod, invokeDesc, argIndex, handlerName, handlerDesc]
 //   modifyExpressionValueEntries: [targetMethod, point, atDesc, index, handlerName, handlerDesc]
+//   modifyArgsEntries: [targetMethod, invokeDesc, handlerName, handlerDesc]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
@@ -42,6 +43,7 @@ private const val INVOKER_FQN     = "net.echo.hypermixins.annotations.Invoker"
 private const val MODIFY_CONST_FQN = "net.echo.hypermixins.annotations.ModifyConstant"
 private const val MODIFY_ARG_FQN   = "net.echo.hypermixins.annotations.ModifyArg"
 private const val MODIFY_EXPR_FQN  = "net.echo.hypermixins.annotations.ModifyExpressionValue"
+private const val MODIFY_ARGS_FQN  = "net.echo.hypermixins.annotations.ModifyArgs"
 
 class MixinSymbolProcessor(
     private val codeGenerator: CodeGenerator,
@@ -127,6 +129,7 @@ class MixinSymbolProcessor(
         val modifyConsts = mutableListOf<ModifyConstantEntry>()
         val modifyArgs = mutableListOf<ModifyArgEntry>()
         val modifyExprs = mutableListOf<ModifyExpressionValueEntry>()
+        val modifyArgsList = mutableListOf<ModifyArgsEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -141,6 +144,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(MODIFY_CONST_FQN) -> validateAndCollectModifyConstant(fn, modifyConsts)
                 fn.hasAnnotation(MODIFY_ARG_FQN) -> validateAndCollectModifyArg(fn, modifyArgs)
                 fn.hasAnnotation(MODIFY_EXPR_FQN) -> validateAndCollectModifyExpr(fn, modifyExprs)
+                fn.hasAnnotation(MODIFY_ARGS_FQN) -> validateAndCollectModifyArgs(fn, modifyArgsList)
             }
         }
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
@@ -168,7 +172,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, modifyExprs, accessors, invokers, staticTargets)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, modifyExprs, modifyArgsList, accessors, invokers, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -276,6 +280,33 @@ class MixinSymbolProcessor(
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    private fun validateAndCollectModifyArgs(fn: KSFunctionDeclaration, out: MutableList<ModifyArgsEntry>) {
+        val ann = fn.findAnnotation(MODIFY_ARGS_FQN)!!
+        val method = (ann.arg("method") as? String).orEmpty()
+        if (method.isBlank()) {
+            logger.error("@ModifyArgs#method() empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC !in fn.modifiers) {
+            logger.error("@ModifyArgs must be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val atAnn = ann.arg("at") as? KSAnnotation
+        val desc = (atAnn?.arg("desc") as? String).orEmpty()
+        if (desc.isBlank()) {
+            logger.error("@At#desc() empty on @ModifyArgs ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val handlerName = fn.simpleName.asString()
+        val handlerDesc = descriptor(fn)
+        // Handler must be (Object[])void.
+        if (handlerDesc != "([Ljava/lang/Object;)V") {
+            logger.error("@ModifyArgs handler must be (Object[]): void on $handlerName (got $handlerDesc)", fn)
+            return
+        }
+        out += ModifyArgsEntry(method, desc, handlerName, handlerDesc)
     }
 
     private fun validateAndCollectModifyExpr(fn: KSFunctionDeclaration, out: MutableList<ModifyExpressionValueEntry>) {
@@ -649,6 +680,7 @@ class MixinSymbolProcessor(
         modifyConsts: List<ModifyConstantEntry>,
         modifyArgs: List<ModifyArgEntry>,
         modifyExprs: List<ModifyExpressionValueEntry>,
+        modifyArgsList: List<ModifyArgsEntry>,
         accessors: List<AccessorEntry>,
         invokers: List<InvokerEntry>,
         staticTargets: Set<String>
@@ -721,6 +753,9 @@ class MixinSymbolProcessor(
         }))
         classBuilder.addMethod(entriesMethod("modifyExpressionValueEntries", modifyExprs.map {
             arrayOf(it.targetMethod, it.point, it.atDesc, it.index.toString(), it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("modifyArgsEntries", modifyArgsList.map {
+            arrayOf(it.targetMethod, it.invokeDesc, it.handlerName, it.handlerDesc)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
             val paren = it.indexOf('(')
@@ -795,4 +830,5 @@ class MixinSymbolProcessor(
     private data class ModifyConstantEntry(val targetMethod: String, val type: String, val value: String, val index: Int, val handlerName: String, val handlerDesc: String)
     private data class ModifyArgEntry(val targetMethod: String, val invokeDesc: String, val argIndex: Int, val handlerName: String, val handlerDesc: String)
     private data class ModifyExpressionValueEntry(val targetMethod: String, val point: String, val atDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
+    private data class ModifyArgsEntry(val targetMethod: String, val invokeDesc: String, val handlerName: String, val handlerDesc: String)
 }

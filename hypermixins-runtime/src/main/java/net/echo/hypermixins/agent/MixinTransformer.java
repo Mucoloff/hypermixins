@@ -120,6 +120,8 @@ public class MixinTransformer implements ClassFileTransformer {
                 if (!masByDesc.isEmpty()) applyModifyArgs(method, masByDesc, mixinClassForMrv);
                 if (!mapping.descriptor().modifyExpressionValues().isEmpty())
                     applyModifyExpressionValues(method, mapping.descriptor().modifyExpressionValues(), mixinClassForMrv);
+                if (!mapping.descriptor().modifyArgsAll().isEmpty())
+                    applyModifyArgsAll(method, mapping.descriptor().modifyArgsAll(), mixinClassForMrv);
 
                 if (method.name.equals("<init>")) {
                     patchConstructor(method, node, mapping, mixinField);
@@ -1096,6 +1098,81 @@ public class MixinTransformer implements ClassFileTransformer {
             default:
                 throw new IllegalStateException("@ModifyExpressionValue point " + mx.point() + " not supported");
         }
+    }
+
+    /**
+     * @ModifyArgs: captures every reference-typed argument of the matched INVOKE into a fresh
+     * Object[], hands the array to the handler (which may mutate elements), then reloads each
+     * argument from the array before the INVOKE fires. Reference args only — primitive args fail
+     * at transform time with a clear error.
+     */
+    private static void applyModifyArgsAll(
+        MethodNode method, List<MixinDescriptor.ModifyArgsEntry> mxa, Class<?> mixinClass
+    ) {
+        if (method.instructions == null) return;
+        String mixinInternal = Type.getInternalName(mixinClass);
+        Map<MixinDescriptor.ModifyArgsEntry, Integer> matchCount = new HashMap<>();
+        List<AbstractInsnNode> snapshot = new ArrayList<>();
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
+            snapshot.add(insn);
+        for (AbstractInsnNode insn : snapshot) {
+            if (!(insn instanceof MethodInsnNode mi)) continue;
+            String key = mi.owner + "." + mi.name + mi.desc;
+            for (MixinDescriptor.ModifyArgsEntry ma : mxa) {
+                if (!method.name.equals(ma.targetMethod())) continue;
+                if (!DescriptorMatcher.matches(ma.invokeDesc(), key)) continue;
+                int count = matchCount.getOrDefault(ma, 0);
+                matchCount.put(ma, count + 1);
+                if (count != 0) continue;
+                Type[] argTypes = Type.getArgumentTypes(mi.desc);
+                for (Type t : argTypes) {
+                    if (t.getSort() != Type.OBJECT && t.getSort() != Type.ARRAY) {
+                        throw new IllegalStateException(
+                            "@ModifyArgs v1 supports reference-typed args only — got " + t + " on " + key);
+                    }
+                }
+                int n = argTypes.length;
+                int baseLocal = method.maxLocals;
+                method.maxLocals += n;
+                InsnList block = new InsnList();
+                // Store args into temp locals in reverse order (stack top = last arg).
+                for (int i = n - 1; i >= 0; i--) {
+                    block.add(new VarInsnNode(Opcodes.ASTORE, baseLocal + i));
+                }
+                // Build Object[N].
+                block.add(intConst(n));
+                block.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/Object"));
+                int arrLocal = method.maxLocals;
+                method.maxLocals += 1;
+                block.add(new VarInsnNode(Opcodes.ASTORE, arrLocal));
+                for (int i = 0; i < n; i++) {
+                    block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
+                    block.add(intConst(i));
+                    block.add(new VarInsnNode(Opcodes.ALOAD, baseLocal + i));
+                    block.add(new InsnNode(Opcodes.AASTORE));
+                }
+                // Invoke handler.
+                block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
+                block.add(new MethodInsnNode(Opcodes.INVOKESTATIC, mixinInternal,
+                    ma.handlerName(), ma.handlerDesc(), false));
+                // Reload args from the (possibly mutated) array.
+                for (int i = 0; i < n; i++) {
+                    block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
+                    block.add(intConst(i));
+                    block.add(new InsnNode(Opcodes.AALOAD));
+                    block.add(new TypeInsnNode(Opcodes.CHECKCAST, argTypes[i].getInternalName()));
+                }
+                method.instructions.insertBefore(insn, block);
+                break;
+            }
+        }
+    }
+
+    private static AbstractInsnNode intConst(int n) {
+        if (n >= -1 && n <= 5) return new InsnNode(Opcodes.ICONST_0 + n);
+        if (n >= Byte.MIN_VALUE && n <= Byte.MAX_VALUE) return new IntInsnNode(Opcodes.BIPUSH, n);
+        if (n >= Short.MIN_VALUE && n <= Short.MAX_VALUE) return new IntInsnNode(Opcodes.SIPUSH, n);
+        return new LdcInsnNode(n);
     }
 
     /**
