@@ -141,7 +141,7 @@ public class MixinTransformer implements ClassFileTransformer {
                     ModifyReceiverPass.apply(method, mapping.descriptor().modifyReceivers(), mixinClassForMrv);
 
                 if (method.name.equals("<init>")) {
-                    patchConstructor(method, node, mapping, mixinField);
+                    ConstructorPatch.apply(method, node, mapping, mixinField);
                 }
 
                 List<InjectMapping> injectsForMethod = mapping.getInjects().get(method.name);
@@ -378,37 +378,6 @@ public class MixinTransformer implements ClassFileTransformer {
      */
     // ---- Constructor patching ----
 
-    private static void patchConstructor(
-        MethodNode ctor, ClassNode owner, MixinMapping mapping, String mixinFieldName
-    ) {
-        for (AbstractInsnNode insn = ctor.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof MethodInsnNode mi
-                && mi.getOpcode() == Opcodes.INVOKESPECIAL
-                && mi.name.equals("<init>") && mi.owner.equals(owner.name)) return; // this(...)
-        }
-
-        AbstractInsnNode superCall = null;
-        for (AbstractInsnNode insn = ctor.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof MethodInsnNode mi
-                && mi.getOpcode() == Opcodes.INVOKESPECIAL
-                && mi.name.equals("<init>") && mi.owner.equals(owner.superName)) {
-                superCall = insn; break;
-            }
-        }
-        if (superCall == null) throw new IllegalStateException("No super() in constructor of " + owner.name);
-
-        String mixinInternal = Type.getInternalName(mapping.getMixinClass());
-        String mixinDesc     = Type.getDescriptor(mapping.getMixinClass());
-        InsnList inject = new InsnList();
-        inject.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        inject.add(new TypeInsnNode(Opcodes.NEW, mixinInternal));
-        inject.add(new InsnNode(Opcodes.DUP));
-        inject.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, mixinInternal, "<init>", "()V", false));
-        inject.add(new FieldInsnNode(Opcodes.PUTFIELD, owner.name, mixinFieldName, mixinDesc));
-        ctor.instructions.insert(superCall, inject);
-    }
-
-
     private static MethodNode cloneAsOriginal(MethodNode original, String mangledName) {
         int acc = (original.access & Opcodes.ACC_STATIC) != 0
             ? (Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC)
@@ -419,39 +388,4 @@ public class MixinTransformer implements ClassFileTransformer {
         return copy;
     }
 
-    /** ClassWriter that resolves superclass via ClassLoader stream, avoiding Class.forName deadlocks. */
-    public static final class SafeClassWriter extends ClassWriter {
-        private final ClassLoader loader;
-        SafeClassWriter(int flags, ClassLoader loader) { super(flags); this.loader = loader; }
-
-        @Override
-        protected String getCommonSuperClass(String type1, String type2) {
-            if (type1.equals(type2)) return type1;
-            if (type1.equals("java/lang/Object") || type2.equals("java/lang/Object")) return "java/lang/Object";
-            try {
-                List<String> chain1 = superChain(type1);
-                Set<String> set1 = new HashSet<>(chain1);
-                for (String t : superChain(type2)) { if (set1.contains(t)) return t; }
-            } catch (IOException ignored) {}
-            return "java/lang/Object";
-        }
-
-        private List<String> superChain(String name) throws IOException {
-            List<String> chain = new ArrayList<>();
-            String cur = name;
-            while (cur != null && !cur.equals("java/lang/Object")) {
-                chain.add(cur); cur = superOf(cur);
-            }
-            chain.add("java/lang/Object");
-            return chain;
-        }
-
-        private String superOf(String name) throws IOException {
-            ClassLoader cl = loader != null ? loader : ClassLoader.getSystemClassLoader();
-            try (InputStream is = cl.getResourceAsStream(name + ".class")) {
-                if (is == null) return null;
-                return new ClassReader(is).getSuperName();
-            }
-        }
-    }
 }
