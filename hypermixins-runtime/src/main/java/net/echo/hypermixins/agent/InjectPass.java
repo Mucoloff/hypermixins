@@ -45,63 +45,15 @@ final class InjectPass {
         if ((target.access & Opcodes.ACC_ABSTRACT) != 0) return;
         Type targetReturn = Type.getReturnType(target.desc);
 
-        Map<String, Map<Integer, MixinDescriptor.InjectLocalEntry>> localEntryByHandler = new HashMap<>();
-        for (MixinDescriptor.InjectLocalEntry le : descriptor.injectLocals()) {
-            localEntryByHandler
-                .computeIfAbsent(le.handlerName() + le.handlerDesc(), k -> new HashMap<>())
-                .put(le.paramIndex(), le);
-        }
+        Map<String, Map<Integer, MixinDescriptor.InjectLocalEntry>> localEntryByHandler =
+            InjectLocalResolver.byHandler(descriptor);
 
         for (InjectMapping inject : injects) {
             String handlerKey = inject.handler().getName() + Type.getMethodDescriptor(inject.handler());
             Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
                 localEntryByHandler.getOrDefault(handlerKey, Map.of());
-            Set<Integer> argsOnlyParams = new HashSet<>();
-            for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
-                if (e.getValue().argsOnly()) argsOnlyParams.add(e.getKey());
-            }
-            Map<Integer, Integer> slotMap = new HashMap<>();
-            for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
-                MixinDescriptor.InjectLocalEntry le = e.getValue();
-                if (le.slot() >= 0) {
-                    slotMap.put(e.getKey(), le.slot());
-                } else {
-                    Type[] handlerArgs = Type.getArgumentTypes(Type.getMethodDescriptor(inject.handler()));
-                    Type wantedRaw = handlerArgs[e.getKey()];
-                    Type wanted = le.argsOnly() && wantedRaw.getSort() == Type.ARRAY
-                        ? wantedRaw.getElementType()
-                        : wantedRaw;
-                    Type[] targetArgs = Type.getArgumentTypes(target.desc);
-                    int slotCursor = 1;
-                    int seen = 0;
-                    int resolved = -1;
-                    int resolvedCount = 0;
-                    for (Type t : targetArgs) {
-                        if (t.equals(wanted)) {
-                            if (le.ordinal() >= 0) {
-                                if (seen == le.ordinal()) { resolved = slotCursor; break; }
-                                seen++;
-                            } else {
-                                if (resolvedCount == 0) resolved = slotCursor;
-                                resolvedCount++;
-                            }
-                        }
-                        slotCursor += t.getSize();
-                    }
-                    if (resolved < 0) {
-                        throw new IllegalStateException(
-                            "@Local of type " + wanted + " not found in target "
-                                + target.name + target.desc);
-                    }
-                    if (le.ordinal() < 0 && resolvedCount > 1) {
-                        throw new IllegalStateException(
-                            "@Local of type " + wanted + " is ambiguous (matches " + resolvedCount
-                                + " target params) — set index or ordinal on "
-                                + inject.handler().getName());
-                    }
-                    slotMap.put(e.getKey(), resolved);
-                }
-            }
+            Set<Integer> argsOnlyParams = InjectLocalResolver.argsOnlyParams(entryMap);
+            Map<Integer, Integer> slotMap = InjectLocalResolver.slotMap(target, inject.handler(), entryMap);
             At.Shift shift = descriptor.injectShifts().getOrDefault(handlerKey, At.Shift.BEFORE);
             switch (inject.point()) {
                 case HEAD -> {
