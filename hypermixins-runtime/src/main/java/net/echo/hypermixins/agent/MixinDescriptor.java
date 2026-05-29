@@ -264,7 +264,7 @@ public final class MixinDescriptor {
     public static MixinDescriptor load(Class<?> mixinClass) {
         MixinDescriptor cached = CACHE.get(mixinClass);
         if (cached != null) return cached;
-        MixinDescriptor fresh = loadUncached(mixinClass);
+        MixinDescriptor fresh = DescriptorReader.read(mixinClass);
         MixinDescriptor previous = CACHE.putIfAbsent(mixinClass, fresh);
         return previous != null ? previous : fresh;
     }
@@ -274,124 +274,6 @@ public final class MixinDescriptor {
         CACHE.remove(mixinClass);
     }
 
-    private static MixinDescriptor loadUncached(Class<?> mixinClass) {
-        String descriptorFqn = mixinClass.getName() + "$$Descriptor";
-        Class<?> desc;
-        try {
-            desc = Class.forName(descriptorFqn, true, mixinClass.getClassLoader());
-        } catch (ClassNotFoundException e) {
-            return fromAnnotations(mixinClass);
-        }
-        try {
-            MethodHandles.Lookup lookup = MethodHandles.publicLookup();
-            String targetInternal = (String) lookup.findStatic(desc, "targetClass",
-                MethodType.methodType(String.class)).invoke();
-
-            List<String[]> overwriteRows = invokeStringList(lookup, desc, "overwriteEntries");
-            List<String[]> originalRows  = invokeStringList(lookup, desc, "originalEntries");
-            List<String[]> redirectRows  = invokeStringList(lookup, desc, "redirectEntries");
-            List<String[]> injectRows    = invokeStringList(lookup, desc, "injectEntries");
-            List<String[]> injectLocalRows = invokeStringListOrEmpty(lookup, desc, "injectCaptureLocals");
-            List<String[]> injectShiftRows = invokeStringListOrEmpty(lookup, desc, "injectShifts");
-            List<String[]> shadowRows    = invokeStringListOrEmpty(lookup, desc, "shadowEntries");
-            List<String[]> shadowFieldRows = invokeStringListOrEmpty(lookup, desc, "shadowFieldEntries");
-            List<String[]> shadowStaticFieldRows = invokeStringListOrEmpty(lookup, desc, "shadowStaticFieldEntries");
-            List<String[]> modifyRvRows = invokeStringListOrEmpty(lookup, desc, "modifyReturnValueEntries");
-            List<String[]> accessorRows = invokeStringListOrEmpty(lookup, desc, "accessorEntries");
-            List<String[]> invokerRows = invokeStringListOrEmpty(lookup, desc, "invokerEntries");
-            List<String[]> modifyConstRows = invokeStringListOrEmpty(lookup, desc, "modifyConstantEntries");
-            List<String[]> modifyArgRows = invokeStringListOrEmpty(lookup, desc, "modifyArgEntries");
-            List<String[]> modifyExprRows = invokeStringListOrEmpty(lookup, desc, "modifyExpressionValueEntries");
-            List<String[]> modifyArgsRows = invokeStringListOrEmpty(lookup, desc, "modifyArgsEntries");
-            List<String[]> modifyRecvRows = invokeStringListOrEmpty(lookup, desc, "modifyReceiverEntries");
-            List<String[]> staticTargetRows = invokeStringListOrEmpty(lookup, desc, "staticTargetMethods");
-            List<String[]> privateShadowRows = invokeStringListOrEmpty(lookup, desc, "privateShadowTargetMethods");
-            List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
-
-            List<OverwriteEntry> ows = new ArrayList<>(overwriteRows.size());
-            for (String[] r : overwriteRows) ows.add(new OverwriteEntry(r[0], r[1], r[2], r[3]));
-
-            List<OriginalEntry> orig = new ArrayList<>(originalRows.size());
-            for (String[] r : originalRows) orig.add(new OriginalEntry(r[0], r[1], r[2]));
-
-            List<RedirectEntry> reds = new ArrayList<>(redirectRows.size());
-            for (String[] r : redirectRows) reds.add(new RedirectEntry(
-                r[0], r[1], Integer.parseInt(r[2]), Call.valueOf(r[3]), r[4], r[5]));
-
-            List<InjectEntry> injs = new ArrayList<>(injectRows.size());
-            for (String[] r : injectRows) injs.add(new InjectEntry(
-                r[0], At.Point.valueOf(r[1]), r[2], Integer.parseInt(r[3]),
-                Boolean.parseBoolean(r[4]), Boolean.parseBoolean(r[5]), r[6], r[7]));
-
-            List<InjectLocalEntry> injLocals = new ArrayList<>(injectLocalRows.size());
-            for (String[] r : injectLocalRows) {
-                int ord = r.length >= 5 ? Integer.parseInt(r[4]) : -1;
-                boolean argsOnly = r.length >= 6 && Boolean.parseBoolean(r[5]);
-                injLocals.add(new InjectLocalEntry(r[0], r[1], Integer.parseInt(r[2]), Integer.parseInt(r[3]), ord, argsOnly));
-            }
-
-            Map<String, At.Shift> injShifts = new HashMap<>();
-            for (String[] r : injectShiftRows) injShifts.put(r[0] + r[1], At.Shift.valueOf(r[2]));
-
-            List<ShadowEntry> shads = new ArrayList<>(shadowRows.size());
-            for (String[] r : shadowRows) shads.add(new ShadowEntry(r[0], r[1], r[2]));
-
-            List<ShadowFieldEntry> shadFields = new ArrayList<>(shadowFieldRows.size());
-            for (String[] r : shadowFieldRows) shadFields.add(new ShadowFieldEntry(r[0], r[1], r[2]));
-
-            List<ShadowFieldEntry> shadStaticFields = new ArrayList<>(shadowStaticFieldRows.size());
-            for (String[] r : shadowStaticFieldRows) shadStaticFields.add(new ShadowFieldEntry(r[0], r[1], r[2]));
-
-            List<ModifyReturnValueEntry> mrvs = new ArrayList<>(modifyRvRows.size());
-            for (String[] r : modifyRvRows) mrvs.add(new ModifyReturnValueEntry(
-                r[0], r[1], Integer.parseInt(r[2]), r[3], r[4]));
-
-            List<AccessorEntry> accs = new ArrayList<>(accessorRows.size());
-            for (String[] r : accessorRows) accs.add(new AccessorEntry(r[0], r[1], r[2], r[3]));
-
-            List<InvokerEntry> invs = new ArrayList<>(invokerRows.size());
-            for (String[] r : invokerRows) invs.add(new InvokerEntry(r[0], r[1], r[2]));
-
-            List<ModifyConstantEntry> mcs = new ArrayList<>(modifyConstRows.size());
-            for (String[] r : modifyConstRows) mcs.add(new ModifyConstantEntry(
-                r[0], r[1], r[2], Integer.parseInt(r[3]), r[4], r[5]));
-
-            List<ModifyArgEntry> mas = new ArrayList<>(modifyArgRows.size());
-            for (String[] r : modifyArgRows) mas.add(new ModifyArgEntry(
-                r[0], r[1], Integer.parseInt(r[2]), r[3], r[4]));
-
-            List<ModifyExpressionValueEntry> mxs = new ArrayList<>(modifyExprRows.size());
-            for (String[] r : modifyExprRows) mxs.add(new ModifyExpressionValueEntry(
-                r[0], At.Point.valueOf(r[1]), r[2], Integer.parseInt(r[3]), r[4], r[5]));
-
-            List<ModifyArgsEntry> mxa = new ArrayList<>(modifyArgsRows.size());
-            for (String[] r : modifyArgsRows) mxa.add(new ModifyArgsEntry(r[0], r[1], r[2], r[3]));
-
-            List<ModifyReceiverEntry> mxr = new ArrayList<>(modifyRecvRows.size());
-            for (String[] r : modifyRecvRows) mxr.add(new ModifyReceiverEntry(r[0], r[1], r[2], r[3]));
-
-            Map<String, String[]> synths = new LinkedHashMap<>();
-            for (String[] r : syntheticRows) synths.put(r[0] + r[1], new String[]{r[2], r[3]});
-
-            MixinDescriptor base = new MixinDescriptor(
-                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, injShifts, shads, shadFields, shadStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, synths);
-            return withTargetMaps(base, staticTargetRows, privateShadowRows);
-        } catch (Throwable t) {
-            throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<String[]> invokeStringList(MethodHandles.Lookup lookup, Class<?> desc, String name) throws Throwable {
-        MethodHandle mh = lookup.findStatic(desc, name, MethodType.methodType(List.class));
-        return (List<String[]>) mh.invoke();
-    }
-
-    /** Older $$Descriptor classes may not declare the requested table — return empty in that case. */
-    private static List<String[]> invokeStringListOrEmpty(MethodHandles.Lookup lookup, Class<?> desc, String name) {
-        try { return invokeStringList(lookup, desc, name); }
-        catch (Throwable t) { return List.of(); }
-    }
 
     /**
      * Builds the descriptor by reflecting on the mixin class's annotations. Used as a fallback
@@ -551,7 +433,33 @@ public final class MixinDescriptor {
             shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, synths, staticMap, privateShadowMap);
     }
 
-    private static MixinDescriptor withTargetMaps(
+    /** Package-private factory used by [DescriptorReader] (no static-map population). */
+    static MixinDescriptor build(
+        Class<?> mixinClass, String targetClass,
+        List<OverwriteEntry> overwrites, List<OriginalEntry> originals,
+        List<RedirectEntry> redirects, List<InjectEntry> injects,
+        List<InjectLocalEntry> injectLocals,
+        Map<String, At.Shift> injectShifts,
+        List<ShadowEntry> shadows,
+        List<ShadowFieldEntry> shadowFields,
+        List<ShadowFieldEntry> shadowStaticFields,
+        List<ModifyReturnValueEntry> modifyReturnValues,
+        List<AccessorEntry> accessors,
+        List<InvokerEntry> invokers,
+        List<ModifyConstantEntry> modifyConstants,
+        List<ModifyArgEntry> modifyArgs,
+        List<ModifyExpressionValueEntry> modifyExpressionValues,
+        List<ModifyArgsEntry> modifyArgsAll,
+        List<ModifyReceiverEntry> modifyReceivers,
+        Map<String, String[]> synthetics
+    ) {
+        return new MixinDescriptor(mixinClass, targetClass, overwrites, originals, redirects,
+            injects, injectLocals, injectShifts, shadows, shadowFields, shadowStaticFields,
+            modifyReturnValues, accessors, invokers, modifyConstants, modifyArgs,
+            modifyExpressionValues, modifyArgsAll, modifyReceivers, synthetics);
+    }
+
+    static MixinDescriptor withTargetMaps(
         MixinDescriptor base, List<String[]> staticRows, List<String[]> privateRows
     ) {
         if (staticRows.isEmpty() && privateRows.isEmpty()) return base;
