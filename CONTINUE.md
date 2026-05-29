@@ -122,9 +122,20 @@ hypermixins-example/run/test-world-1.0.jar \
 
 ## Key files
 
-- Processor: `hypermixins-processor/src/main/kotlin/.../MixinSymbolProcessor.kt`
-- Descriptor loader: `hypermixins-runtime/src/main/java/.../agent/MixinDescriptor.java`
-- Transformer: `hypermixins-runtime/src/main/java/.../agent/MixinTransformer.java`
+- Processor orchestrator: `hypermixins-processor/src/main/kotlin/.../MixinSymbolProcessor.kt` (183 LOC)
+  - Per-annotation validators: `Collectors.kt`
+  - Code-gen: `DescriptorEmitter.kt` + `DescriptorBuilders.kt` + `MixinHarvest`
+  - Probes: `TargetProbes.kt`
+  - Helpers: `JvmDescriptors.kt`, `KspHelpers.kt`, `Records.kt`
+- Descriptor loader: `hypermixins-runtime/src/main/java/.../agent/MixinDescriptor.java` (318 LOC)
+  - KSP-table reader: `DescriptorReader.java`
+  - Reflection-fallback reader: `AnnotationDescriptorReader.java`
+  - Reflection collectors / probes: `ReflectionCollectors.java`, `ReflectionProbes.java`
+- Transformer orchestrator: `hypermixins-runtime/src/main/java/.../agent/MixinTransformer.java` (568 LOC)
+  - Per-feature passes: `AccessorPass`, `InvokerPass`, `ShadowFieldPass`,
+    `ModifyReturnValuePass`, `ModifyConstantPass`, `ModifyExpressionValuePass`,
+    `ModifyArgPass`, `ModifyArgsPass`, `ModifyReceiverPass`,
+    `PrivateShadowAccessorPass`, `RedirectPass`, `InjectPass`
 - Registry: `hypermixins-runtime/src/main/java/.../registry/MixinRegistry.java`
 - YAML loader: `hypermixins-runtime/src/main/java/.../config/MixinsConfig.java`
 - Example mixin: `hypermixins-example/src/main/java/net/echo/tests/WorldMixin.java`
