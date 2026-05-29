@@ -114,12 +114,12 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- **`@Local` ordinal / type-based / argsOnly resolution** — current
-  implementation accepts only `@Local(index = N)` slot literals. Ordinal
-  + type-only resolution needs ASM's `Analyzer` to enumerate live locals
-  at the injection point; `argsOnly = true` writeback needs the handler
-  param wrapped in a fresh single-element array with read-back into the
-  slot after the handler returns.
+- **`@Local` deeper resolution** — `index` and HEAD-relative `ordinal` ship
+  for incoming target params. Type-only (bare `@Local`) auto-pick and
+  injection points past HEAD need ASM's `Analyzer` to enumerate live
+  locals; `argsOnly = true` writeback would wrap the handler param in a
+  fresh single-element array with read-back into the slot after the
+  handler returns.
 
 ## Key files
 

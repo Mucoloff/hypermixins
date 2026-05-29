@@ -404,6 +404,33 @@ public class MixinInjectTest {
         assertEquals(1, newAllocCounter);
     }
 
+    // ---- @Local(ordinal = K) ----
+
+    public static volatile int ordinalCaptured;
+
+    public static class OrdinalTarget {
+        public int run(String tag, int a, int b) {
+            return a + b + tag.length();
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$OrdinalTarget")
+    public static class OrdinalMixin {
+        @Inject(method = "run", at = @At(point = At.Point.HEAD))
+        public void onRun(Object self, @net.echo.hypermixins.annotations.Local(ordinal = 1) int second) {
+            ordinalCaptured = second;
+        }
+    }
+
+    @Test
+    void captureLocalByOrdinal() throws Exception {
+        Class<?> t = applyMixin(OrdinalTarget.class, OrdinalMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run", String.class, int.class, int.class).invoke(inst, "hi", 10, 20);
+        assertEquals(32, result);
+        // Second int target param → 20.
+        assertEquals(20, ordinalCaptured);
+    }
+
     @Test
     void captureLocalByIndex() throws Exception {
         Class<?> t = applyMixin(LocalTarget.class, LocalMixin.class);

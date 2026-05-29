@@ -75,7 +75,18 @@ public final class MixinDescriptor {
     public record InjectEntry(String targetMethod, At.Point point, String atDesc, int atIndex,
                               boolean cancellable, boolean returnable,
                               String handlerName, String handlerDesc) {}
-    public record InjectLocalEntry(String handlerName, String handlerDesc, int paramIndex, int slot) {}
+    /**
+     * One row per {@code @Local} handler parameter.
+     * <ul>
+     *   <li>{@code slot >= 0}: ALOAD/ILOAD straight from the literal slot index.</li>
+     *   <li>{@code slot &lt; 0} and {@code ordinal &gt;= 0}: resolve the {@code ordinal}-th live
+     *       local of matching type at the injection point.</li>
+     *   <li>{@code slot &lt; 0} and {@code ordinal &lt; 0}: bare {@code @Local} — pick the
+     *       single live local of matching type, fail at transform time if ambiguous.</li>
+     * </ul>
+     */
+    public record InjectLocalEntry(String handlerName, String handlerDesc, int paramIndex,
+                                   int slot, int ordinal) {}
     public record ShadowEntry(String handlerName, String handlerDesc, String targetName) {}
     public record ShadowFieldEntry(String mixinFieldName, String fieldDesc, String targetFieldName) {}
     public record ModifyReturnValueEntry(String targetMethod, String invokeDesc, int index,
@@ -313,8 +324,10 @@ public final class MixinDescriptor {
                 Boolean.parseBoolean(r[4]), Boolean.parseBoolean(r[5]), r[6], r[7]));
 
             List<InjectLocalEntry> injLocals = new ArrayList<>(injectLocalRows.size());
-            for (String[] r : injectLocalRows) injLocals.add(new InjectLocalEntry(
-                r[0], r[1], Integer.parseInt(r[2]), Integer.parseInt(r[3])));
+            for (String[] r : injectLocalRows) {
+                int ord = r.length >= 5 ? Integer.parseInt(r[4]) : -1;
+                injLocals.add(new InjectLocalEntry(r[0], r[1], Integer.parseInt(r[2]), Integer.parseInt(r[3]), ord));
+            }
 
             Map<String, At.Shift> injShifts = new HashMap<>();
             for (String[] r : injectShiftRows) injShifts.put(r[0] + r[1], At.Shift.valueOf(r[2]));
@@ -500,9 +513,9 @@ public final class MixinDescriptor {
                 java.lang.annotation.Annotation[][] paramAnns = method.getParameterAnnotations();
                 for (int pi = 0; pi < paramAnns.length; pi++) {
                     for (java.lang.annotation.Annotation a : paramAnns[pi]) {
-                        if (a instanceof net.echo.hypermixins.annotations.Local lo && lo.index() >= 0) {
+                        if (a instanceof net.echo.hypermixins.annotations.Local lo) {
                             injectLocals.add(new InjectLocalEntry(
-                                method.getName(), handlerDesc, pi, lo.index()));
+                                method.getName(), handlerDesc, pi, lo.index(), lo.ordinal()));
                         }
                     }
                 }

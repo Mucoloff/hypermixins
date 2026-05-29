@@ -685,17 +685,47 @@ public class MixinTransformer implements ClassFileTransformer {
         if ((target.access & Opcodes.ACC_ABSTRACT) != 0) return;
         Type targetReturn = Type.getReturnType(target.desc);
 
-        // Build per-handler slot maps once.
-        Map<String, Map<Integer, Integer>> localSlotByHandler = new HashMap<>();
+        // Build per-handler slot maps once. The map stores the InjectLocalEntry so emitInjectCall
+        // can read both the literal slot and the ordinal fallback.
+        Map<String, Map<Integer, MixinDescriptor.InjectLocalEntry>> localEntryByHandler = new HashMap<>();
         for (MixinDescriptor.InjectLocalEntry le : descriptor.injectLocals()) {
-            localSlotByHandler
+            localEntryByHandler
                 .computeIfAbsent(le.handlerName() + le.handlerDesc(), k -> new HashMap<>())
-                .put(le.paramIndex(), le.slot());
+                .put(le.paramIndex(), le);
         }
 
         for (InjectMapping inject : injects) {
             String handlerKey = inject.handler().getName() + Type.getMethodDescriptor(inject.handler());
-            Map<Integer, Integer> slotMap = localSlotByHandler.getOrDefault(handlerKey, Map.of());
+            Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
+                localEntryByHandler.getOrDefault(handlerKey, Map.of());
+            Map<Integer, Integer> slotMap = new HashMap<>();
+            for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
+                MixinDescriptor.InjectLocalEntry le = e.getValue();
+                if (le.slot() >= 0) {
+                    slotMap.put(e.getKey(), le.slot());
+                } else if (le.ordinal() >= 0) {
+                    // Resolve K-th target param of matching type (HEAD-equivalent semantics).
+                    Type[] handlerArgs = Type.getArgumentTypes(Type.getMethodDescriptor(inject.handler()));
+                    Type wanted = handlerArgs[e.getKey()];
+                    Type[] targetArgs = Type.getArgumentTypes(target.desc);
+                    int slotCursor = 1;
+                    int seen = 0;
+                    int resolved = -1;
+                    for (Type t : targetArgs) {
+                        if (t.equals(wanted)) {
+                            if (seen == le.ordinal()) { resolved = slotCursor; break; }
+                            seen++;
+                        }
+                        slotCursor += t.getSize();
+                    }
+                    if (resolved < 0) {
+                        throw new IllegalStateException(
+                            "@Local(ordinal=" + le.ordinal() + ") of type " + wanted
+                                + " not found in target " + target.name + target.desc);
+                    }
+                    slotMap.put(e.getKey(), resolved);
+                }
+            }
             At.Shift shift = descriptor.injectShifts().getOrDefault(handlerKey, At.Shift.BEFORE);
             switch (inject.point()) {
                 case HEAD -> {
