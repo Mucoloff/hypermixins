@@ -180,8 +180,8 @@ class MixinSymbolProcessor(
         // Probe static-target methods via KSP's classpath resolver. Targets reachable from the
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
-        val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        val privateShadowTargets = probePrivateShadowTargets(resolver, targetClass, shadows, invokers)
+        val staticTargets = TargetProbes.staticTargets(resolver, targetClass, originals, overwrites)
+        val privateShadowTargets = TargetProbes.privateShadowTargets(resolver, targetClass, shadows, invokers)
         generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, modifyExprs, modifyArgsList, modifyReceivers, accessors, invokers, staticTargets, privateShadowTargets)
     }
 
@@ -608,69 +608,7 @@ class MixinSymbolProcessor(
         }
     }
 
-    // ---- Descriptor helpers ----
-
     // ---- Code generation ----
-
-    private fun probePrivateShadowTargets(
-        resolver: Resolver,
-        targetClass: String,
-        shadows: List<ShadowEntry>,
-        invokers: List<InvokerEntry>
-    ): Set<String> {
-        val result = mutableSetOf<String>()
-        val targetDecl = resolver.getClassDeclarationByName(
-            resolver.getKSNameFromString(targetClass)
-        ) ?: return result
-        for (sh in shadows) recordIfPrivate(targetDecl, sh.targetName, dropFirstArgDesc(sh.handlerDesc), result)
-        for (iv in invokers) recordIfPrivate(targetDecl, iv.targetName, dropFirstArgDesc(iv.handlerDesc), result)
-        return result
-    }
-
-    private fun recordIfPrivate(
-        targetDecl: KSClassDeclaration,
-        name: String, desc: String,
-        result: MutableSet<String>
-    ) {
-        val match = targetDecl.getDeclaredFunctions().firstOrNull {
-            it.simpleName.asString() == name && descriptor(it) == desc
-        } ?: return
-        if (com.google.devtools.ksp.symbol.Modifier.PRIVATE in match.modifiers) {
-            result += name + desc
-        }
-    }
-
-    private fun probeStaticTargets(
-        resolver: Resolver,
-        targetClass: String,
-        originals: List<OriginalEntry>,
-        overwrites: List<OverwriteEntry>
-    ): Set<String> {
-        val result = mutableSetOf<String>()
-        val targetDecl = resolver.getClassDeclarationByName(
-            resolver.getKSNameFromString(targetClass)
-        ) ?: return result
-        val pairs = mutableSetOf<Pair<String, String>>()
-        for (oe in originals) {
-            // handlerDesc starts with (Ljava/lang/Object;...); drop the leading Object self to recover target desc.
-            val td = dropFirstArgDesc(oe.handlerDesc)
-            pairs += oe.targetName to td
-        }
-        for (oe in overwrites) {
-            pairs += oe.targetName to oe.targetDesc
-        }
-        for ((name, desc) in pairs) {
-            val match = targetDecl.getDeclaredFunctions().firstOrNull {
-                it.simpleName.asString() == name && descriptor(it) == desc
-            }
-            if (match != null
-                && com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC in match.modifiers
-            ) {
-                result += name + desc
-            }
-        }
-        return result
-    }
 
     private fun generateDescriptor(
         cls: KSClassDeclaration,
@@ -796,23 +734,4 @@ class MixinSymbolProcessor(
         cls.containingFile?.let { containingFiles += it }
     }
 
-    // ---- KSP helpers ----
-
-    // ---- Internal records ----
-
-    private data class OverwriteEntry(val targetName: String, val targetDesc: String, val handlerName: String, val handlerDesc: String)
-    private data class OriginalEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
-    private data class RedirectEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val call: String, val handlerName: String, val handlerDesc: String)
-    private data class InjectEntry(val targetMethod: String, val point: String, val atDesc: String, val atIndex: Int, val cancellable: Boolean, val returnable: Boolean, val handlerName: String, val handlerDesc: String, val shift: String)
-    private data class ShadowEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
-    private data class ShadowFieldEntry(val mixinFieldName: String, val fieldDesc: String, val targetFieldName: String)
-    private data class InjectLocalEntry(val handlerName: String, val handlerDesc: String, val paramIndex: Int, val slot: Int, val ordinal: Int, val argsOnly: Boolean)
-    private data class ModifyReturnValueEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
-    private data class AccessorEntry(val handlerName: String, val handlerDesc: String, val kind: String, val targetField: String)
-    private data class InvokerEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
-    private data class ModifyConstantEntry(val targetMethod: String, val type: String, val value: String, val index: Int, val handlerName: String, val handlerDesc: String)
-    private data class ModifyArgEntry(val targetMethod: String, val invokeDesc: String, val argIndex: Int, val handlerName: String, val handlerDesc: String)
-    private data class ModifyExpressionValueEntry(val targetMethod: String, val point: String, val atDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
-    private data class ModifyArgsEntry(val targetMethod: String, val invokeDesc: String, val handlerName: String, val handlerDesc: String)
-    private data class ModifyReceiverEntry(val targetMethod: String, val invokeDesc: String, val handlerName: String, val handlerDesc: String)
 }
