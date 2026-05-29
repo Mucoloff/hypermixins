@@ -92,6 +92,7 @@ public static void premain(String args, Instrumentation inst) throws Exception {
 | `@Redirect(method, at)` | Replaces an invoke / field site inside `method` with a static handler. |
 | `@Inject(method, at, cancellable)` | Side-effect hook at HEAD / RETURN / TAIL / INVOKE / FIELD / CONSTANT / JUMP. |
 | `@Cancellable` | Shorthand for `@Inject(..., cancellable=true)`. |
+| `@Shadow("name")` | Forwards a `native` mixin method to a method on the target class. |
 
 Inject handlers may capture target parameters positionally between `Object self`
 and the optional trailing `CallbackInfo[Returnable]`:

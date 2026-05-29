@@ -14,6 +14,7 @@ import javax.lang.model.element.Modifier
 //   redirectEntries:   [targetMethod, invokeDesc, index, call, handlerName, handlerDesc]
 //   injectEntries:     [targetMethod, point, atDesc, atIndex,
 //                       cancellable, returnable, handlerName, handlerDesc]
+//   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
 
 private const val MIXIN_FQN       = "net.echo.hypermixins.annotations.Mixin"
@@ -22,6 +23,7 @@ private const val ORIGINAL_FQN    = "net.echo.hypermixins.annotations.Original"
 private const val REDIRECT_FQN    = "net.echo.hypermixins.annotations.Redirect"
 private const val INJECT_FQN      = "net.echo.hypermixins.annotations.Inject"
 private const val CANCELLABLE_FQN = "net.echo.hypermixins.annotations.Cancellable"
+private const val SHADOW_FQN      = "net.echo.hypermixins.annotations.Shadow"
 
 class MixinSymbolProcessor(
     private val codeGenerator: CodeGenerator,
@@ -97,6 +99,7 @@ class MixinSymbolProcessor(
         val originals  = mutableListOf<OriginalEntry>()
         val redirects  = mutableListOf<RedirectEntry>()
         val injects    = mutableListOf<InjectEntry>()
+        val shadows    = mutableListOf<ShadowEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -104,10 +107,11 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(ORIGINAL_FQN)   -> validateAndCollectOriginal(fn, originals)
                 fn.hasAnnotation(REDIRECT_FQN)   -> validateAndCollectRedirect(fn, redirects)
                 fn.hasAnnotation(INJECT_FQN)     -> validateAndCollectInject(fn, injects)
+                fn.hasAnnotation(SHADOW_FQN)     -> validateAndCollectShadow(fn, shadows)
             }
         }
 
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, shadows)
     }
 
     // ---- Validation + collection ----
@@ -196,6 +200,23 @@ class MixinSymbolProcessor(
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
     }
 
+    private fun validateAndCollectShadow(fn: KSFunctionDeclaration, out: MutableList<ShadowEntry>) {
+        val ann = fn.findAnnotation(SHADOW_FQN)!!
+        val explicit = ann.arg("value") as? String ?: ""
+        val targetName = if (explicit.isNotBlank()) explicit else fn.simpleName.asString()
+        val params = fn.parameters
+        if (params.isEmpty()) {
+            logger.error("@Shadow method must have 'Object self' as first parameter: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val firstType = params[0].type.resolve().declaration.qualifiedName?.asString()
+        if (firstType != "kotlin.Any" && firstType != "java.lang.Object") {
+            logger.error("@Shadow first parameter must be Object/Any (found $firstType): ${fn.simpleName.asString()}", fn)
+            return
+        }
+        out += ShadowEntry(fn.simpleName.asString(), descriptor(fn), targetName)
+    }
+
     private fun validateAndCollectInject(fn: KSFunctionDeclaration, out: MutableList<InjectEntry>) {
         val ann = fn.findAnnotation(INJECT_FQN)!!
         val method = ann.arg("method") as? String ?: ""
@@ -282,7 +303,8 @@ class MixinSymbolProcessor(
         overwrites: List<OverwriteEntry>,
         originals: List<OriginalEntry>,
         redirects: List<RedirectEntry>,
-        injects: List<InjectEntry>
+        injects: List<InjectEntry>,
+        shadows: List<ShadowEntry>
     ) {
         val mixinFqn = cls.qualifiedName?.asString() ?: return
         val descriptorFqn = "$mixinFqn\$\$Descriptor"
@@ -320,6 +342,9 @@ class MixinSymbolProcessor(
         classBuilder.addMethod(entriesMethod("injectEntries", injects.map {
             arrayOf(it.targetMethod, it.point, it.atDesc, it.atIndex.toString(),
                 it.cancellable.toString(), it.returnable.toString(), it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("shadowEntries", shadows.map {
+            arrayOf(it.handlerName, it.handlerDesc, it.targetName)
         }))
         classBuilder.addMethod(entriesMethod("syntheticNames", overwrites.map {
             arrayOf(
@@ -381,4 +406,5 @@ class MixinSymbolProcessor(
     private data class OriginalEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
     private data class RedirectEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val call: String, val handlerName: String, val handlerDesc: String)
     private data class InjectEntry(val targetMethod: String, val point: String, val atDesc: String, val atIndex: Int, val cancellable: Boolean, val returnable: Boolean, val handlerName: String, val handlerDesc: String)
+    private data class ShadowEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
 }

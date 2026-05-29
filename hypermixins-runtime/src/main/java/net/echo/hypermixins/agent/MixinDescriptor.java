@@ -8,6 +8,7 @@ import net.echo.hypermixins.annotations.Mixin;
 import net.echo.hypermixins.annotations.Original;
 import net.echo.hypermixins.annotations.Overwrite;
 import net.echo.hypermixins.annotations.Redirect;
+import net.echo.hypermixins.annotations.Shadow;
 import org.objectweb.asm.Type;
 
 import java.lang.invoke.MethodHandle;
@@ -72,6 +73,7 @@ public final class MixinDescriptor {
     public record InjectEntry(String targetMethod, At.Point point, String atDesc, int atIndex,
                               boolean cancellable, boolean returnable,
                               String handlerName, String handlerDesc) {}
+    public record ShadowEntry(String handlerName, String handlerDesc, String targetName) {}
 
     private static final ConcurrentHashMap<Class<?>, MixinDescriptor> CACHE = new ConcurrentHashMap<>();
 
@@ -81,12 +83,14 @@ public final class MixinDescriptor {
     private final List<OriginalEntry> originals;
     private final List<RedirectEntry> redirects;
     private final List<InjectEntry> injects;
+    private final List<ShadowEntry> shadows;
     private final Map<String, String[]> synthetics;
 
     private MixinDescriptor(
         Class<?> mixinClass, String targetClass,
         List<OverwriteEntry> overwrites, List<OriginalEntry> originals,
         List<RedirectEntry> redirects, List<InjectEntry> injects,
+        List<ShadowEntry> shadows,
         Map<String, String[]> synthetics
     ) {
         this.mixinClass  = mixinClass;
@@ -95,6 +99,7 @@ public final class MixinDescriptor {
         this.originals   = List.copyOf(originals);
         this.redirects   = List.copyOf(redirects);
         this.injects     = List.copyOf(injects);
+        this.shadows     = List.copyOf(shadows);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
     }
 
@@ -105,6 +110,7 @@ public final class MixinDescriptor {
     public List<OriginalEntry>  originals()  { return originals; }
     public List<RedirectEntry>  redirects()  { return redirects; }
     public List<InjectEntry>    injects()    { return injects; }
+    public List<ShadowEntry>    shadows()    { return shadows; }
     /** Map {@code targetName+targetDesc → [mangledOriginalName, dispatchName]}. */
     public Map<String, String[]> synthetics() { return synthetics; }
 
@@ -144,6 +150,7 @@ public final class MixinDescriptor {
             List<String[]> originalRows  = invokeStringList(lookup, desc, "originalEntries");
             List<String[]> redirectRows  = invokeStringList(lookup, desc, "redirectEntries");
             List<String[]> injectRows    = invokeStringList(lookup, desc, "injectEntries");
+            List<String[]> shadowRows    = invokeStringListOrEmpty(lookup, desc, "shadowEntries");
             List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
 
             List<OverwriteEntry> ows = new ArrayList<>(overwriteRows.size());
@@ -161,10 +168,13 @@ public final class MixinDescriptor {
                 r[0], At.Point.valueOf(r[1]), r[2], Integer.parseInt(r[3]),
                 Boolean.parseBoolean(r[4]), Boolean.parseBoolean(r[5]), r[6], r[7]));
 
+            List<ShadowEntry> shads = new ArrayList<>(shadowRows.size());
+            for (String[] r : shadowRows) shads.add(new ShadowEntry(r[0], r[1], r[2]));
+
             Map<String, String[]> synths = new LinkedHashMap<>();
             for (String[] r : syntheticRows) synths.put(r[0] + r[1], new String[]{r[2], r[3]});
 
-            return new MixinDescriptor(mixinClass, targetInternal, ows, orig, reds, injs, synths);
+            return new MixinDescriptor(mixinClass, targetInternal, ows, orig, reds, injs, shads, synths);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
         }
@@ -174,6 +184,12 @@ public final class MixinDescriptor {
     private static List<String[]> invokeStringList(MethodHandles.Lookup lookup, Class<?> desc, String name) throws Throwable {
         MethodHandle mh = lookup.findStatic(desc, name, MethodType.methodType(List.class));
         return (List<String[]>) mh.invoke();
+    }
+
+    /** Older $$Descriptor classes may not declare the requested table — return empty in that case. */
+    private static List<String[]> invokeStringListOrEmpty(MethodHandles.Lookup lookup, Class<?> desc, String name) {
+        try { return invokeStringList(lookup, desc, name); }
+        catch (Throwable t) { return List.of(); }
     }
 
     /**
@@ -191,6 +207,7 @@ public final class MixinDescriptor {
         List<OriginalEntry>  originals  = new ArrayList<>();
         List<RedirectEntry>  redirects  = new ArrayList<>();
         List<InjectEntry>    injects    = new ArrayList<>();
+        List<ShadowEntry>    shadows    = new ArrayList<>();
         Map<String, String[]> synths    = new LinkedHashMap<>();
 
         for (Method method : mixinClass.getDeclaredMethods()) {
@@ -198,6 +215,7 @@ public final class MixinDescriptor {
             Original  or  = method.getAnnotation(Original.class);
             Redirect  re  = method.getAnnotation(Redirect.class);
             Inject    in  = method.getAnnotation(Inject.class);
+            Shadow    sh  = method.getAnnotation(Shadow.class);
 
             if (ow != null) {
                 if (ow.value().isEmpty()) throw new IllegalArgumentException("@Overwrite#value() is empty on " + method);
@@ -237,6 +255,12 @@ public final class MixinDescriptor {
                 redirects.add(new RedirectEntry(re.method(), re.at().desc(), re.at().index(),
                     re.at().call(), method.getName(), handlerDesc));
             }
+            if (sh != null) {
+                if (method.getParameterCount() == 0 || method.getParameterTypes()[0] != Object.class)
+                    throw new IllegalArgumentException("@Shadow first param must be Object self on " + method);
+                String targetName = sh.value().isBlank() ? method.getName() : sh.value();
+                shadows.add(new ShadowEntry(method.getName(), Type.getMethodDescriptor(method), targetName));
+            }
             if (in != null) {
                 if (in.method().isEmpty()) throw new IllegalArgumentException("@Inject#method() empty on " + method);
                 if (Modifier.isStatic(method.getModifiers()))
@@ -266,7 +290,7 @@ public final class MixinDescriptor {
                     cancellable, returnable, method.getName(), Type.getMethodDescriptor(method)));
             }
         }
-        return new MixinDescriptor(mixinClass, targetInternal, overwrites, originals, redirects, injects, synths);
+        return new MixinDescriptor(mixinClass, targetInternal, overwrites, originals, redirects, injects, shadows, synths);
     }
 
     /** Inlined SHA-1/16-hex digest used only by the legacy {@link #fromAnnotations} path. */

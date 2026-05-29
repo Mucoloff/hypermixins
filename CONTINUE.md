@@ -46,6 +46,7 @@ originalEntries:   [handlerName, handlerDesc, targetName]
 redirectEntries:   [targetMethod, invokeDesc, index, call, handlerName, handlerDesc]
 injectEntries:     [targetMethod, point, atDesc, atIndex,
                     cancellable, returnable, handlerName, handlerDesc]
+shadowEntries:     [handlerName, handlerDesc, targetName]
 syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
 ```
 

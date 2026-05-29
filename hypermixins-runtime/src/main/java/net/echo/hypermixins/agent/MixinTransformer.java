@@ -249,6 +249,46 @@ public class MixinTransformer implements ClassFileTransformer {
             method.instructions.add(insns);
         }
 
+        // ---- @Shadow trampolines ----
+        Map<String, String> shadowsByHandlerKey = new HashMap<>();
+        for (MixinDescriptor.ShadowEntry s : mapping.descriptor().shadows()) {
+            shadowsByHandlerKey.put(s.handlerName() + s.handlerDesc(), s.targetName());
+        }
+        if (!shadowsByHandlerKey.isEmpty()) {
+            String mappedTarget = mapping.getTargetClass().replace('.', '/');
+            for (MethodNode method : node.methods) {
+                String key = method.name + method.desc;
+                String targetName = shadowsByHandlerKey.get(key);
+                if (targetName == null) continue;
+
+                Type[] args = Type.getArgumentTypes(method.desc);
+                if (args.length == 0) {
+                    throw new IllegalStateException(
+                        "@Shadow method must declare Object self as first parameter: " + method.name + method.desc);
+                }
+                Type returnType = Type.getReturnType(method.desc);
+                Type[] targetArgs = Arrays.copyOfRange(args, 1, args.length);
+                String targetDesc = Type.getMethodDescriptor(returnType, targetArgs);
+
+                if ((method.access & Opcodes.ACC_NATIVE) != 0) method.access &= ~Opcodes.ACC_NATIVE;
+                method.instructions.clear();
+                method.tryCatchBlocks.clear();
+                method.localVariables = null;
+
+                InsnList insns = new InsnList();
+                insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                insns.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
+                int slotShad = 2;
+                for (Type arg : targetArgs) {
+                    insns.add(new VarInsnNode(arg.getOpcode(Opcodes.ILOAD), slotShad));
+                    slotShad += arg.getSize();
+                }
+                insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, targetName, targetDesc, false));
+                insns.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
+                method.instructions.add(insns);
+            }
+        }
+
         ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, loader);
         node.accept(writer);
         return writer.toByteArray();
