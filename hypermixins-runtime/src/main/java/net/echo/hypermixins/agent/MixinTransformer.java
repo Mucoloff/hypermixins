@@ -108,10 +108,16 @@ public class MixinTransformer implements ClassFileTransformer {
 
             List<MixinDescriptor.ModifyConstantEntry> mcs = mapping.descriptor().modifyConstants();
 
+            Map<String, List<MixinDescriptor.ModifyArgEntry>> masByDesc = new HashMap<>();
+            for (MixinDescriptor.ModifyArgEntry ma : mapping.descriptor().modifyArgs()) {
+                masByDesc.computeIfAbsent(ma.invokeDesc(), k -> new ArrayList<>()).add(ma);
+            }
+
             for (MethodNode method : new ArrayList<>(node.methods)) {
                 applyRedirects(method, redirectByDesc);
                 if (!mrvByDesc.isEmpty()) applyModifyReturnValues(method, mrvByDesc, mixinClassForMrv);
                 if (!mcs.isEmpty()) applyModifyConstants(method, mcs, mixinClassForMrv);
+                if (!masByDesc.isEmpty()) applyModifyArgs(method, masByDesc, mixinClassForMrv);
 
                 if (method.name.equals("<init>")) {
                     patchConstructor(method, node, mapping, mixinField);
@@ -1010,6 +1016,43 @@ public class MixinTransformer implements ClassFileTransformer {
                     && ldc.cst instanceof String s && s.equals(value);
             }
             default -> { return false; }
+        }
+    }
+
+    /**
+     * v1: supports modifying only the LAST argument of an INVOKE (the value already at the top
+     * of the operand stack just before the call). Other positions are rejected to keep the
+     * implementation free of arg-shuffling.
+     */
+    private static void applyModifyArgs(
+        MethodNode method, Map<String, List<MixinDescriptor.ModifyArgEntry>> masByDesc, Class<?> mixinClass
+    ) {
+        if (method.instructions == null) return;
+        String mixinInternal = Type.getInternalName(mixinClass);
+        Map<MixinDescriptor.ModifyArgEntry, Integer> matchCount = new HashMap<>();
+        List<AbstractInsnNode> snapshot = new ArrayList<>();
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
+            snapshot.add(insn);
+        for (AbstractInsnNode insn : snapshot) {
+            if (!(insn instanceof MethodInsnNode mi)) continue;
+            String key = mi.owner + "." + mi.name + mi.desc;
+            List<MixinDescriptor.ModifyArgEntry> candidates = masByDesc.get(key);
+            if (candidates == null) continue;
+            for (MixinDescriptor.ModifyArgEntry ma : candidates) {
+                if (!method.name.equals(ma.targetMethod())) continue;
+                int count = matchCount.getOrDefault(ma, 0);
+                matchCount.put(ma, count + 1);
+                if (count != 0) continue;
+                int lastIdx = Type.getArgumentTypes(mi.desc).length - 1;
+                if (ma.argIndex() != lastIdx) {
+                    throw new IllegalStateException(
+                        "@ModifyArg only supports the last argument in v1 (got index=" + ma.argIndex()
+                            + ", site has " + (lastIdx + 1) + " args)");
+                }
+                method.instructions.insertBefore(mi, new MethodInsnNode(
+                    Opcodes.INVOKESTATIC, mixinInternal, ma.handlerName(), ma.handlerDesc(), false));
+                break;
+            }
         }
     }
 

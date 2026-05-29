@@ -21,6 +21,7 @@ import javax.lang.model.element.Modifier
 //   accessorEntries:   [handlerName, handlerDesc, kind, targetField]   kind = GET | SET
 //   invokerEntries:    [handlerName, handlerDesc, targetName]
 //   modifyConstantEntries: [targetMethod, type, value, index, handlerName, handlerDesc]
+//   modifyArgEntries:  [targetMethod, invokeDesc, argIndex, handlerName, handlerDesc]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
@@ -38,6 +39,7 @@ private const val MODIFY_RV_FQN   = "net.echo.hypermixins.annotations.ModifyRetu
 private const val ACCESSOR_FQN    = "net.echo.hypermixins.annotations.Accessor"
 private const val INVOKER_FQN     = "net.echo.hypermixins.annotations.Invoker"
 private const val MODIFY_CONST_FQN = "net.echo.hypermixins.annotations.ModifyConstant"
+private const val MODIFY_ARG_FQN   = "net.echo.hypermixins.annotations.ModifyArg"
 
 class MixinSymbolProcessor(
     private val codeGenerator: CodeGenerator,
@@ -121,6 +123,7 @@ class MixinSymbolProcessor(
         val accessors = mutableListOf<AccessorEntry>()
         val invokers = mutableListOf<InvokerEntry>()
         val modifyConsts = mutableListOf<ModifyConstantEntry>()
+        val modifyArgs = mutableListOf<ModifyArgEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -133,6 +136,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(ACCESSOR_FQN)   -> validateAndCollectAccessor(fn, accessors)
                 fn.hasAnnotation(INVOKER_FQN)    -> validateAndCollectInvoker(fn, invokers)
                 fn.hasAnnotation(MODIFY_CONST_FQN) -> validateAndCollectModifyConstant(fn, modifyConsts)
+                fn.hasAnnotation(MODIFY_ARG_FQN) -> validateAndCollectModifyArg(fn, modifyArgs)
             }
         }
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
@@ -160,7 +164,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, accessors, invokers, staticTargets)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, accessors, invokers, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -268,6 +272,29 @@ class MixinSymbolProcessor(
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    private fun validateAndCollectModifyArg(fn: KSFunctionDeclaration, out: MutableList<ModifyArgEntry>) {
+        val ann = fn.findAnnotation(MODIFY_ARG_FQN)!!
+        val method = (ann.arg("method") as? String).orEmpty()
+        if (method.isBlank()) {
+            logger.error("@ModifyArg#method() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC !in fn.modifiers) {
+            logger.error("@ModifyArg method must be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val atAnn = ann.arg("at") as? KSAnnotation
+        val desc = (atAnn?.arg("desc") as? String).orEmpty()
+        if (desc.isBlank()) {
+            logger.error("@At#desc() must not be empty on @ModifyArg ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val idx = (ann.arg("index") as? Int) ?: 0
+        val handlerName = fn.simpleName.asString()
+        val handlerDesc = descriptor(fn)
+        out += ModifyArgEntry(method, desc, idx, handlerName, handlerDesc)
     }
 
     private fun validateAndCollectModifyConstant(fn: KSFunctionDeclaration, out: MutableList<ModifyConstantEntry>) {
@@ -592,6 +619,7 @@ class MixinSymbolProcessor(
         shadowStaticFields: List<ShadowFieldEntry>,
         modifyRvs: List<ModifyReturnValueEntry>,
         modifyConsts: List<ModifyConstantEntry>,
+        modifyArgs: List<ModifyArgEntry>,
         accessors: List<AccessorEntry>,
         invokers: List<InvokerEntry>,
         staticTargets: Set<String>
@@ -658,6 +686,9 @@ class MixinSymbolProcessor(
         }))
         classBuilder.addMethod(entriesMethod("modifyConstantEntries", modifyConsts.map {
             arrayOf(it.targetMethod, it.type, it.value, it.index.toString(), it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("modifyArgEntries", modifyArgs.map {
+            arrayOf(it.targetMethod, it.invokeDesc, it.argIndex.toString(), it.handlerName, it.handlerDesc)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
             val paren = it.indexOf('(')
@@ -730,4 +761,5 @@ class MixinSymbolProcessor(
     private data class AccessorEntry(val handlerName: String, val handlerDesc: String, val kind: String, val targetField: String)
     private data class InvokerEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
     private data class ModifyConstantEntry(val targetMethod: String, val type: String, val value: String, val index: Int, val handlerName: String, val handlerDesc: String)
+    private data class ModifyArgEntry(val targetMethod: String, val invokeDesc: String, val argIndex: Int, val handlerName: String, val handlerDesc: String)
 }
