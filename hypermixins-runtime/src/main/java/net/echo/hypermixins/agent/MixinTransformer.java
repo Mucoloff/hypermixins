@@ -1314,9 +1314,10 @@ public class MixinTransformer implements ClassFileTransformer {
     }
 
     /**
-     * v1: supports modifying only the LAST argument of an INVOKE (the value already at the top
-     * of the operand stack just before the call). Other positions are rejected to keep the
-     * implementation free of arg-shuffling.
+     * Supports any argument position. For index == last arg the handler INVOKESTATIC is inserted
+     * straight before the call (the value is already on top). For lower positions, the args above
+     * the target are stashed into per-arg temp locals, the handler runs on the now-exposed value,
+     * and the stashed args are restored before the original INVOKE fires.
      */
     private static void applyModifyArgs(
         MethodNode method, Map<String, List<MixinDescriptor.ModifyArgEntry>> masByDesc, Class<?> mixinClass
@@ -1349,14 +1350,37 @@ public class MixinTransformer implements ClassFileTransformer {
                 int count = matchCount.getOrDefault(ma, 0);
                 matchCount.put(ma, count + 1);
                 if (count != 0) continue;
-                int lastIdx = Type.getArgumentTypes(mi.desc).length - 1;
-                if (ma.argIndex() != lastIdx) {
+                Type[] argTypes = Type.getArgumentTypes(mi.desc);
+                int argIdx = ma.argIndex();
+                if (argIdx < 0 || argIdx >= argTypes.length) {
                     throw new IllegalStateException(
-                        "@ModifyArg only supports the last argument in v1 (got index=" + ma.argIndex()
-                            + ", site has " + (lastIdx + 1) + " args)");
+                        "@ModifyArg index=" + argIdx + " out of range for site " + key);
                 }
-                method.instructions.insertBefore(mi, new MethodInsnNode(
-                    Opcodes.INVOKESTATIC, mixinInternal, ma.handlerName(), ma.handlerDesc(), false));
+                if (argIdx == argTypes.length - 1) {
+                    // Last arg: handler INVOKESTATIC straight in front of the call.
+                    method.instructions.insertBefore(mi, new MethodInsnNode(
+                        Opcodes.INVOKESTATIC, mixinInternal, ma.handlerName(), ma.handlerDesc(), false));
+                } else {
+                    // Stash args[argIdx+1..end] into temp locals, run handler on the now-top
+                    // value, restore the stashed args.
+                    int[] argLocals = new int[argTypes.length];
+                    int cursor = method.maxLocals;
+                    for (int i = 0; i < argTypes.length; i++) {
+                        argLocals[i] = cursor;
+                        cursor += argTypes[i].getSize();
+                    }
+                    method.maxLocals = cursor;
+                    InsnList block = new InsnList();
+                    for (int i = argTypes.length - 1; i > argIdx; i--) {
+                        block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ISTORE), argLocals[i]));
+                    }
+                    block.add(new MethodInsnNode(Opcodes.INVOKESTATIC, mixinInternal,
+                        ma.handlerName(), ma.handlerDesc(), false));
+                    for (int i = argIdx + 1; i < argTypes.length; i++) {
+                        block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ILOAD), argLocals[i]));
+                    }
+                    method.instructions.insertBefore(mi, block);
+                }
                 break;
             }
         }

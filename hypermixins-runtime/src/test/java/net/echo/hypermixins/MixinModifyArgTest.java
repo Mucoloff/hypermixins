@@ -38,4 +38,23 @@ public class MixinModifyArgTest {
         // input 4 → handler multiplies by 10 → Integer.valueOf(40) → "40"
         assertEquals("40", t.getMethod("render", int.class).invoke(inst, 4));
     }
+
+    // ---- middle argument ----
+
+    public static class TwoArgTarget {
+        public int max(int a, int b) { return Integer.max(a, b); }
+    }
+    @Mixin("net.echo.hypermixins.MixinModifyArgTest$TwoArgTarget")
+    public static class MidMix {
+        @ModifyArg(method = "max", at = @At(desc = "java/lang/Integer.max(II)I"), index = 0)
+        public static int bump(int original) { return original + 1000; }
+    }
+
+    @Test
+    void modifyMiddleArgOfInvoke() throws Exception {
+        Class<?> t = applyMixin(TwoArgTarget.class, MidMix.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // input (3, 9) → handler shifts arg0 by +1000 → Integer.max(1003, 9) = 1003
+        assertEquals(1003, t.getMethod("max", int.class, int.class).invoke(inst, 3, 9));
+    }
 }
