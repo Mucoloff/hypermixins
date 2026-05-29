@@ -98,14 +98,14 @@ void process() { process(null); }
 ## Regola generale
 Usa la struttura giusta per il problema, non "map ovunque".
 
-| Uso | Struttura |
-|-----|----------|
-| accesso per chiave | `HashMap` |
-| ordinamento | `TreeMap` / `TreeSet` |
-| lista sequenziale | `ArrayList` |
-| set senza duplicati | `HashSet` |
-| concorrenza read-heavy | `CopyOnWriteArrayList` |
-| concorrenza write-heavy | `ConcurrentHashMap` |
+| Uso                     | Struttura              |
+|-------------------------|------------------------|
+| accesso per chiave      | `HashMap`              |
+| ordinamento             | `TreeMap` / `TreeSet`  |
+| lista sequenziale       | `ArrayList`            |
+| set senza duplicati     | `HashSet`              |
+| concorrenza read-heavy  | `CopyOnWriteArrayList` |
+| concorrenza write-heavy | `ConcurrentHashMap`    |
 
 ## Note importanti
 - `HashMap` → O(1) medio
@@ -456,29 +456,29 @@ public record Point(double x, double y) {}
 Per moduli **con UI** (desktop, web front-end, IntelliJ plugin). Sistemi headless/server → §19.
 
 ## MVC (Model-View-Controller)
-| Strato | Responsabilità |
-|--------|---------------|
-| Model | stato + business rules, zero riferimenti UI |
-| View | rendering passivo, ascolta/osserva Model |
-| Controller | riceve input, traduce in mutazioni Model |
+| Strato     | Responsabilità                              |
+|------------|---------------------------------------------|
+| Model      | stato + business rules, zero riferimenti UI |
+| View       | rendering passivo, ascolta/osserva Model    |
+| Controller | riceve input, traduce in mutazioni Model    |
 
 Usare quando: web server-side classico, framework con routing (Spring MVC, Ktor, Javalin).
 
 ## MVP (Model-View-Presenter)
-| Strato | Responsabilità |
-|--------|---------------|
-| Model | dominio, come MVC |
-| View | dumb — espone contratto (`setText`, `onClick`), niente logica |
-| Presenter | logica UI, parla con Model via interfaccia View |
+| Strato    | Responsabilità                                                |
+|-----------|---------------------------------------------------------------|
+| Model     | dominio, come MVC                                             |
+| View      | dumb — espone contratto (`setText`, `onClick`), niente logica |
+| Presenter | logica UI, parla con Model via interfaccia View               |
 
 Usare quando: View difficile da testare (Swing, SWT, Android pre-Jetpack). Presenter è testabile in isolamento perché View è un'interfaccia.
 
 ## MVVM (Model-View-ViewModel)
-| Strato | Responsabilità |
-|--------|---------------|
-| Model | dominio |
+| Strato    | Responsabilità                                                             |
+|-----------|----------------------------------------------------------------------------|
+| Model     | dominio                                                                    |
 | ViewModel | stato osservabile (Property, StateFlow, ObservableField) — zero ref a View |
-| View | binding dichiarativo a ViewModel |
+| View      | binding dichiarativo a ViewModel                                           |
 
 Usare quando: framework con data-binding nativo (JavaFX Property, Jetpack Compose, WPF).
 
@@ -578,11 +578,11 @@ Usare `@ServiceComponent` + `@Inject` + `ServiceManager` (`feature/service`) **s
 
 Tre modi di estendere il sistema — scegliere uno per dominio:
 
-| Modello | Quando | Moduli chiave |
-|---------|--------|---------------|
-| File-loaded `Extension` | plugin caricati da JAR esterno, lifecycle toggle, class isolation | `feature/module/extension/{api,manager}` |
-| Versioned `UpdateableExtension` | come sopra + auto-update | `feature/module/extension-versioning/{api,manager}` |
-| DI `@ServiceComponent` | componenti interni con DI e lifecycle, no class isolation | `feature/service/{api,impl}` |
+| Modello                         | Quando                                                            | Moduli chiave                                       |
+|---------------------------------|-------------------------------------------------------------------|-----------------------------------------------------|
+| File-loaded `Extension`         | plugin caricati da JAR esterno, lifecycle toggle, class isolation | `feature/module/extension/{api,manager}`            |
+| Versioned `UpdateableExtension` | come sopra + auto-update                                          | `feature/module/extension-versioning/{api,manager}` |
+| DI `@ServiceComponent`          | componenti interni con DI e lifecycle, no class isolation         | `feature/service/{api,impl}`                        |
 
 Regola: non mescolare modelli nello stesso modulo.
 

@@ -8,8 +8,8 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/hypermixins-agent" />
             <option value="$PROJECT_DIR$/hypermixins-annotations" />
-            <option value="$PROJECT_DIR$/hypermixins-api" />
             <option value="$PROJECT_DIR$/hypermixins-example" />
             <option value="$PROJECT_DIR$/hypermixins-intellij-plugin" />
             <option value="$PROJECT_DIR$/hypermixins-processor" />

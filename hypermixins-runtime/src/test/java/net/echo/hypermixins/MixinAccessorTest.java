@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import static net.echo.hypermixins.TransformerTestSupport.applyMixin;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * @Accessor-style getter/setter trampolines. The transformer rewrites native mixin methods to
@@ -75,6 +76,6 @@ public class MixinAccessorTest {
         Class<?> t = applyMixin(FlagTarget.class, FlagMix.class);
         Object inst = t.getDeclaredConstructor().newInstance();
         assertEquals("true", t.getMethod("describe").invoke(inst));
-        assertEquals(true, t.getField("active").getBoolean(inst));
+        assertTrue(t.getField("active").getBoolean(inst));
     }
 }

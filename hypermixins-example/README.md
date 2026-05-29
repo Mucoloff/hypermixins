@@ -4,13 +4,13 @@ End-to-end demonstration of HyperMixins against a pre-built target jar.
 
 ## Pieces
 
-| File | Role |
-|---|---|
-| `run/test-world-1.0.jar` | Pre-built target. Ships `net.echo.testworld.{World, Player, Start}`. Not built from this repo; treat as opaque external dependency the mixins target. |
-| `src/main/java/net/echo/tests/WorldMixin.java` | Mixin class: `@Overwrite("getPlayers")`, `@Original`, `@Redirect` on `Thread.sleep`, `@Inject(HEAD)` on `addPlayer`. |
-| `src/main/java/net/echo/tests/MixinTest.java` | Premain entry that registers `WorldMixin` programmatically. Used when the example jar itself is the agent. |
-| `src/main/java/net/echo/tests/MixinDescriptorDemo.java` | `main` that loads `WorldMixin$$Descriptor` via `MixinDescriptor.load` and prints every entry table — proves the compile-time → runtime descriptor pipeline without attaching an agent. |
-| `src/test/java/net/echo/tests/WorldMixinDescriptorTest.java` | JUnit assertion of the same. Runs on every `:hypermixins-example:test`. |
+| File                                                         | Role                                                                                                                                                                                   |
+|--------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `run/test-world-1.0.jar`                                     | Pre-built target. Ships `net.echo.testworld.{World, Player, Start}`. Not built from this repo; treat as opaque external dependency the mixins target.                                  |
+| `src/main/java/net/echo/tests/WorldMixin.java`               | Mixin class: `@Overwrite("getPlayers")`, `@Original`, `@Redirect` on `Thread.sleep`, `@Inject(HEAD)` on `addPlayer`.                                                                   |
+| `src/main/java/net/echo/tests/MixinTest.java`                | Premain entry that registers `WorldMixin` programmatically. Used when the example jar itself is the agent.                                                                             |
+| `src/main/java/net/echo/tests/MixinDescriptorDemo.java`      | `main` that loads `WorldMixin$$Descriptor` via `MixinDescriptor.load` and prints every entry table — proves the compile-time → runtime descriptor pipeline without attaching an agent. |
+| `src/test/java/net/echo/tests/WorldMixinDescriptorTest.java` | JUnit assertion of the same. Runs on every `:hypermixins-example:test`.                                                                                                                |
 
 ## Build
 

@@ -70,13 +70,13 @@ swapping to a different mixin Class<?> would require retransforming targets whos
 
 ## Modules
 
-| Module | Purpose |
-|---|---|
-| `hypermixins-annotations` | `@Mixin`, `@Overwrite`, `@Original`, `@Redirect`, `@Inject`, `@At`, `CallbackInfo[Returnable]` |
-| `hypermixins-processor` | KSP processor: emits `$$Descriptor` + `META-INF/hypermixins/*.mixins.yml` |
-| `hypermixins-runtime` | `MixinDescriptor`, `MixinTransformer`, `MixinRegistry`, `MixinHandle`, `HyperMixins`, `MixinsConfig` |
-| `hypermixins-example` | `WorldMixin` + `MixinDescriptorDemo` smoke main |
-| `hypermixins-intellij-plugin` | F1-F4 (gutter, inspections, completion). Needs IntelliJ IDEA installed locally to build |
+| Module                        | Purpose                                                                                              |
+|-------------------------------|------------------------------------------------------------------------------------------------------|
+| `hypermixins-annotations`     | `@Mixin`, `@Overwrite`, `@Original`, `@Redirect`, `@Inject`, `@At`, `CallbackInfo[Returnable]`       |
+| `hypermixins-processor`       | KSP processor: emits `$$Descriptor` + `META-INF/hypermixins/*.mixins.yml`                            |
+| `hypermixins-runtime`         | `MixinDescriptor`, `MixinTransformer`, `MixinRegistry`, `MixinHandle`, `HyperMixins`, `MixinsConfig` |
+| `hypermixins-example`         | `WorldMixin` + `MixinDescriptorDemo` smoke main                                                      |
+| `hypermixins-intellij-plugin` | F1-F4 (gutter, inspections, completion). Needs IntelliJ IDEA installed locally to build              |
 
 The legacy `hypermixins-api` module is removed — runtime is the single source of truth.
 

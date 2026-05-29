@@ -84,23 +84,23 @@ public static void premain(String args, Instrumentation inst) throws Exception {
 
 ## Annotations
 
-| Annotation | Effect |
-|---|---|
-| `@Mixin("fqn")` | Marks the class as a mixin targeting `fqn`. No-arg ctor required. |
-| `@Overwrite("name")` | Replaces the target method's body with the handler. First param must be `Object self`. |
-| `@Original("name")` | Trampoline back to the un-mixed implementation. Declare as `native`. |
-| `@Redirect(method, at)` | Replaces an invoke / field site inside `method` with a static handler. |
-| `@Inject(method, at, cancellable)` | Side-effect hook at HEAD / RETURN / TAIL / INVOKE / FIELD / CONSTANT / JUMP. |
-| `@Cancellable` | Shorthand for `@Inject(..., cancellable=true)`. |
-| `@Shadow("name")` | Forwards a `native` mixin method to a method on the target class. Also forwards `this.field` access on an `@Shadow` instance field to the target's field. Supports `prefix = "..."` for Sponge-style name resolution. |
-| `@Local(index = N)` | On an `@Inject` handler param: capture the target's local at slot `N` directly instead of relying on positional capture. |
-| `@ModifyReturnValue` | Static handler `T (T)` wraps the return value of a specific INVOKE inside the target method. |
-| `@ModifyConstant` | Static handler `T (T)` replaces a numeric / String constant load matching the typed `@Constant` clause. |
-| `@ModifyArg` | Static handler `T (T)` replaces the last argument of a specific INVOKE call site (v1 last-arg only). |
-| `@Accessor` | Native mixin method becomes a `GETFIELD`/`PUTFIELD` trampoline; field name auto-resolves from the `getFoo`/`setFoo`/`isFoo` convention. |
-| `@Invoker` | Native mixin method becomes an `INVOKEVIRTUAL` trampoline to a named target method (auto-derives via `invokeFoo`/`callFoo`). Supports private targets via a generated public synthetic accessor. |
-| `@ModifyExpressionValue` | Static handler `T (T)` wraps the value produced by an INVOKE / FIELD / CONSTANT site. |
-| `@ModifyArgs` | Static handler `void(Object[])` mutates every reference-typed argument of a matched INVOKE before it fires. |
+| Annotation                         | Effect                                                                                                                                                                                                                |
+|------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `@Mixin("fqn")`                    | Marks the class as a mixin targeting `fqn`. No-arg ctor required.                                                                                                                                                     |
+| `@Overwrite("name")`               | Replaces the target method's body with the handler. First param must be `Object self`.                                                                                                                                |
+| `@Original("name")`                | Trampoline back to the un-mixed implementation. Declare as `native`.                                                                                                                                                  |
+| `@Redirect(method, at)`            | Replaces an invoke / field site inside `method` with a static handler.                                                                                                                                                |
+| `@Inject(method, at, cancellable)` | Side-effect hook at HEAD / RETURN / TAIL / INVOKE / FIELD / CONSTANT / JUMP.                                                                                                                                          |
+| `@Cancellable`                     | Shorthand for `@Inject(..., cancellable=true)`.                                                                                                                                                                       |
+| `@Shadow("name")`                  | Forwards a `native` mixin method to a method on the target class. Also forwards `this.field` access on an `@Shadow` instance field to the target's field. Supports `prefix = "..."` for Sponge-style name resolution. |
+| `@Local(index = N)`                | On an `@Inject` handler param: capture the target's local at slot `N` directly instead of relying on positional capture.                                                                                              |
+| `@ModifyReturnValue`               | Static handler `T (T)` wraps the return value of a specific INVOKE inside the target method.                                                                                                                          |
+| `@ModifyConstant`                  | Static handler `T (T)` replaces a numeric / String constant load matching the typed `@Constant` clause.                                                                                                               |
+| `@ModifyArg`                       | Static handler `T (T)` replaces the last argument of a specific INVOKE call site (v1 last-arg only).                                                                                                                  |
+| `@Accessor`                        | Native mixin method becomes a `GETFIELD`/`PUTFIELD` trampoline; field name auto-resolves from the `getFoo`/`setFoo`/`isFoo` convention.                                                                               |
+| `@Invoker`                         | Native mixin method becomes an `INVOKEVIRTUAL` trampoline to a named target method (auto-derives via `invokeFoo`/`callFoo`). Supports private targets via a generated public synthetic accessor.                      |
+| `@ModifyExpressionValue`           | Static handler `T (T)` wraps the value produced by an INVOKE / FIELD / CONSTANT site.                                                                                                                                 |
+| `@ModifyArgs`                      | Static handler `void(Object[])` mutates every reference-typed argument of a matched INVOKE before it fires.                                                                                                           |
 
 Inject handlers may capture target parameters positionally between `Object self`
 and the optional trailing `CallbackInfo[Returnable]`:
@@ -148,14 +148,14 @@ See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backl
 
 ## Modules
 
-| Module | Purpose |
-|---|---|
-| `hypermixins-annotations` | Annotation surface (`@Mixin`, `@Overwrite`, `@At`, ...). Pure Java, zero deps. |
-| `hypermixins-processor` | KSP processor: emits `$$Descriptor` + YAML. |
-| `hypermixins-runtime` | `MixinDescriptor`, `MixinTransformer`, `MixinRegistry`, `MixinHandle`, `HyperMixins`. |
-| `hypermixins-agent` | Drop-in `-javaagent:` shadow jar with `Premain-Class` calling `registerFromClasspath`. |
-| `hypermixins-example` | `WorldMixin` + smoke main + descriptor integration test. |
-| `hypermixins-intellij-plugin` | IDEA plugin: gutter navigation, inspections, completion. |
+| Module                        | Purpose                                                                                |
+|-------------------------------|----------------------------------------------------------------------------------------|
+| `hypermixins-annotations`     | Annotation surface (`@Mixin`, `@Overwrite`, `@At`, ...). Pure Java, zero deps.         |
+| `hypermixins-processor`       | KSP processor: emits `$$Descriptor` + YAML.                                            |
+| `hypermixins-runtime`         | `MixinDescriptor`, `MixinTransformer`, `MixinRegistry`, `MixinHandle`, `HyperMixins`.  |
+| `hypermixins-agent`           | Drop-in `-javaagent:` shadow jar with `Premain-Class` calling `registerFromClasspath`. |
+| `hypermixins-example`         | `WorldMixin` + smoke main + descriptor integration test.                               |
+| `hypermixins-intellij-plugin` | IDEA plugin: gutter navigation, inspections, completion.                               |
 
 ## Status
 
