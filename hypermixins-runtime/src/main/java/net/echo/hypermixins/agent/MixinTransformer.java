@@ -269,102 +269,10 @@ public class MixinTransformer implements ClassFileTransformer {
         reader.accept(node, 0);
 
         ShadowFieldPass.apply(node, mapping);
-
-        for (MethodNode method : node.methods) {
-            String key = method.name + method.desc;
-            if (!mapping.getOriginals().containsKey(key)) continue;
-
-            Type[] args = Type.getArgumentTypes(method.desc);
-            if (args.length == 0) {
-                throw new IllegalStateException(
-                    "@Original method must declare Object self as first parameter: " + method.name + method.desc);
-            }
-
-            Type returnType  = Type.getReturnType(method.desc);
-            Type[] targetArgs = Arrays.copyOfRange(args, 1, args.length);
-            String targetDesc = Type.getMethodDescriptor(returnType, targetArgs);
-
-            if ((method.access & Opcodes.ACC_NATIVE) != 0) method.access &= ~Opcodes.ACC_NATIVE;
-            method.instructions.clear();
-            method.tryCatchBlocks.clear();
-            method.localVariables = null;
-
-            String mappedTarget  = mapping.getTargetClass().replace('.', '/');
-            String targetName    = mapping.getOriginals().get(key);
-            String[] synths      = mapping.descriptor().synthetics().get(targetName + targetDesc);
-            if (synths == null) {
-                throw new IllegalStateException(
-                    "Missing precomputed synthetic names for @Original target " + targetName + targetDesc);
-            }
-            String originalName  = synths[0];
-            boolean targetIsStatic = mapping.descriptor().isStaticTargetMethod(targetName, targetDesc);
-
-            InsnList insns = new InsnList();
-            int slotOrig;
-            if (targetIsStatic) {
-                slotOrig = 2;
-            } else {
-                insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
-                insns.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
-                slotOrig = 2;
-            }
-            for (Type arg : targetArgs) {
-                insns.add(new VarInsnNode(arg.getOpcode(Opcodes.ILOAD), slotOrig));
-                slotOrig += arg.getSize();
-            }
-            insns.add(new MethodInsnNode(
-                targetIsStatic ? Opcodes.INVOKESTATIC : Opcodes.INVOKEVIRTUAL,
-                mappedTarget, originalName, targetDesc, false));
-            insns.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
-            method.instructions.add(insns);
-        }
-
+        OriginalPass.apply(node, mapping);
         AccessorPass.apply(node, mapping);
-
         InvokerPass.apply(node, mapping);
-
-        // ---- @Shadow trampolines ----
-        Map<String, String> shadowsByHandlerKey = new HashMap<>();
-        for (MixinDescriptor.ShadowEntry s : mapping.descriptor().shadows()) {
-            shadowsByHandlerKey.put(s.handlerName() + s.handlerDesc(), s.targetName());
-        }
-        if (!shadowsByHandlerKey.isEmpty()) {
-            String mappedTarget = mapping.getTargetClass().replace('.', '/');
-            for (MethodNode method : node.methods) {
-                String key = method.name + method.desc;
-                String targetName = shadowsByHandlerKey.get(key);
-                if (targetName == null) continue;
-
-                Type[] args = Type.getArgumentTypes(method.desc);
-                if (args.length == 0) {
-                    throw new IllegalStateException(
-                        "@Shadow method must declare Object self as first parameter: " + method.name + method.desc);
-                }
-                Type returnType = Type.getReturnType(method.desc);
-                Type[] targetArgs = Arrays.copyOfRange(args, 1, args.length);
-                String targetDesc = Type.getMethodDescriptor(returnType, targetArgs);
-
-                if ((method.access & Opcodes.ACC_NATIVE) != 0) method.access &= ~Opcodes.ACC_NATIVE;
-                method.instructions.clear();
-                method.tryCatchBlocks.clear();
-                method.localVariables = null;
-
-                InsnList insns = new InsnList();
-                insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
-                insns.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
-                int slotShad = 2;
-                for (Type arg : targetArgs) {
-                    insns.add(new VarInsnNode(arg.getOpcode(Opcodes.ILOAD), slotShad));
-                    slotShad += arg.getSize();
-                }
-                String invokedName = mapping.descriptor().isPrivateShadowTarget(targetName, targetDesc)
-                    ? PrivateShadowAccessorPass.accessorName(targetName, targetDesc)
-                    : targetName;
-                insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, invokedName, targetDesc, false));
-                insns.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
-                method.instructions.add(insns);
-            }
-        }
+        ShadowMethodPass.apply(node, mapping);
 
         ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, loader);
         node.accept(writer);
