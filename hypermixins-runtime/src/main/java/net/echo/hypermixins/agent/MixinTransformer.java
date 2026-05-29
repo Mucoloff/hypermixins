@@ -110,7 +110,7 @@ public class MixinTransformer implements ClassFileTransformer {
             for (MethodNode m : new ArrayList<>(node.methods)) {
                 if ((m.access & Opcodes.ACC_STATIC) == 0) continue;
                 if (mapping.getOverwrites().get(m.name + m.desc) == null) continue;
-                ensureStaticMixinField(node, mapping);
+                StaticMixinField.ensure(node, mapping);
                 break;
             }
 
@@ -205,7 +205,7 @@ public class MixinTransformer implements ClassFileTransformer {
             String mixinDescStr = Type.getDescriptor(mixinMethod.getDeclaringClass());
             if (targetIsStatic) {
                 di.add(new FieldInsnNode(Opcodes.GETSTATIC, owner.name,
-                    staticMixinFieldName(mapping), mixinDescStr));
+                    StaticMixinField.name(mapping), mixinDescStr));
                 di.add(new InsnNode(Opcodes.ACONST_NULL)); // self for static target → null
                 Type[] targetArgs = Type.getArgumentTypes(target.desc);
                 int slot = 0;
@@ -259,59 +259,6 @@ public class MixinTransformer implements ClassFileTransformer {
         target.instructions.add(body);
 
         return new MethodNode[]{originalCopy, dispatchCopy};
-    }
-
-    private static String staticMixinFieldName(MixinMapping mapping) {
-        return "__mixin$static$" + mapping.getMixinClass().getName().replace('.', '$');
-    }
-
-    /**
-     * Ensures the target class carries a static field holding the singleton mixin instance,
-     * initialized in &lt;clinit&gt;. Re-entrant: skips the work if both the field and the
-     * matching PUTSTATIC are already present from a previous mixin's pass.
-     */
-    private static void ensureStaticMixinField(ClassNode node, MixinMapping mapping) {
-        String fieldName = staticMixinFieldName(mapping);
-        String mixinDesc = Type.getDescriptor(mapping.getMixinClass());
-        String mixinInternal = Type.getInternalName(mapping.getMixinClass());
-        boolean hasField = node.fields.stream().anyMatch(f -> f.name.equals(fieldName));
-        if (!hasField) {
-            node.fields.add(new FieldNode(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
-                fieldName, mixinDesc, null, null));
-        }
-        MethodNode clinit = null;
-        for (MethodNode m : node.methods) {
-            if (m.name.equals("<clinit>")) { clinit = m; break; }
-        }
-        boolean createdClinit = false;
-        if (clinit == null) {
-            clinit = new MethodNode(Opcodes.ACC_STATIC, "<clinit>", "()V", null, null);
-            clinit.instructions.add(new InsnNode(Opcodes.RETURN));
-            node.methods.add(clinit);
-            createdClinit = true;
-        }
-        // Skip if the PUTSTATIC for this static field is already present.
-        for (AbstractInsnNode insn = clinit.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof FieldInsnNode fi
-                && fi.getOpcode() == Opcodes.PUTSTATIC
-                && fi.owner.equals(node.name) && fi.name.equals(fieldName)) {
-                return;
-            }
-        }
-        InsnList init = new InsnList();
-        init.add(new TypeInsnNode(Opcodes.NEW, mixinInternal));
-        init.add(new InsnNode(Opcodes.DUP));
-        init.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, mixinInternal, "<init>", "()V", false));
-        init.add(new FieldInsnNode(Opcodes.PUTSTATIC, node.name, fieldName, mixinDesc));
-        if (createdClinit) {
-            // New clinit body is just RETURN; insert before it.
-            clinit.instructions.insertBefore(clinit.instructions.getFirst(), init);
-        } else {
-            // Insert at start of existing clinit.
-            AbstractInsnNode first = clinit.instructions.getFirst();
-            if (first == null) clinit.instructions.add(init);
-            else clinit.instructions.insertBefore(first, init);
-        }
     }
 
     // ---- Mixin transformation (@Original trampolines) ----
