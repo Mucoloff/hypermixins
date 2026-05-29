@@ -22,6 +22,7 @@ import javax.lang.model.element.Modifier
 //   invokerEntries:    [handlerName, handlerDesc, targetName]
 //   modifyConstantEntries: [targetMethod, type, value, index, handlerName, handlerDesc]
 //   modifyArgEntries:  [targetMethod, invokeDesc, argIndex, handlerName, handlerDesc]
+//   modifyExpressionValueEntries: [targetMethod, point, atDesc, index, handlerName, handlerDesc]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
@@ -40,6 +41,7 @@ private const val ACCESSOR_FQN    = "net.echo.hypermixins.annotations.Accessor"
 private const val INVOKER_FQN     = "net.echo.hypermixins.annotations.Invoker"
 private const val MODIFY_CONST_FQN = "net.echo.hypermixins.annotations.ModifyConstant"
 private const val MODIFY_ARG_FQN   = "net.echo.hypermixins.annotations.ModifyArg"
+private const val MODIFY_EXPR_FQN  = "net.echo.hypermixins.annotations.ModifyExpressionValue"
 
 class MixinSymbolProcessor(
     private val codeGenerator: CodeGenerator,
@@ -124,6 +126,7 @@ class MixinSymbolProcessor(
         val invokers = mutableListOf<InvokerEntry>()
         val modifyConsts = mutableListOf<ModifyConstantEntry>()
         val modifyArgs = mutableListOf<ModifyArgEntry>()
+        val modifyExprs = mutableListOf<ModifyExpressionValueEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -137,6 +140,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(INVOKER_FQN)    -> validateAndCollectInvoker(fn, invokers)
                 fn.hasAnnotation(MODIFY_CONST_FQN) -> validateAndCollectModifyConstant(fn, modifyConsts)
                 fn.hasAnnotation(MODIFY_ARG_FQN) -> validateAndCollectModifyArg(fn, modifyArgs)
+                fn.hasAnnotation(MODIFY_EXPR_FQN) -> validateAndCollectModifyExpr(fn, modifyExprs)
             }
         }
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
@@ -164,7 +168,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, accessors, invokers, staticTargets)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs, modifyExprs, accessors, invokers, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -272,6 +276,30 @@ class MixinSymbolProcessor(
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    private fun validateAndCollectModifyExpr(fn: KSFunctionDeclaration, out: MutableList<ModifyExpressionValueEntry>) {
+        val ann = fn.findAnnotation(MODIFY_EXPR_FQN)!!
+        val method = (ann.arg("method") as? String).orEmpty()
+        if (method.isBlank()) {
+            logger.error("@ModifyExpressionValue#method() empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC !in fn.modifiers) {
+            logger.error("@ModifyExpressionValue must be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val atAnn = ann.arg("at") as? KSAnnotation
+        val point = readEnumArg(atAnn?.arg("point"), "INVOKE")
+        val desc = (atAnn?.arg("desc") as? String).orEmpty()
+        if (desc.isBlank()) {
+            logger.error("@At#desc() empty on @ModifyExpressionValue ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val idx = (atAnn?.arg("index") as? Int) ?: 0
+        val handlerName = fn.simpleName.asString()
+        val handlerDesc = descriptor(fn)
+        out += ModifyExpressionValueEntry(method, point, desc, idx, handlerName, handlerDesc)
     }
 
     private fun validateAndCollectModifyArg(fn: KSFunctionDeclaration, out: MutableList<ModifyArgEntry>) {
@@ -620,6 +648,7 @@ class MixinSymbolProcessor(
         modifyRvs: List<ModifyReturnValueEntry>,
         modifyConsts: List<ModifyConstantEntry>,
         modifyArgs: List<ModifyArgEntry>,
+        modifyExprs: List<ModifyExpressionValueEntry>,
         accessors: List<AccessorEntry>,
         invokers: List<InvokerEntry>,
         staticTargets: Set<String>
@@ -689,6 +718,9 @@ class MixinSymbolProcessor(
         }))
         classBuilder.addMethod(entriesMethod("modifyArgEntries", modifyArgs.map {
             arrayOf(it.targetMethod, it.invokeDesc, it.argIndex.toString(), it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("modifyExpressionValueEntries", modifyExprs.map {
+            arrayOf(it.targetMethod, it.point, it.atDesc, it.index.toString(), it.handlerName, it.handlerDesc)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
             val paren = it.indexOf('(')
@@ -762,4 +794,5 @@ class MixinSymbolProcessor(
     private data class InvokerEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
     private data class ModifyConstantEntry(val targetMethod: String, val type: String, val value: String, val index: Int, val handlerName: String, val handlerDesc: String)
     private data class ModifyArgEntry(val targetMethod: String, val invokeDesc: String, val argIndex: Int, val handlerName: String, val handlerDesc: String)
+    private data class ModifyExpressionValueEntry(val targetMethod: String, val point: String, val atDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
 }

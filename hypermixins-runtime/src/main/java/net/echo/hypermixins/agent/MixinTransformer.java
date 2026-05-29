@@ -118,6 +118,8 @@ public class MixinTransformer implements ClassFileTransformer {
                 if (!mrvByDesc.isEmpty()) applyModifyReturnValues(method, mrvByDesc, mixinClassForMrv);
                 if (!mcs.isEmpty()) applyModifyConstants(method, mcs, mixinClassForMrv);
                 if (!masByDesc.isEmpty()) applyModifyArgs(method, masByDesc, mixinClassForMrv);
+                if (!mapping.descriptor().modifyExpressionValues().isEmpty())
+                    applyModifyExpressionValues(method, mapping.descriptor().modifyExpressionValues(), mixinClassForMrv);
 
                 if (method.name.equals("<init>")) {
                     patchConstructor(method, node, mapping, mixinField);
@@ -1043,6 +1045,56 @@ public class MixinTransformer implements ClassFileTransformer {
                     && ldc.cst instanceof String s && s.equals(value);
             }
             default -> { return false; }
+        }
+    }
+
+    /**
+     * Generalisation of {@code @ModifyReturnValue} that supports {@code At.Point} = {@code INVOKE}
+     * (matches a MethodInsnNode by owner.name+desc), {@code FIELD} (matches a GETFIELD/GETSTATIC
+     * by owner.name:desc), or {@code CONSTANT} (matches a LDC by the {@code "type:value"} form).
+     * In every case the handler INVOKESTATIC fires immediately after the producing instruction so
+     * the handler input is the pushed value.
+     */
+    private static void applyModifyExpressionValues(
+        MethodNode method, List<MixinDescriptor.ModifyExpressionValueEntry> mxs, Class<?> mixinClass
+    ) {
+        if (method.instructions == null) return;
+        String mixinInternal = Type.getInternalName(mixinClass);
+        Map<MixinDescriptor.ModifyExpressionValueEntry, Integer> matchCount = new HashMap<>();
+        List<AbstractInsnNode> snapshot = new ArrayList<>();
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
+            snapshot.add(insn);
+        for (AbstractInsnNode insn : snapshot) {
+            for (MixinDescriptor.ModifyExpressionValueEntry mx : mxs) {
+                if (!method.name.equals(mx.targetMethod())) continue;
+                if (!matchesExpressionSite(insn, mx)) continue;
+                int count = matchCount.getOrDefault(mx, 0);
+                matchCount.put(mx, count + 1);
+                if (count != mx.index()) continue;
+                method.instructions.insert(insn, new MethodInsnNode(
+                    Opcodes.INVOKESTATIC, mixinInternal, mx.handlerName(), mx.handlerDesc(), false));
+                break;
+            }
+        }
+    }
+
+    private static boolean matchesExpressionSite(AbstractInsnNode insn, MixinDescriptor.ModifyExpressionValueEntry mx) {
+        switch (mx.point()) {
+            case INVOKE:
+                if (!(insn instanceof MethodInsnNode mi)) return false;
+                return DescriptorMatcher.matches(mx.atDesc(), mi.owner + "." + mi.name + mi.desc);
+            case FIELD:
+                if (!(insn instanceof FieldInsnNode fi)) return false;
+                if (fi.getOpcode() != Opcodes.GETFIELD && fi.getOpcode() != Opcodes.GETSTATIC) return false;
+                return DescriptorMatcher.matches(mx.atDesc(), fi.owner + "." + fi.name + ":" + fi.desc);
+            case CONSTANT: {
+                String desc = mx.atDesc();
+                int sep = desc.indexOf(':');
+                if (sep < 0) return false;
+                return matchesConstantLoad(insn, desc.substring(0, sep), desc.substring(sep + 1));
+            }
+            default:
+                throw new IllegalStateException("@ModifyExpressionValue point " + mx.point() + " not supported");
         }
     }
 

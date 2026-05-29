@@ -114,11 +114,10 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- **`@ModifyArgs` / `@ModifyReceiver` / `@ModifyExpressionValue`** — annotation
-  surfaces exist; runtime support deferred. `@ModifyArgs` needs primitive
-  boxing into Object[]; `@ModifyReceiver` needs a SWAP/DUP_X1 stack-shuffle
-  dance under existing args; `@ModifyExpressionValue` would dispatch the
-  existing `@ModifyReturnValue` rewrite over more At.Point kinds.
+- **`@ModifyArgs` / `@ModifyReceiver`** — annotation surfaces exist; runtime
+  support deferred. `@ModifyArgs` needs primitive boxing into `Object[]`;
+  `@ModifyReceiver` needs a SWAP/DUP_X1 stack-shuffle dance under existing
+  args. `@ModifyExpressionValue` ships for INVOKE / FIELD / CONSTANT.
 - **Private-target `@Shadow` / `@Invoker`** — requires a public synthetic
   accessor on the target class so the trampoline's INVOKEVIRTUAL clears the
   access check.
