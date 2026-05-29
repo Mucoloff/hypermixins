@@ -124,8 +124,6 @@ hypermixins-example/run/test-world-1.0.jar \
 - **Field-level `@Shadow`** — v1 implements method shadows only; field
   forwarding would need ASM rewrites on every `GETFIELD/PUTFIELD` in the
   mixin pointing at a `@Shadow` field.
-- **Cross-platform CI matrix (macOS / Windows)** — workflow currently runs
-  only on `ubuntu-latest`.
 
 ## Key files
 
