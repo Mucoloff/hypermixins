@@ -121,7 +121,14 @@ class MixinSymbolProcessor(
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
             if (prop.hasAnnotation(SHADOW_FQN)) {
                 val ann = prop.findAnnotation(SHADOW_FQN)!!
-                val targetName = (ann.arg("value") as? String)?.takeIf { it.isNotBlank() } ?: prop.simpleName.asString()
+                val explicit = ann.arg("value") as? String ?: ""
+                val prefix = (ann.arg("prefix") as? String).orEmpty()
+                val simple = prop.simpleName.asString()
+                val targetName = when {
+                    explicit.isNotBlank() -> explicit
+                    prefix.isNotEmpty() && simple.startsWith(prefix) -> simple.removePrefix(prefix)
+                    else -> simple
+                }
                 val fieldDesc = toJvmDesc(prop.type.resolve())
                 val entry = ShadowFieldEntry(prop.simpleName.asString(), fieldDesc, targetName)
                 if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC in prop.modifiers) {
@@ -249,7 +256,13 @@ class MixinSymbolProcessor(
     private fun validateAndCollectShadow(fn: KSFunctionDeclaration, out: MutableList<ShadowEntry>) {
         val ann = fn.findAnnotation(SHADOW_FQN)!!
         val explicit = ann.arg("value") as? String ?: ""
-        val targetName = if (explicit.isNotBlank()) explicit else fn.simpleName.asString()
+        val prefix = (ann.arg("prefix") as? String).orEmpty()
+        val simple = fn.simpleName.asString()
+        val targetName = when {
+            explicit.isNotBlank() -> explicit
+            prefix.isNotEmpty() && simple.startsWith(prefix) -> simple.removePrefix(prefix)
+            else -> simple
+        }
         val params = fn.parameters
         if (params.isEmpty()) {
             logger.error("@Shadow method must have 'Object self' as first parameter: ${fn.simpleName.asString()}", fn)

@@ -344,7 +344,7 @@ public final class MixinDescriptor {
             if (sh != null) {
                 if (method.getParameterCount() == 0 || method.getParameterTypes()[0] != Object.class)
                     throw new IllegalArgumentException("@Shadow first param must be Object self on " + method);
-                String targetName = sh.value().isBlank() ? method.getName() : sh.value();
+                String targetName = resolveShadowName(method.getName(), sh.value(), sh.prefix());
                 shadows.add(new ShadowEntry(method.getName(), Type.getMethodDescriptor(method), targetName));
             }
             if (in != null) {
@@ -390,7 +390,7 @@ public final class MixinDescriptor {
         for (java.lang.reflect.Field f : mixinClass.getDeclaredFields()) {
             Shadow shFld = f.getAnnotation(Shadow.class);
             if (shFld == null) continue;
-            String tname = shFld.value().isBlank() ? f.getName() : shFld.value();
+            String tname = resolveShadowName(f.getName(), shFld.value(), shFld.prefix());
             ShadowFieldEntry entry = new ShadowFieldEntry(f.getName(), Type.getDescriptor(f.getType()), tname);
             if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
                 shadowStaticFields.add(entry);
@@ -418,6 +418,12 @@ public final class MixinDescriptor {
         return new MixinDescriptor(base.mixinClass, base.targetClass,
             base.overwrites, base.originals, base.redirects, base.injects, base.injectLocals,
             base.shadows, base.shadowFields, base.shadowStaticFields, base.synthetics, map);
+    }
+
+    private static String resolveShadowName(String simpleName, String value, String prefix) {
+        if (!value.isBlank()) return value;
+        if (!prefix.isEmpty() && simpleName.startsWith(prefix)) return simpleName.substring(prefix.length());
+        return simpleName;
     }
 
     /**

@@ -62,6 +62,28 @@ public class MixinShadowTest {
         public void write(Object self, int v) { health = v * 2; }
     }
 
+    // ---- @Shadow(prefix = ...) ----
+
+    public static class PrefixTarget {
+        public String tagged() { return "tag"; }
+        public String greet() { return "greet"; }
+    }
+    @Mixin("net.echo.hypermixins.MixinShadowTest$PrefixTarget")
+    public static class PrefixShadowMixin {
+        @net.echo.hypermixins.annotations.Shadow(prefix = "shadow$")
+        public native String shadow$tagged(Object self);
+
+        @net.echo.hypermixins.annotations.Overwrite("greet")
+        public String greet(Object self) { return shadow$tagged(self) + "!"; }
+    }
+
+    @org.junit.jupiter.api.Test
+    void shadowMethodPrefixStripped() throws Exception {
+        Class<?> t = applyMixin(PrefixTarget.class, PrefixShadowMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals("tag!", t.getMethod("greet").invoke(inst));
+    }
+
     // ---- static @Shadow field ----
 
     public static class StaticFieldTarget {
