@@ -9,9 +9,6 @@ import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
-import org.objectweb.asm.tree.JumpInsnNode;
-import org.objectweb.asm.tree.LabelNode;
-import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
@@ -32,9 +29,6 @@ import java.util.function.Predicate;
  * performs argsOnly readback after the handler returns.
  */
 final class InjectPass {
-
-    private static final String CB_INFO_INTERNAL = "net/echo/hypermixins/annotations/CallbackInfo";
-    private static final String CB_RET_INTERNAL  = "net/echo/hypermixins/annotations/CallbackInfoReturnable";
 
     private InjectPass() {}
 
@@ -133,20 +127,7 @@ final class InjectPass {
         String mixinDesc     = Type.getDescriptor(mixinClass);
         String handlerDesc   = Type.getMethodDescriptor(inject.handler());
 
-        int ciLocal = -1;
-        if (inject.cancellable()) {
-            ciLocal = target.maxLocals;
-            target.maxLocals += 1;
-            out.add(new LdcInsnNode(inject.targetMethod()));
-            if (inject.returnable()) {
-                out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CB_RET_INTERNAL, "of",
-                    "(Ljava/lang/String;)L" + CB_RET_INTERNAL + ";", false));
-            } else {
-                out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CB_INFO_INTERNAL, "of",
-                    "(Ljava/lang/String;)L" + CB_INFO_INTERNAL + ";", false));
-            }
-            out.add(new VarInsnNode(Opcodes.ASTORE, ciLocal));
-        }
+        int ciLocal = inject.cancellable() ? CallbackInfoEmitter.allocate(out, target, inject) : -1;
 
         out.add(new VarInsnNode(Opcodes.ALOAD, 0));
         out.add(new FieldInsnNode(Opcodes.GETFIELD, owner.name, mixinField, mixinDesc));
@@ -217,9 +198,7 @@ final class InjectPass {
                 positionalIdx++;
             }
         }
-        if (inject.cancellable()) {
-            out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
-        }
+        if (inject.cancellable()) out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
         out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mixinInternal,
             inject.handler().getName(), handlerDesc, false));
 
@@ -234,28 +213,7 @@ final class InjectPass {
             out.add(new VarInsnNode(element.getOpcode(Opcodes.ISTORE), sourceSlot));
         }
 
-        if (inject.cancellable()) {
-            LabelNode notCancelled = new LabelNode();
-            out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
-            String cancelOwner = inject.returnable() ? CB_RET_INTERNAL : CB_INFO_INTERNAL;
-            out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, cancelOwner, "isCancelled", "()Z", false));
-            out.add(new JumpInsnNode(Opcodes.IFEQ, notCancelled));
-            if (inject.returnable()) {
-                out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
-                out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, CB_RET_INTERNAL, "getReturnValue",
-                    "()Ljava/lang/Object;", false));
-                Bytecode.unboxOrCast(out, targetReturn);
-                out.add(new InsnNode(targetReturn.getOpcode(Opcodes.IRETURN)));
-            } else {
-                if (targetReturn.getSort() != Type.VOID) {
-                    throw new IllegalStateException(
-                        "@Inject(cancellable=true) with CallbackInfo on non-void target " +
-                        target.name + target.desc + " — use CallbackInfoReturnable");
-                }
-                out.add(new InsnNode(Opcodes.RETURN));
-            }
-            out.add(notCancelled);
-        }
+        if (inject.cancellable()) CallbackInfoEmitter.emitCancelCheck(out, target, inject, targetReturn, ciLocal);
         return out;
     }
 }
