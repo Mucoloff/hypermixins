@@ -132,13 +132,13 @@ public class MixinTransformer implements ClassFileTransformer {
                 applyRedirects(method, redirectByDesc);
                 if (!mrvByDesc.isEmpty()) ModifyReturnValuePass.apply(method, mrvByDesc, mixinClassForMrv);
                 if (!mcs.isEmpty()) ModifyConstantPass.apply(method, mcs, mixinClassForMrv);
-                if (!masByDesc.isEmpty()) applyModifyArgs(method, masByDesc, mixinClassForMrv);
+                if (!masByDesc.isEmpty()) ModifyArgPass.apply(method, masByDesc, mixinClassForMrv);
                 if (!mapping.descriptor().modifyExpressionValues().isEmpty())
-                    applyModifyExpressionValues(method, mapping.descriptor().modifyExpressionValues(), mixinClassForMrv);
+                    ModifyExpressionValuePass.apply(method, mapping.descriptor().modifyExpressionValues(), mixinClassForMrv);
                 if (!mapping.descriptor().modifyArgsAll().isEmpty())
-                    applyModifyArgsAll(method, mapping.descriptor().modifyArgsAll(), mixinClassForMrv);
+                    ModifyArgsPass.apply(method, mapping.descriptor().modifyArgsAll(), mixinClassForMrv);
                 if (!mapping.descriptor().modifyReceivers().isEmpty())
-                    applyModifyReceivers(method, mapping.descriptor().modifyReceivers(), mixinClassForMrv);
+                    ModifyReceiverPass.apply(method, mapping.descriptor().modifyReceivers(), mixinClassForMrv);
 
                 if (method.name.equals("<init>")) {
                     patchConstructor(method, node, mapping, mixinField);
@@ -860,7 +860,7 @@ public class MixinTransformer implements ClassFileTransformer {
         return out;
     }
 
-    private static void unboxOrCast(InsnList out, Type target) {
+    static void unboxOrCast(InsnList out, Type target) {
         switch (target.getSort()) {
             case Type.BOOLEAN -> { out.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Boolean"));
                 out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false)); }
@@ -933,181 +933,7 @@ public class MixinTransformer implements ClassFileTransformer {
         }
     }
 
-    /**
-     * Generalisation of {@code @ModifyReturnValue} that supports {@code At.Point} = {@code INVOKE}
-     * (matches a MethodInsnNode by owner.name+desc), {@code FIELD} (matches a GETFIELD/GETSTATIC
-     * by owner.name:desc), or {@code CONSTANT} (matches a LDC by the {@code "type:value"} form).
-     * In every case the handler INVOKESTATIC fires immediately after the producing instruction so
-     * the handler input is the pushed value.
-     */
-    private static void applyModifyExpressionValues(
-        MethodNode method, List<MixinDescriptor.ModifyExpressionValueEntry> mxs, Class<?> mixinClass
-    ) {
-        if (method.instructions == null) return;
-        String mixinInternal = Type.getInternalName(mixinClass);
-        Map<MixinDescriptor.ModifyExpressionValueEntry, Integer> matchCount = new HashMap<>();
-        List<AbstractInsnNode> snapshot = new ArrayList<>();
-        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
-            snapshot.add(insn);
-        for (AbstractInsnNode insn : snapshot) {
-            for (MixinDescriptor.ModifyExpressionValueEntry mx : mxs) {
-                if (!method.name.equals(mx.targetMethod())) continue;
-                if (!matchesExpressionSite(insn, mx)) continue;
-                int count = matchCount.getOrDefault(mx, 0);
-                matchCount.put(mx, count + 1);
-                if (count != mx.index()) continue;
-                method.instructions.insert(insn, new MethodInsnNode(
-                    Opcodes.INVOKESTATIC, mixinInternal, mx.handlerName(), mx.handlerDesc(), false));
-                break;
-            }
-        }
-    }
-
-    private static boolean matchesExpressionSite(AbstractInsnNode insn, MixinDescriptor.ModifyExpressionValueEntry mx) {
-        switch (mx.point()) {
-            case INVOKE:
-                if (!(insn instanceof MethodInsnNode mi)) return false;
-                return DescriptorMatcher.matches(mx.atDesc(), mi.owner + "." + mi.name + mi.desc);
-            case FIELD:
-                if (!(insn instanceof FieldInsnNode fi)) return false;
-                if (fi.getOpcode() != Opcodes.GETFIELD && fi.getOpcode() != Opcodes.GETSTATIC) return false;
-                return DescriptorMatcher.matches(mx.atDesc(), fi.owner + "." + fi.name + ":" + fi.desc);
-            case CONSTANT: {
-                String desc = mx.atDesc();
-                int sep = desc.indexOf(':');
-                if (sep < 0) return false;
-                return ModifyConstantPass.matchesConstantLoad(insn, desc.substring(0, sep), desc.substring(sep + 1));
-            }
-            default:
-                throw new IllegalStateException("@ModifyExpressionValue point " + mx.point() + " not supported");
-        }
-    }
-
-    /**
-     * @ModifyArgs: captures every reference-typed argument of the matched INVOKE into a fresh
-     * Object[], hands the array to the handler (which may mutate elements), then reloads each
-     * argument from the array before the INVOKE fires. Reference args only — primitive args fail
-     * at transform time with a clear error.
-     */
-    private static void applyModifyArgsAll(
-        MethodNode method, List<MixinDescriptor.ModifyArgsEntry> mxa, Class<?> mixinClass
-    ) {
-        if (method.instructions == null) return;
-        String mixinInternal = Type.getInternalName(mixinClass);
-        Map<MixinDescriptor.ModifyArgsEntry, Integer> matchCount = new HashMap<>();
-        List<AbstractInsnNode> snapshot = new ArrayList<>();
-        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
-            snapshot.add(insn);
-        for (AbstractInsnNode insn : snapshot) {
-            if (!(insn instanceof MethodInsnNode mi)) continue;
-            String key = mi.owner + "." + mi.name + mi.desc;
-            for (MixinDescriptor.ModifyArgsEntry ma : mxa) {
-                if (!method.name.equals(ma.targetMethod())) continue;
-                if (!DescriptorMatcher.matches(ma.invokeDesc(), key)) continue;
-                int count = matchCount.getOrDefault(ma, 0);
-                matchCount.put(ma, count + 1);
-                if (count != 0) continue;
-                Type[] argTypes = Type.getArgumentTypes(mi.desc);
-                int n = argTypes.length;
-                // Allocate per-arg temp locals respecting two-slot primitives.
-                int[] argLocals = new int[n];
-                int slotCursor = method.maxLocals;
-                for (int i = 0; i < n; i++) {
-                    argLocals[i] = slotCursor;
-                    slotCursor += argTypes[i].getSize();
-                }
-                method.maxLocals = slotCursor;
-                InsnList block = new InsnList();
-                // Stash args into temp locals in reverse order (stack top = last arg).
-                for (int i = n - 1; i >= 0; i--) {
-                    block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ISTORE), argLocals[i]));
-                }
-                // Build Object[N].
-                block.add(intConst(n));
-                block.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/Object"));
-                int arrLocal = method.maxLocals;
-                method.maxLocals += 1;
-                block.add(new VarInsnNode(Opcodes.ASTORE, arrLocal));
-                for (int i = 0; i < n; i++) {
-                    block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
-                    block.add(intConst(i));
-                    block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ILOAD), argLocals[i]));
-                    emitBox(block, argTypes[i]);
-                    block.add(new InsnNode(Opcodes.AASTORE));
-                }
-                // Invoke handler.
-                block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
-                block.add(new MethodInsnNode(Opcodes.INVOKESTATIC, mixinInternal,
-                    ma.handlerName(), ma.handlerDesc(), false));
-                // Reload args from the (possibly mutated) array; unbox primitives.
-                for (int i = 0; i < n; i++) {
-                    block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
-                    block.add(intConst(i));
-                    block.add(new InsnNode(Opcodes.AALOAD));
-                    unboxOrCast(block, argTypes[i]);
-                }
-                method.instructions.insertBefore(insn, block);
-                break;
-            }
-        }
-    }
-
-    /**
-     * @ModifyReceiver: captures the args of a matched INVOKEVIRTUAL / INVOKEINTERFACE into
-     * temp locals (in reverse order so the original push sequence is preserved), invokes the
-     * static (T)T handler on the bare receiver, then pushes the args back. INVOKESTATIC and
-     * INVOKESPECIAL call sites have no receiver and are rejected at transform time.
-     */
-    private static void applyModifyReceivers(
-        MethodNode method, List<MixinDescriptor.ModifyReceiverEntry> mxr, Class<?> mixinClass
-    ) {
-        if (method.instructions == null) return;
-        String mixinInternal = Type.getInternalName(mixinClass);
-        Map<MixinDescriptor.ModifyReceiverEntry, Integer> matchCount = new HashMap<>();
-        List<AbstractInsnNode> snapshot = new ArrayList<>();
-        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
-            snapshot.add(insn);
-        for (AbstractInsnNode insn : snapshot) {
-            if (!(insn instanceof MethodInsnNode mi)) continue;
-            String key = mi.owner + "." + mi.name + mi.desc;
-            for (MixinDescriptor.ModifyReceiverEntry mr : mxr) {
-                if (!method.name.equals(mr.targetMethod())) continue;
-                if (!DescriptorMatcher.matches(mr.invokeDesc(), key)) continue;
-                int op = mi.getOpcode();
-                if (op != Opcodes.INVOKEVIRTUAL && op != Opcodes.INVOKEINTERFACE) {
-                    throw new IllegalStateException(
-                        "@ModifyReceiver only applies to virtual / interface call sites — got opcode " + op + " on " + key);
-                }
-                int count = matchCount.getOrDefault(mr, 0);
-                matchCount.put(mr, count + 1);
-                if (count != 0) continue;
-                Type[] argTypes = Type.getArgumentTypes(mi.desc);
-                int[] argLocals = new int[argTypes.length];
-                int cursor = method.maxLocals;
-                for (int i = 0; i < argTypes.length; i++) {
-                    argLocals[i] = cursor;
-                    cursor += argTypes[i].getSize();
-                }
-                method.maxLocals = cursor;
-                InsnList block = new InsnList();
-                // Stash args in reverse so the bare receiver ends up on top.
-                for (int i = argTypes.length - 1; i >= 0; i--) {
-                    block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ISTORE), argLocals[i]));
-                }
-                // Invoke handler on the receiver.
-                block.add(new MethodInsnNode(Opcodes.INVOKESTATIC, mixinInternal,
-                    mr.handlerName(), mr.handlerDesc(), false));
-                // Push args back in original order.
-                for (int i = 0; i < argTypes.length; i++) {
-                    block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ILOAD), argLocals[i]));
-                }
-                method.instructions.insertBefore(insn, block);
-                break;
-            }
-        }
-    }
-
-    private static int newarrayOperandForPrimitive(Type t) {
+    static int newarrayOperandForPrimitive(Type t) {
         return switch (t.getSort()) {
             case Type.BOOLEAN -> Opcodes.T_BOOLEAN;
             case Type.BYTE    -> Opcodes.T_BYTE;
@@ -1121,7 +947,7 @@ public class MixinTransformer implements ClassFileTransformer {
         };
     }
 
-    private static void emitBox(InsnList out, Type t) {
+    static void emitBox(InsnList out, Type t) {
         switch (t.getSort()) {
             case Type.BOOLEAN -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Boolean",   "valueOf", "(Z)Ljava/lang/Boolean;",   false));
             case Type.BYTE    -> out.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Byte",      "valueOf", "(B)Ljava/lang/Byte;",      false));
@@ -1135,84 +961,11 @@ public class MixinTransformer implements ClassFileTransformer {
         }
     }
 
-    private static AbstractInsnNode intConst(int n) {
+    static AbstractInsnNode intConst(int n) {
         if (n >= -1 && n <= 5) return new InsnNode(Opcodes.ICONST_0 + n);
         if (n >= Byte.MIN_VALUE && n <= Byte.MAX_VALUE) return new IntInsnNode(Opcodes.BIPUSH, n);
         if (n >= Short.MIN_VALUE && n <= Short.MAX_VALUE) return new IntInsnNode(Opcodes.SIPUSH, n);
         return new LdcInsnNode(n);
-    }
-
-    /**
-     * Supports any argument position. For index == last arg the handler INVOKESTATIC is inserted
-     * straight before the call (the value is already on top). For lower positions, the args above
-     * the target are stashed into per-arg temp locals, the handler runs on the now-exposed value,
-     * and the stashed args are restored before the original INVOKE fires.
-     */
-    private static void applyModifyArgs(
-        MethodNode method, Map<String, List<MixinDescriptor.ModifyArgEntry>> masByDesc, Class<?> mixinClass
-    ) {
-        if (method.instructions == null) return;
-        String mixinInternal = Type.getInternalName(mixinClass);
-        List<MixinDescriptor.ModifyArgEntry> wildcards = masByDesc.entrySet().stream()
-            .filter(e -> e.getKey().indexOf('*') >= 0 || e.getKey().startsWith("regex:"))
-            .flatMap(e -> e.getValue().stream())
-            .toList();
-        Map<MixinDescriptor.ModifyArgEntry, Integer> matchCount = new HashMap<>();
-        List<AbstractInsnNode> snapshot = new ArrayList<>();
-        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
-            snapshot.add(insn);
-        for (AbstractInsnNode insn : snapshot) {
-            if (!(insn instanceof MethodInsnNode mi)) continue;
-            String key = mi.owner + "." + mi.name + mi.desc;
-            List<MixinDescriptor.ModifyArgEntry> candidates = masByDesc.get(key);
-            if (candidates == null && wildcards.isEmpty()) continue;
-            List<MixinDescriptor.ModifyArgEntry> effective = candidates != null ? candidates : List.of();
-            if (!wildcards.isEmpty()) {
-                List<MixinDescriptor.ModifyArgEntry> all = new ArrayList<>(effective);
-                for (MixinDescriptor.ModifyArgEntry w : wildcards) {
-                    if (DescriptorMatcher.matches(w.invokeDesc(), key)) all.add(w);
-                }
-                effective = all;
-            }
-            for (MixinDescriptor.ModifyArgEntry ma : effective) {
-                if (!method.name.equals(ma.targetMethod())) continue;
-                int count = matchCount.getOrDefault(ma, 0);
-                matchCount.put(ma, count + 1);
-                if (count != 0) continue;
-                Type[] argTypes = Type.getArgumentTypes(mi.desc);
-                int argIdx = ma.argIndex();
-                if (argIdx < 0 || argIdx >= argTypes.length) {
-                    throw new IllegalStateException(
-                        "@ModifyArg index=" + argIdx + " out of range for site " + key);
-                }
-                if (argIdx == argTypes.length - 1) {
-                    // Last arg: handler INVOKESTATIC straight in front of the call.
-                    method.instructions.insertBefore(mi, new MethodInsnNode(
-                        Opcodes.INVOKESTATIC, mixinInternal, ma.handlerName(), ma.handlerDesc(), false));
-                } else {
-                    // Stash args[argIdx+1..end] into temp locals, run handler on the now-top
-                    // value, restore the stashed args.
-                    int[] argLocals = new int[argTypes.length];
-                    int cursor = method.maxLocals;
-                    for (int i = 0; i < argTypes.length; i++) {
-                        argLocals[i] = cursor;
-                        cursor += argTypes[i].getSize();
-                    }
-                    method.maxLocals = cursor;
-                    InsnList block = new InsnList();
-                    for (int i = argTypes.length - 1; i > argIdx; i--) {
-                        block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ISTORE), argLocals[i]));
-                    }
-                    block.add(new MethodInsnNode(Opcodes.INVOKESTATIC, mixinInternal,
-                        ma.handlerName(), ma.handlerDesc(), false));
-                    for (int i = argIdx + 1; i < argTypes.length; i++) {
-                        block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ILOAD), argLocals[i]));
-                    }
-                    method.instructions.insertBefore(mi, block);
-                }
-                break;
-            }
-        }
     }
 
     private static void validateFieldRedirect(RedirectMapping redirect, FieldInsnNode fi) {
