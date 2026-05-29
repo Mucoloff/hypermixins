@@ -58,8 +58,13 @@ master is the only published surface so far.
   mixin instance field on the target class, initializes it in `<clinit>`,
   emits static `__original$` / `__dispatch$` synthetics, and the registry
   bootstrap falls back to `findStatic` lazy install for the resulting
-  static call-site shape. `@Original` on a static target remains a known
-  limitation.
+  static call-site shape.
+- **`@Original` on static target methods (test/legacy path only)** —
+  `MixinDescriptor.fromAnnotations` reflects on the target to detect a
+  static `@Original` target and emits an `INVOKESTATIC` trampoline. The
+  agent (KSP-descriptor) path keeps the existing instance-only trampoline
+  for now (probing the target class at load time would prematurely load
+  it past the `ClassFileTransformer` chain).
 
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,

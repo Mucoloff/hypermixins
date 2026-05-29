@@ -89,6 +89,8 @@ public final class MixinDescriptor {
     private final List<ShadowEntry> shadows;
     private final List<ShadowFieldEntry> shadowFields;
     private final Map<String, String[]> synthetics;
+    /** Target-method-key → true when the method is static. Populated best-effort at build time. */
+    private final Map<String, Boolean> staticTargetMethods;
 
     private MixinDescriptor(
         Class<?> mixinClass, String targetClass,
@@ -109,6 +111,30 @@ public final class MixinDescriptor {
         this.shadows     = List.copyOf(shadows);
         this.shadowFields = List.copyOf(shadowFields);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
+        this.staticTargetMethods = Map.of();
+    }
+
+    private MixinDescriptor(
+        Class<?> mixinClass, String targetClass,
+        List<OverwriteEntry> overwrites, List<OriginalEntry> originals,
+        List<RedirectEntry> redirects, List<InjectEntry> injects,
+        List<InjectLocalEntry> injectLocals,
+        List<ShadowEntry> shadows,
+        List<ShadowFieldEntry> shadowFields,
+        Map<String, String[]> synthetics,
+        Map<String, Boolean> staticTargetMethods
+    ) {
+        this.mixinClass  = mixinClass;
+        this.targetClass = targetClass;
+        this.overwrites  = List.copyOf(overwrites);
+        this.originals   = List.copyOf(originals);
+        this.redirects   = List.copyOf(redirects);
+        this.injects     = List.copyOf(injects);
+        this.injectLocals = List.copyOf(injectLocals);
+        this.shadows     = List.copyOf(shadows);
+        this.shadowFields = List.copyOf(shadowFields);
+        this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
+        this.staticTargetMethods = Collections.unmodifiableMap(new HashMap<>(staticTargetMethods));
     }
 
     public Class<?> mixinClass() { return mixinClass; }
@@ -123,6 +149,14 @@ public final class MixinDescriptor {
     public List<ShadowFieldEntry> shadowFields() { return shadowFields; }
     /** Map {@code targetName+targetDesc → [mangledOriginalName, dispatchName]}. */
     public Map<String, String[]> synthetics() { return synthetics; }
+
+    /**
+     * Whether the target method {@code name + desc} is static. Best-effort: returns
+     * {@code false} if the target class cannot be resolved at build time.
+     */
+    public boolean isStaticTargetMethod(String name, String desc) {
+        return Boolean.TRUE.equals(staticTargetMethods.get(name + desc));
+    }
 
     /**
      * Loads the descriptor for {@code mixinClass} from its KSP-generated {@code $$Descriptor}.
@@ -346,7 +380,80 @@ public final class MixinDescriptor {
             shadowFields.add(new ShadowFieldEntry(f.getName(), Type.getDescriptor(f.getType()), tname));
         }
 
-        return new MixinDescriptor(mixinClass, targetInternal, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, synths);
+        Map<String, Boolean> staticMap = probeStaticTargetMethods(
+            mixinClass, targetInternal, originals, overwrites);
+        return new MixinDescriptor(mixinClass, targetInternal,
+            overwrites, originals, redirects, injects, injectLocals,
+            shadows, shadowFields, synths, staticMap);
+    }
+
+    /**
+     * Best-effort detection of static target methods. Tries to load the target class and
+     * resolve each target method that an {@code @Original} or {@code @Overwrite} refers to.
+     * Failures are tolerated — the call site falls back to the instance dispatch path.
+     */
+    private static Map<String, Boolean> probeStaticTargetMethods(
+        Class<?> mixinClass, String targetInternal,
+        List<OriginalEntry> originals, List<OverwriteEntry> overwrites
+    ) {
+        Map<String, Boolean> out = new HashMap<>();
+        Class<?> targetCls;
+        try {
+            targetCls = Class.forName(targetInternal.replace('/', '.'), false, mixinClass.getClassLoader());
+        } catch (Throwable t) {
+            return out;
+        }
+        java.util.Set<String> pairs = new java.util.HashSet<>();
+        for (OriginalEntry oe : originals) {
+            // OriginalEntry.handlerDesc starts with `(Ljava/lang/Object;...) → derive target desc by dropping first arg.
+            String td = dropFirstArg(oe.handlerDesc());
+            pairs.add(oe.targetName() + td);
+        }
+        for (OverwriteEntry oe : overwrites) {
+            pairs.add(oe.targetName() + oe.targetDesc());
+        }
+        for (String pair : pairs) {
+            int paren = pair.indexOf('(');
+            if (paren < 0) continue;
+            String name = pair.substring(0, paren);
+            String desc = pair.substring(paren);
+            try {
+                Type[] paramTypes = Type.getArgumentTypes(desc);
+                Class<?>[] params = new Class<?>[paramTypes.length];
+                for (int i = 0; i < paramTypes.length; i++) {
+                    params[i] = classForType(paramTypes[i], targetCls.getClassLoader());
+                }
+                java.lang.reflect.Method m = targetCls.getDeclaredMethod(name, params);
+                if (java.lang.reflect.Modifier.isStatic(m.getModifiers())) out.put(pair, true);
+            } catch (Throwable ignored) { /* leave default */ }
+        }
+        return out;
+    }
+
+    private static String dropFirstArg(String desc) {
+        // (Ljava/lang/Object;...) → (...)
+        int closeParen = desc.indexOf(')');
+        Type[] all = Type.getArgumentTypes(desc.substring(0, closeParen + 1));
+        if (all.length == 0) return desc;
+        Type ret = Type.getReturnType(desc);
+        Type[] rest = Arrays.copyOfRange(all, 1, all.length);
+        return Type.getMethodDescriptor(ret, rest);
+    }
+
+    private static Class<?> classForType(Type t, ClassLoader cl) throws ClassNotFoundException {
+        return switch (t.getSort()) {
+            case Type.BOOLEAN -> boolean.class;
+            case Type.BYTE -> byte.class;
+            case Type.CHAR -> char.class;
+            case Type.SHORT -> short.class;
+            case Type.INT -> int.class;
+            case Type.LONG -> long.class;
+            case Type.FLOAT -> float.class;
+            case Type.DOUBLE -> double.class;
+            case Type.VOID -> void.class;
+            case Type.ARRAY -> Class.forName(t.getDescriptor().replace('/', '.'), false, cl);
+            default -> Class.forName(t.getClassName(), false, cl);
+        };
     }
 
     /** Inlined SHA-1/16-hex digest used only by the legacy {@link #fromAnnotations} path. */

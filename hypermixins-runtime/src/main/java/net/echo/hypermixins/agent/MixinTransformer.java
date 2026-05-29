@@ -331,16 +331,24 @@ public class MixinTransformer implements ClassFileTransformer {
                     "Missing precomputed synthetic names for @Original target " + targetName + targetDesc);
             }
             String originalName  = synths[0];
+            boolean targetIsStatic = mapping.descriptor().isStaticTargetMethod(targetName, targetDesc);
 
             InsnList insns = new InsnList();
-            insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
-            insns.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
-            int slotOrig = 2;
+            int slotOrig;
+            if (targetIsStatic) {
+                slotOrig = 2;
+            } else {
+                insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                insns.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
+                slotOrig = 2;
+            }
             for (Type arg : targetArgs) {
                 insns.add(new VarInsnNode(arg.getOpcode(Opcodes.ILOAD), slotOrig));
                 slotOrig += arg.getSize();
             }
-            insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, originalName, targetDesc, false));
+            insns.add(new MethodInsnNode(
+                targetIsStatic ? Opcodes.INVOKESTATIC : Opcodes.INVOKEVIRTUAL,
+                mappedTarget, originalName, targetDesc, false));
             insns.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
             method.instructions.add(insns);
         }

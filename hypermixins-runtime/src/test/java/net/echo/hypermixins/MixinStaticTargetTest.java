@@ -36,4 +36,30 @@ public class MixinStaticTargetTest {
         int result = (int) t.getMethod("factor", int.class).invoke(null, 7);
         assertEquals(21, result);
     }
+
+    // ---- @Original trampoline back to a static target ----
+
+    public static class StaticOrigTarget {
+        public static int doubled(int x) { return x * 2; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinStaticTargetTest$StaticOrigTarget")
+    public static class StaticOriginalMixin {
+        @net.echo.hypermixins.annotations.Original("doubled")
+        public native int origDoubled(Object self, int x);
+
+        @Overwrite("doubled")
+        public int doubled(Object self, int x) {
+            // origDoubled forwards to the static __original$ synthetic on the target.
+            return origDoubled(self, x) + 1;
+        }
+    }
+
+    @Test
+    void originalTrampolineOnStaticTarget() throws Exception {
+        Class<?> t = applyMixin(StaticOrigTarget.class, StaticOriginalMixin.class);
+        int result = (int) t.getMethod("doubled", int.class).invoke(null, 5);
+        // original returns 10, mixin adds 1 → 11
+        assertEquals(11, result);
+    }
 }
