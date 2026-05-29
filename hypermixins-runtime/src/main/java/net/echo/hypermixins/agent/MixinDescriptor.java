@@ -367,7 +367,8 @@ public final class MixinDescriptor {
                 }
                 At at = in.at();
                 At.Point point = at.point();
-                if ((point == At.Point.INVOKE || point == At.Point.FIELD || point == At.Point.CONSTANT)
+                if ((point == At.Point.INVOKE || point == At.Point.FIELD
+                    || point == At.Point.CONSTANT || point == At.Point.NEW)
                     && at.desc().isEmpty()) {
                     throw new IllegalArgumentException(
                         "@Inject point " + point + " requires @At#desc() on " + method);

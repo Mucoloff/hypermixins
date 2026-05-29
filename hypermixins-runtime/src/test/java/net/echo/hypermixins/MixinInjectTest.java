@@ -325,6 +325,31 @@ public class MixinInjectTest {
         }
     }
 
+    // ---- @At.Point.NEW ----
+
+    public static volatile int newAllocCounter;
+
+    public static class NewAllocTarget {
+        public Object allocate() {
+            return new java.util.HashMap<>();
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$NewAllocTarget")
+    public static class NewAllocMixin {
+        @Inject(method = "allocate", at = @At(point = At.Point.NEW, desc = "java/util/HashMap"))
+        public void onAlloc(Object self) { newAllocCounter++; }
+    }
+
+    @Test
+    void newAllocationInjectFires() throws Exception {
+        newAllocCounter = 0;
+        Class<?> t = applyMixin(NewAllocTarget.class, NewAllocMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        Object result = t.getMethod("allocate").invoke(inst);
+        assertNotNull(result);
+        assertEquals(1, newAllocCounter);
+    }
+
     @Test
     void captureLocalByIndex() throws Exception {
         Class<?> t = applyMixin(LocalTarget.class, LocalMixin.class);

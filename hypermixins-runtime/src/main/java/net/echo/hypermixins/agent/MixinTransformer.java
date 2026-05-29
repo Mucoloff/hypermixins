@@ -557,6 +557,8 @@ public class MixinTransformer implements ClassFileTransformer {
                     insn -> matchesConstant(insn, inject));
                 case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap,
                     MixinTransformer::isConditionalJump);
+                case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap,
+                    insn -> matchesNew(insn, inject));
                 default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
             }
         }
@@ -626,6 +628,12 @@ public class MixinTransformer implements ClassFileTransformer {
             case "Ljava/lang/String;" -> cst instanceof String s && s.equals(value);
             default -> false;
         };
+    }
+
+    private static boolean matchesNew(AbstractInsnNode insn, InjectMapping inject) {
+        if (!(insn instanceof TypeInsnNode tn)) return false;
+        if (tn.getOpcode() != Opcodes.NEW) return false;
+        return tn.desc.equals(inject.atDesc());
     }
 
     private static boolean isConditionalJump(AbstractInsnNode insn) {

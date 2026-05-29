@@ -47,6 +47,8 @@ public @interface At {
         /** At a specific constant load (requires desc like {@code "I:42"} or {@code "Ljava/lang/String;:hello"}). */
         CONSTANT,
         /** At a specific conditional jump (requires {@link #index()}). */
-        JUMP
+        JUMP,
+        /** At a {@code NEW} object allocation (requires {@link #desc()} as {@code "owner/Class"}). */
+        NEW
     }
 }
