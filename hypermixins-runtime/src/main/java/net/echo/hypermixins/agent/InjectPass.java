@@ -60,7 +60,7 @@ final class InjectPass {
                     if (first == null) target.instructions.add(block);
                     else target.instructions.insertBefore(first, block);
                 }
-                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams);
+                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, analyzer, entryMap);
                 case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                     insn -> InjectSiteMatcher.matchesInvoke(insn, inject));
                 case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
@@ -77,10 +77,10 @@ final class InjectPass {
     }
 
     private static boolean requiresFrameAnalysis(At.Point point) {
-        return switch (point) {
-            case HEAD, TAIL, RETURN -> false;
-            default -> true;
-        };
+        // HEAD's incoming-param resolution is always correct (no mid-method locals exist
+        // at the top of the body). Every other point may see mid-method locals so route
+        // unresolved @Local entries through the LocalVariableTable.
+        return point != At.Point.HEAD;
     }
 
     private static boolean hasUnresolvedLocal(Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap) {
@@ -158,7 +158,8 @@ final class InjectPass {
 
     private static void injectBeforeReturns(
         ClassNode owner, MethodNode target, InjectMapping inject, String mixinField, Type targetReturn,
-        Map<Integer, Integer> slotMap, Set<Integer> argsOnlyParams
+        Map<Integer, Integer> staticSlotMap, Set<Integer> argsOnlyParams,
+        LocalFrameAnalyzer analyzer, Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap
     ) {
         List<AbstractInsnNode> returns = new ArrayList<>();
         for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null; insn = insn.getNext()) {
@@ -166,6 +167,9 @@ final class InjectPass {
             if (op >= Opcodes.IRETURN && op <= Opcodes.RETURN) returns.add(insn);
         }
         for (AbstractInsnNode ret : returns) {
+            Map<Integer, Integer> slotMap = analyzer != null
+                ? InjectLocalResolver.siteSlotMap(target, inject.handler(), ret, entryMap, analyzer)
+                : staticSlotMap;
             InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
             target.instructions.insertBefore(ret, block);
         }

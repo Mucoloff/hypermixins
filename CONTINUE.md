@@ -115,10 +115,11 @@ hypermixins-example/run/test-world-1.0.jar \
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
 - **`@Local` at non-HEAD injection points** — `index` slot binding ships
-  for every point. Type-driven (`ordinal` / bare) resolution ships at
-  HEAD / TAIL / RETURN against incoming target params, and at INVOKE /
-  FIELD / CONSTANT / JUMP / NEW via the target's preserved
-  {@code LocalVariableTable} (see `LocalFrameAnalyzer.liveLocalsAt`).
+  for every point. Type-driven (`ordinal` / bare) resolution at HEAD
+  walks the incoming target params; every other point routes through
+  the target's preserved {@code LocalVariableTable} (see
+  `LocalFrameAnalyzer.liveLocalsAt`), so mid-method locals can be picked
+  at TAIL / RETURN / INVOKE / FIELD / CONSTANT / JUMP / NEW.
   Edge case still open: targets compiled without `-g` carry no
   `LocalVariableTable`; the resolver throws a clear "compile with -g or
   annotate @Local(index = …) explicitly" error in that case.

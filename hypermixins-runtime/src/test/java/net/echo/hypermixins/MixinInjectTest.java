@@ -537,6 +537,34 @@ public class MixinInjectTest {
         }
     }
 
+    // ---- bare @Local at RETURN binding mid-method local ----
+
+    public static volatile String siteReturnCaptured;
+
+    public static class SiteReturnTarget {
+        public int run(int seed) {
+            String tag = "return-" + seed;
+            return tag.length();
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteReturnTarget")
+    public static class SiteReturnMixin {
+        @Inject(method = "run", at = @At(point = At.Point.RETURN))
+        public void onReturn(Object self, @net.echo.hypermixins.annotations.Local String tag) {
+            siteReturnCaptured = tag;
+        }
+    }
+
+    @Test
+    void captureMidMethodLocalAtReturnPoint() throws Exception {
+        Class<?> t = applyMixin(SiteReturnTarget.class, SiteReturnMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run", int.class).invoke(inst, 42);
+        // "return-42".length() = 9
+        assertEquals(9, result);
+        assertEquals("return-42", siteReturnCaptured);
+    }
+
     // ---- @Local at FIELD point ----
 
     public static volatile String siteFieldCaptured;
