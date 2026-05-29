@@ -44,11 +44,15 @@ final class InjectPass {
             Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
                 localEntryByHandler.getOrDefault(handlerKey, Map.of());
             Set<Integer> argsOnlyParams = InjectLocalResolver.argsOnlyParams(entryMap);
-            Map<Integer, Integer> staticSlotMap = InjectLocalResolver.slotMap(target, inject.handler(), entryMap);
             At.Shift shift = descriptor.injectShifts().getOrDefault(handlerKey, At.Shift.BEFORE);
-            LocalFrameAnalyzer analyzer = requiresFrameAnalysis(inject.point()) && hasUnresolvedLocal(entryMap)
-                ? new LocalFrameAnalyzer(owner.name, target)
-                : null;
+            boolean useAnalyzer = requiresFrameAnalysis(inject.point()) && hasUnresolvedLocal(entryMap);
+            LocalFrameAnalyzer analyzer = useAnalyzer ? new LocalFrameAnalyzer(owner.name, target) : null;
+            // The static slot map fits HEAD / TAIL / RETURN (incoming target params); for
+            // non-HEAD points with bare @Local the analyzer handles every entry, so the static
+            // map would error out on type lookups that only exist mid-method — skip it.
+            Map<Integer, Integer> staticSlotMap = useAnalyzer
+                ? Map.of()
+                : InjectLocalResolver.slotMap(target, inject.handler(), entryMap);
             switch (inject.point()) {
                 case HEAD -> {
                     AbstractInsnNode first = target.instructions.getFirst();

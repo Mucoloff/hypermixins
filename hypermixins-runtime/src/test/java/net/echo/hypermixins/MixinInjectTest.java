@@ -487,4 +487,32 @@ public class MixinInjectTest {
         assertEquals(42, result);
         assertEquals(41, localCaptured);
     }
+
+    // ---- bare @Local at non-HEAD point (Analyzer-driven) ----
+
+    public static volatile String siteFrameCaptured;
+
+    public static class SiteFrameTarget {
+        public int run(int seed) {
+            String midLocal = "tag-" + seed;
+            return Integer.parseInt(midLocal.substring(4));
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteFrameTarget")
+    public static class SiteFrameMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/lang/Integer.parseInt(Ljava/lang/String;)I"))
+        public void onParse(Object self, @net.echo.hypermixins.annotations.Local String midLocal) {
+            siteFrameCaptured = midLocal;
+        }
+    }
+
+    @Test
+    void captureLocalAtInvokePointResolvesMidMethodSlot() throws Exception {
+        Class<?> t = applyMixin(SiteFrameTarget.class, SiteFrameMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run", int.class).invoke(inst, 42);
+        assertEquals(42, result);
+        assertEquals("tag-42", siteFrameCaptured);
+    }
 }

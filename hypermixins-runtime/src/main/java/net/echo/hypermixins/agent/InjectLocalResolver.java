@@ -3,8 +3,6 @@ package net.echo.hypermixins.agent;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.analysis.BasicValue;
-import org.objectweb.asm.tree.analysis.Frame;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -108,13 +106,12 @@ final class InjectLocalResolver {
     ) {
         Map<Integer, Integer> out = new HashMap<>();
         if (entryMap.isEmpty()) return out;
-        Frame<BasicValue> frame = analyzer.frameAt(site);
-        if (frame == null) {
+        Map<Integer, Type> slotTypes = analyzer.liveLocalsAt(site);
+        if (slotTypes.isEmpty()) {
             throw new IllegalStateException(
-                "@Local site-frame analysis failed on " + target.name + target.desc
-                + " — annotate every handler param with @Local(index = <slot>) explicitly");
+                "@Local site-frame analysis found no debug locals on " + target.name + target.desc
+                + " — compile with -g or annotate every handler param with @Local(index = <slot>)");
         }
-        Map<Integer, Type> slotTypes = LocalFrameAnalyzer.slotTypes(frame);
         for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
             MixinDescriptor.InjectLocalEntry le = e.getValue();
             if (le.slot() >= 0) {

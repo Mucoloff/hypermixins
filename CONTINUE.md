@@ -115,14 +115,13 @@ hypermixins-example/run/test-world-1.0.jar \
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
 - **`@Local` at non-HEAD injection points** — `index` slot binding ships
-  for every point. Type-driven (`ordinal` / bare) resolution now ships at
+  for every point. Type-driven (`ordinal` / bare) resolution ships at
   HEAD / TAIL / RETURN against incoming target params, and at INVOKE /
-  FIELD / CONSTANT / JUMP / NEW via ASM `Analyzer` + `BasicInterpreter`
-  on the target body (see `LocalFrameAnalyzer`). Live-local frame
-  computation reuses one analyser per (mixin, target) pair, so the cost
-  is paid once per @Inject. Edge case still open: methods whose JSR /
-  custom opcodes the `BasicInterpreter` rejects — the resolver throws a
-  clear "annotate @Local(index = …) explicitly" error in that case.
+  FIELD / CONSTANT / JUMP / NEW via the target's preserved
+  {@code LocalVariableTable} (see `LocalFrameAnalyzer.liveLocalsAt`).
+  Edge case still open: targets compiled without `-g` carry no
+  `LocalVariableTable`; the resolver throws a clear "compile with -g or
+  annotate @Local(index = …) explicitly" error in that case.
 
 ## Key files
 
