@@ -44,6 +44,14 @@ final class InjectPass {
             Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
                 localEntryByHandler.getOrDefault(handlerKey, Map.of());
             Set<Integer> argsOnlyParams = InjectLocalResolver.argsOnlyParams(entryMap);
+            if (requiresFrameAnalysis(inject.point()) && hasUnresolvedLocal(entryMap)) {
+                throw new IllegalStateException(
+                    "@Local without explicit index/ordinal is not yet supported at @Inject point "
+                    + inject.point() + " (handler " + inject.handler() + "). "
+                    + "Set @Local(index = <slot>) on every parameter — type-driven resolution "
+                    + "needs ASM Analyzer hookup which has not shipped yet. "
+                    + "Tracked in CONTINUE.md backlog.");
+            }
             Map<Integer, Integer> slotMap = InjectLocalResolver.slotMap(target, inject.handler(), entryMap);
             At.Shift shift = descriptor.injectShifts().getOrDefault(handlerKey, At.Shift.BEFORE);
             switch (inject.point()) {
@@ -67,6 +75,20 @@ final class InjectPass {
                 default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
             }
         }
+    }
+
+    private static boolean requiresFrameAnalysis(At.Point point) {
+        return switch (point) {
+            case HEAD, TAIL, RETURN -> false;
+            default -> true;
+        };
+    }
+
+    private static boolean hasUnresolvedLocal(Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap) {
+        for (MixinDescriptor.InjectLocalEntry le : entryMap.values()) {
+            if (le.slot() < 0) return true;
+        }
+        return false;
     }
 
     private static void injectAtMatchingSites(
