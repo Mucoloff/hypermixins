@@ -88,6 +88,7 @@ public final class MixinDescriptor {
     private final List<InjectLocalEntry> injectLocals;
     private final List<ShadowEntry> shadows;
     private final List<ShadowFieldEntry> shadowFields;
+    private final List<ShadowFieldEntry> shadowStaticFields;
     private final Map<String, String[]> synthetics;
     /** Target-method-key → true when the method is static. Populated best-effort at build time. */
     private final Map<String, Boolean> staticTargetMethods;
@@ -99,6 +100,7 @@ public final class MixinDescriptor {
         List<InjectLocalEntry> injectLocals,
         List<ShadowEntry> shadows,
         List<ShadowFieldEntry> shadowFields,
+        List<ShadowFieldEntry> shadowStaticFields,
         Map<String, String[]> synthetics
     ) {
         this.mixinClass  = mixinClass;
@@ -110,6 +112,7 @@ public final class MixinDescriptor {
         this.injectLocals = List.copyOf(injectLocals);
         this.shadows     = List.copyOf(shadows);
         this.shadowFields = List.copyOf(shadowFields);
+        this.shadowStaticFields = List.copyOf(shadowStaticFields);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
         this.staticTargetMethods = Map.of();
     }
@@ -121,6 +124,7 @@ public final class MixinDescriptor {
         List<InjectLocalEntry> injectLocals,
         List<ShadowEntry> shadows,
         List<ShadowFieldEntry> shadowFields,
+        List<ShadowFieldEntry> shadowStaticFields,
         Map<String, String[]> synthetics,
         Map<String, Boolean> staticTargetMethods
     ) {
@@ -133,6 +137,7 @@ public final class MixinDescriptor {
         this.injectLocals = List.copyOf(injectLocals);
         this.shadows     = List.copyOf(shadows);
         this.shadowFields = List.copyOf(shadowFields);
+        this.shadowStaticFields = List.copyOf(shadowStaticFields);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
         this.staticTargetMethods = Collections.unmodifiableMap(new HashMap<>(staticTargetMethods));
     }
@@ -147,6 +152,7 @@ public final class MixinDescriptor {
     public List<InjectLocalEntry> injectLocals() { return injectLocals; }
     public List<ShadowEntry>    shadows()    { return shadows; }
     public List<ShadowFieldEntry> shadowFields() { return shadowFields; }
+    public List<ShadowFieldEntry> shadowStaticFields() { return shadowStaticFields; }
     /** Map {@code targetName+targetDesc → [mangledOriginalName, dispatchName]}. */
     public Map<String, String[]> synthetics() { return synthetics; }
 
@@ -197,6 +203,7 @@ public final class MixinDescriptor {
             List<String[]> injectLocalRows = invokeStringListOrEmpty(lookup, desc, "injectCaptureLocals");
             List<String[]> shadowRows    = invokeStringListOrEmpty(lookup, desc, "shadowEntries");
             List<String[]> shadowFieldRows = invokeStringListOrEmpty(lookup, desc, "shadowFieldEntries");
+            List<String[]> shadowStaticFieldRows = invokeStringListOrEmpty(lookup, desc, "shadowStaticFieldEntries");
             List<String[]> staticTargetRows = invokeStringListOrEmpty(lookup, desc, "staticTargetMethods");
             List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
 
@@ -225,11 +232,14 @@ public final class MixinDescriptor {
             List<ShadowFieldEntry> shadFields = new ArrayList<>(shadowFieldRows.size());
             for (String[] r : shadowFieldRows) shadFields.add(new ShadowFieldEntry(r[0], r[1], r[2]));
 
+            List<ShadowFieldEntry> shadStaticFields = new ArrayList<>(shadowStaticFieldRows.size());
+            for (String[] r : shadowStaticFieldRows) shadStaticFields.add(new ShadowFieldEntry(r[0], r[1], r[2]));
+
             Map<String, String[]> synths = new LinkedHashMap<>();
             for (String[] r : syntheticRows) synths.put(r[0] + r[1], new String[]{r[2], r[3]});
 
             MixinDescriptor base = new MixinDescriptor(
-                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, shads, shadFields, synths);
+                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, shads, shadFields, shadStaticFields, synths);
             return withStaticTargets(base, staticTargetRows);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
@@ -266,6 +276,7 @@ public final class MixinDescriptor {
         List<InjectLocalEntry> injectLocals = new ArrayList<>();
         List<ShadowEntry>    shadows    = new ArrayList<>();
         List<ShadowFieldEntry> shadowFields = new ArrayList<>();
+        List<ShadowFieldEntry> shadowStaticFields = new ArrayList<>();
         Map<String, String[]> synths    = new LinkedHashMap<>();
 
         for (Method method : mixinClass.getDeclaredMethods()) {
@@ -378,16 +389,20 @@ public final class MixinDescriptor {
         for (java.lang.reflect.Field f : mixinClass.getDeclaredFields()) {
             Shadow shFld = f.getAnnotation(Shadow.class);
             if (shFld == null) continue;
-            if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
             String tname = shFld.value().isBlank() ? f.getName() : shFld.value();
-            shadowFields.add(new ShadowFieldEntry(f.getName(), Type.getDescriptor(f.getType()), tname));
+            ShadowFieldEntry entry = new ShadowFieldEntry(f.getName(), Type.getDescriptor(f.getType()), tname);
+            if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+                shadowStaticFields.add(entry);
+            } else {
+                shadowFields.add(entry);
+            }
         }
 
         Map<String, Boolean> staticMap = probeStaticTargetMethods(
             mixinClass, targetInternal, originals, overwrites);
         return new MixinDescriptor(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals,
-            shadows, shadowFields, synths, staticMap);
+            shadows, shadowFields, shadowStaticFields, synths, staticMap);
     }
 
     /**
@@ -401,7 +416,7 @@ public final class MixinDescriptor {
         for (String[] r : rows) map.put(r[0] + r[1], true);
         return new MixinDescriptor(base.mixinClass, base.targetClass,
             base.overwrites, base.originals, base.redirects, base.injects, base.injectLocals,
-            base.shadows, base.shadowFields, base.synthetics, map);
+            base.shadows, base.shadowFields, base.shadowStaticFields, base.synthetics, map);
     }
 
     /**

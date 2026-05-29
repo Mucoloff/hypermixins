@@ -18,6 +18,7 @@ import javax.lang.model.element.Modifier
 //   injectCaptureLocals:[handlerName, handlerDesc, paramIndex, slot]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
+//   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   staticTargetMethods:[name, desc]   — only entries the resolver could see as static
 //   syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
 
@@ -106,6 +107,7 @@ class MixinSymbolProcessor(
         val injectLocals = mutableListOf<InjectLocalEntry>()
         val shadows    = mutableListOf<ShadowEntry>()
         val shadowFields = mutableListOf<ShadowFieldEntry>()
+        val shadowStaticFields = mutableListOf<ShadowFieldEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -121,7 +123,12 @@ class MixinSymbolProcessor(
                 val ann = prop.findAnnotation(SHADOW_FQN)!!
                 val targetName = (ann.arg("value") as? String)?.takeIf { it.isNotBlank() } ?: prop.simpleName.asString()
                 val fieldDesc = toJvmDesc(prop.type.resolve())
-                shadowFields += ShadowFieldEntry(prop.simpleName.asString(), fieldDesc, targetName)
+                val entry = ShadowFieldEntry(prop.simpleName.asString(), fieldDesc, targetName)
+                if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC in prop.modifiers) {
+                    shadowStaticFields += entry
+                } else {
+                    shadowFields += entry
+                }
             }
         }
 
@@ -129,7 +136,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, staticTargets)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -401,6 +408,7 @@ class MixinSymbolProcessor(
         injectLocals: List<InjectLocalEntry>,
         shadows: List<ShadowEntry>,
         shadowFields: List<ShadowFieldEntry>,
+        shadowStaticFields: List<ShadowFieldEntry>,
         staticTargets: Set<String>
     ) {
         val mixinFqn = cls.qualifiedName?.asString() ?: return
@@ -447,6 +455,9 @@ class MixinSymbolProcessor(
             arrayOf(it.handlerName, it.handlerDesc, it.targetName)
         }))
         classBuilder.addMethod(entriesMethod("shadowFieldEntries", shadowFields.map {
+            arrayOf(it.mixinFieldName, it.fieldDesc, it.targetFieldName)
+        }))
+        classBuilder.addMethod(entriesMethod("shadowStaticFieldEntries", shadowStaticFields.map {
             arrayOf(it.mixinFieldName, it.fieldDesc, it.targetFieldName)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {

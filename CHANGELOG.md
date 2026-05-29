@@ -69,6 +69,12 @@ master is the only published surface so far.
   map flags a static target. Targets that the resolver cannot see at compile
   time fall back to the instance dispatch — same as before.
 
+### Added (static @Shadow fields)
+- **Static field-level `@Shadow`** — declare `@Shadow public static int foo;`
+  on the mixin and reference it as `foo` (i.e., GETSTATIC/PUTSTATIC) inside
+  `@Overwrite` / `@Inject` handlers; the transformer rewrites the owner to
+  the target class. Companion to the existing instance field shadow.
+
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,
   module table.

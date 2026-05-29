@@ -288,7 +288,11 @@ public class MixinTransformer implements ClassFileTransformer {
         for (MixinDescriptor.ShadowFieldEntry sf : mapping.descriptor().shadowFields()) {
             shadowFieldsByKey.put(sf.mixinFieldName() + sf.fieldDesc(), sf);
         }
-        if (!shadowFieldsByKey.isEmpty()) {
+        Map<String, MixinDescriptor.ShadowFieldEntry> shadowStaticFieldsByKey = new HashMap<>();
+        for (MixinDescriptor.ShadowFieldEntry sf : mapping.descriptor().shadowStaticFields()) {
+            shadowStaticFieldsByKey.put(sf.mixinFieldName() + sf.fieldDesc(), sf);
+        }
+        if (!shadowFieldsByKey.isEmpty() || !shadowStaticFieldsByKey.isEmpty()) {
             String mixinInternal = node.name;
             String targetInternal = mapping.descriptor().targetClass();
             Set<String> handlerKeys = new HashSet<>();
@@ -300,7 +304,12 @@ public class MixinTransformer implements ClassFileTransformer {
             for (MethodNode method : node.methods) {
                 if (method.name.equals("<init>") || method.name.equals("<clinit>")) continue;
                 if (!handlerKeys.contains(method.name + method.desc)) continue;
-                rewriteShadowFieldAccess(method, mixinInternal, targetInternal, shadowFieldsByKey);
+                if (!shadowFieldsByKey.isEmpty()) {
+                    rewriteShadowFieldAccess(method, mixinInternal, targetInternal, shadowFieldsByKey);
+                }
+                if (!shadowStaticFieldsByKey.isEmpty()) {
+                    rewriteShadowStaticFieldAccess(method, mixinInternal, targetInternal, shadowStaticFieldsByKey);
+                }
             }
         }
 
@@ -432,6 +441,27 @@ public class MixinTransformer implements ClassFileTransformer {
             method.instructions.insertBefore(ownerLoad, new VarInsnNode(Opcodes.ALOAD, 1));
             method.instructions.insertBefore(ownerLoad, new TypeInsnNode(Opcodes.CHECKCAST, targetInternal));
             method.instructions.remove(ownerLoad);
+            method.instructions.set(fi, new FieldInsnNode(op, targetInternal, shadow.targetFieldName(), shadow.fieldDesc()));
+        }
+    }
+
+    /** Rewrites GETSTATIC/PUTSTATIC mixin.foo → GETSTATIC/PUTSTATIC target.foo. */
+    private static void rewriteShadowStaticFieldAccess(
+        MethodNode method, String mixinInternal, String targetInternal,
+        Map<String, MixinDescriptor.ShadowFieldEntry> shadowFieldsByKey
+    ) {
+        if (method.instructions == null) return;
+        List<AbstractInsnNode> insns = new ArrayList<>();
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            insns.add(insn);
+        }
+        for (AbstractInsnNode insn : insns) {
+            if (!(insn instanceof FieldInsnNode fi)) continue;
+            if (!fi.owner.equals(mixinInternal)) continue;
+            int op = fi.getOpcode();
+            if (op != Opcodes.GETSTATIC && op != Opcodes.PUTSTATIC) continue;
+            MixinDescriptor.ShadowFieldEntry shadow = shadowFieldsByKey.get(fi.name + fi.desc);
+            if (shadow == null) continue;
             method.instructions.set(fi, new FieldInsnNode(op, targetInternal, shadow.targetFieldName(), shadow.fieldDesc()));
         }
     }

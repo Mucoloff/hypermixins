@@ -62,6 +62,37 @@ public class MixinShadowTest {
         public void write(Object self, int v) { health = v * 2; }
     }
 
+    // ---- static @Shadow field ----
+
+    public static class StaticFieldTarget {
+        public static int counter = 0;
+        public int snapshot() { return counter; }
+        public void bump(int v) { counter = v; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinShadowTest$StaticFieldTarget")
+    public static class StaticFieldShadowMixin {
+        @net.echo.hypermixins.annotations.Shadow
+        public static int counter;
+
+        @net.echo.hypermixins.annotations.Overwrite("snapshot")
+        public int snapshot(Object self) { return counter * 10; }
+
+        @net.echo.hypermixins.annotations.Overwrite("bump")
+        public void bump(Object self, int v) { counter = v + 1; }
+    }
+
+    @Test
+    void shadowStaticFieldReadAndWrite() throws Exception {
+        Class<?> t = applyMixin(StaticFieldTarget.class, StaticFieldShadowMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // Reset target static field via reflection.
+        t.getField("counter").setInt(null, 0);
+        t.getMethod("bump", int.class).invoke(inst, 4);
+        assertEquals(5, t.getField("counter").getInt(null));
+        assertEquals(50, t.getMethod("snapshot").invoke(inst));
+    }
+
     @Test
     void shadowFieldReadAndWrite() throws Exception {
         Class<?> t = applyMixin(FieldTarget.class, FieldShadowMixin.class);
