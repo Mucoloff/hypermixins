@@ -190,7 +190,7 @@ class MixinSymbolProcessor(
     private fun validateAndCollectOverwrite(
         fn: KSFunctionDeclaration, targetClass: String, out: MutableList<OverwriteEntry>
     ) {
-        if (Modifier.STATIC in fn.modifiers()) {
+        if (Modifier.STATIC in fn.javaModifiers()) {
             logger.error("@Overwrite method must not be static: ${fn.simpleName.asString()}", fn)
             return
         }
@@ -238,7 +238,7 @@ class MixinSymbolProcessor(
     }
 
     private fun validateAndCollectRedirect(fn: KSFunctionDeclaration, out: MutableList<RedirectEntry>) {
-        if (Modifier.STATIC !in fn.modifiers()) {
+        if (Modifier.STATIC !in fn.javaModifiers()) {
             logger.error("@Redirect method must be static: ${fn.simpleName.asString()}", fn)
             return
         }
@@ -610,12 +610,6 @@ class MixinSymbolProcessor(
 
     // ---- Descriptor helpers ----
 
-    private fun KSFunctionDeclaration.modifiers(): Set<Modifier> {
-        val result = mutableSetOf<Modifier>()
-        if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC in this.modifiers) result += Modifier.STATIC
-        return result
-    }
-
     // ---- Code generation ----
 
     private fun probePrivateShadowTargets(
@@ -819,23 +813,6 @@ class MixinSymbolProcessor(
     }
 
     // ---- KSP helpers ----
-
-    private fun KSAnnotated.findAnnotation(fqn: String): KSAnnotation? =
-        annotations.firstOrNull { it.annotationType.resolve().declaration.qualifiedName?.asString() == fqn }
-
-    private fun KSAnnotated.hasAnnotation(fqn: String): Boolean = findAnnotation(fqn) != null
-
-    private fun KSAnnotation.arg(name: String): Any? =
-        arguments.firstOrNull { it.name?.asString() == name }?.value
-
-    private fun readEnumArg(value: Any?, default: String): String = when (value) {
-        null -> default
-        is String -> value
-        is KSType -> value.declaration.simpleName.asString()
-        is KSClassDeclaration -> value.simpleName.asString()
-        is KSDeclaration -> value.simpleName.asString()
-        else -> value.toString().substringAfterLast('.').ifBlank { default }
-    }
 
     // ---- Internal records ----
 
