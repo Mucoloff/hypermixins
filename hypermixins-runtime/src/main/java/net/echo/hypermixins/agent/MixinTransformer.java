@@ -208,6 +208,27 @@ public class MixinTransformer implements ClassFileTransformer {
         ClassNode node = new ClassNode();
         reader.accept(node, 0);
 
+        // ---- @Shadow field rewrites (inside @Overwrite / @Inject handlers) ----
+        Map<String, MixinDescriptor.ShadowFieldEntry> shadowFieldsByKey = new HashMap<>();
+        for (MixinDescriptor.ShadowFieldEntry sf : mapping.descriptor().shadowFields()) {
+            shadowFieldsByKey.put(sf.mixinFieldName() + sf.fieldDesc(), sf);
+        }
+        if (!shadowFieldsByKey.isEmpty()) {
+            String mixinInternal = node.name;
+            String targetInternal = mapping.descriptor().targetClass();
+            Set<String> handlerKeys = new HashSet<>();
+            for (MixinDescriptor.OverwriteEntry oe : mapping.descriptor().overwrites())
+                handlerKeys.add(oe.handlerName() + oe.handlerDesc());
+            for (MixinDescriptor.InjectEntry ie : mapping.descriptor().injects())
+                handlerKeys.add(ie.handlerName() + ie.handlerDesc());
+
+            for (MethodNode method : node.methods) {
+                if (method.name.equals("<init>") || method.name.equals("<clinit>")) continue;
+                if (!handlerKeys.contains(method.name + method.desc)) continue;
+                rewriteShadowFieldAccess(method, mixinInternal, targetInternal, shadowFieldsByKey);
+            }
+        }
+
         for (MethodNode method : node.methods) {
             String key = method.name + method.desc;
             if (!mapping.getOriginals().containsKey(key)) continue;
@@ -292,6 +313,62 @@ public class MixinTransformer implements ClassFileTransformer {
         ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, loader);
         node.accept(writer);
         return writer.toByteArray();
+    }
+
+    /**
+     * Rewrites every {@code ALOAD 0; (GETFIELD|PUTFIELD) mixin.shadowField} pair in {@code method}
+     * to {@code ALOAD 1; CHECKCAST targetInternal; (GETFIELD|PUTFIELD) targetInternal.targetName}.
+     * Matches the canonical {@code this.foo} pattern emitted by javac.
+     */
+    private static void rewriteShadowFieldAccess(
+        MethodNode method, String mixinInternal, String targetInternal,
+        Map<String, MixinDescriptor.ShadowFieldEntry> shadowFieldsByKey
+    ) {
+        if (method.instructions == null) return;
+        List<AbstractInsnNode> insns = new ArrayList<>();
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            insns.add(insn);
+        }
+        for (AbstractInsnNode insn : insns) {
+            if (!(insn instanceof FieldInsnNode fi)) continue;
+            if (!fi.owner.equals(mixinInternal)) continue;
+            int op = fi.getOpcode();
+            if (op != Opcodes.GETFIELD && op != Opcodes.PUTFIELD) continue;
+            MixinDescriptor.ShadowFieldEntry shadow = shadowFieldsByKey.get(fi.name + fi.desc);
+            if (shadow == null) continue;
+
+            // GETFIELD: ALOAD 0 sits immediately before the GETFIELD.
+            // PUTFIELD: ALOAD 0 is the start of the put pattern, with the value sequence between.
+            AbstractInsnNode ownerLoad = (op == Opcodes.GETFIELD)
+                ? skipMeta(fi.getPrevious())
+                : findEnclosingThisLoad(fi);
+            if (ownerLoad == null) continue;
+            if (!(ownerLoad.getOpcode() == Opcodes.ALOAD && ((VarInsnNode) ownerLoad).var == 0)) continue;
+
+            // Replace `ALOAD 0` with `ALOAD 1; CHECKCAST targetInternal` while leaving the rest untouched.
+            method.instructions.insertBefore(ownerLoad, new VarInsnNode(Opcodes.ALOAD, 1));
+            method.instructions.insertBefore(ownerLoad, new TypeInsnNode(Opcodes.CHECKCAST, targetInternal));
+            method.instructions.remove(ownerLoad);
+            method.instructions.set(fi, new FieldInsnNode(op, targetInternal, shadow.targetFieldName(), shadow.fieldDesc()));
+        }
+    }
+
+    private static AbstractInsnNode skipMeta(AbstractInsnNode n) {
+        while (n != null && n.getOpcode() == -1) n = n.getPrevious();
+        return n;
+    }
+
+    /**
+     * Conservative scan back from a PUTFIELD to its receiver-loading {@code ALOAD 0}.
+     * Stops at the nearest preceding ALOAD 0, trusting javac's straight-line {@code this.foo = expr}
+     * emission.
+     */
+    private static AbstractInsnNode findEnclosingThisLoad(AbstractInsnNode putfield) {
+        AbstractInsnNode n = putfield.getPrevious();
+        while (n != null && !(n.getOpcode() == Opcodes.ALOAD && ((VarInsnNode) n).var == 0)) {
+            n = n.getPrevious();
+        }
+        return n;
     }
 
     // ---- Constructor patching ----

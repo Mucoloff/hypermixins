@@ -41,4 +41,39 @@ public class MixinShadowTest {
         String result = (String) t.getMethod("greet", String.class).invoke(inst, "alice");
         assertEquals("tagged/alice", result);
     }
+
+    // ---- field-level @Shadow ----
+
+    public static class FieldTarget {
+        public int health = 10;
+        public int read() { return health; }
+        public void write(int v) { health = v; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinShadowTest$FieldTarget")
+    public static class FieldShadowMixin {
+        @net.echo.hypermixins.annotations.Shadow
+        public int health;
+
+        @net.echo.hypermixins.annotations.Overwrite("read")
+        public int read(Object self) { return health + 1; }
+
+        @net.echo.hypermixins.annotations.Overwrite("write")
+        public void write(Object self, int v) { health = v * 2; }
+    }
+
+    @Test
+    void shadowFieldReadAndWrite() throws Exception {
+        Class<?> t = applyMixin(FieldTarget.class, FieldShadowMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // read() returns the target's field + 1
+        assertEquals(11, t.getMethod("read").invoke(inst));
+        // write(5) stores 10 on the target's field
+        t.getMethod("write", int.class).invoke(inst, 5);
+        assertEquals(10, t.getField("health").getInt(inst));
+        assertEquals(11, t.getMethod("read").invoke(inst));
+        // sanity: read sees updated value
+        t.getMethod("write", int.class).invoke(inst, 50);
+        assertEquals(100, t.getField("health").getInt(inst));
+    }
 }

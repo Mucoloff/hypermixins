@@ -74,6 +74,7 @@ public final class MixinDescriptor {
                               boolean cancellable, boolean returnable,
                               String handlerName, String handlerDesc) {}
     public record ShadowEntry(String handlerName, String handlerDesc, String targetName) {}
+    public record ShadowFieldEntry(String mixinFieldName, String fieldDesc, String targetFieldName) {}
 
     private static final ConcurrentHashMap<Class<?>, MixinDescriptor> CACHE = new ConcurrentHashMap<>();
 
@@ -84,6 +85,7 @@ public final class MixinDescriptor {
     private final List<RedirectEntry> redirects;
     private final List<InjectEntry> injects;
     private final List<ShadowEntry> shadows;
+    private final List<ShadowFieldEntry> shadowFields;
     private final Map<String, String[]> synthetics;
 
     private MixinDescriptor(
@@ -91,6 +93,7 @@ public final class MixinDescriptor {
         List<OverwriteEntry> overwrites, List<OriginalEntry> originals,
         List<RedirectEntry> redirects, List<InjectEntry> injects,
         List<ShadowEntry> shadows,
+        List<ShadowFieldEntry> shadowFields,
         Map<String, String[]> synthetics
     ) {
         this.mixinClass  = mixinClass;
@@ -100,6 +103,7 @@ public final class MixinDescriptor {
         this.redirects   = List.copyOf(redirects);
         this.injects     = List.copyOf(injects);
         this.shadows     = List.copyOf(shadows);
+        this.shadowFields = List.copyOf(shadowFields);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
     }
 
@@ -111,6 +115,7 @@ public final class MixinDescriptor {
     public List<RedirectEntry>  redirects()  { return redirects; }
     public List<InjectEntry>    injects()    { return injects; }
     public List<ShadowEntry>    shadows()    { return shadows; }
+    public List<ShadowFieldEntry> shadowFields() { return shadowFields; }
     /** Map {@code targetName+targetDesc → [mangledOriginalName, dispatchName]}. */
     public Map<String, String[]> synthetics() { return synthetics; }
 
@@ -151,6 +156,7 @@ public final class MixinDescriptor {
             List<String[]> redirectRows  = invokeStringList(lookup, desc, "redirectEntries");
             List<String[]> injectRows    = invokeStringList(lookup, desc, "injectEntries");
             List<String[]> shadowRows    = invokeStringListOrEmpty(lookup, desc, "shadowEntries");
+            List<String[]> shadowFieldRows = invokeStringListOrEmpty(lookup, desc, "shadowFieldEntries");
             List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
 
             List<OverwriteEntry> ows = new ArrayList<>(overwriteRows.size());
@@ -171,10 +177,13 @@ public final class MixinDescriptor {
             List<ShadowEntry> shads = new ArrayList<>(shadowRows.size());
             for (String[] r : shadowRows) shads.add(new ShadowEntry(r[0], r[1], r[2]));
 
+            List<ShadowFieldEntry> shadFields = new ArrayList<>(shadowFieldRows.size());
+            for (String[] r : shadowFieldRows) shadFields.add(new ShadowFieldEntry(r[0], r[1], r[2]));
+
             Map<String, String[]> synths = new LinkedHashMap<>();
             for (String[] r : syntheticRows) synths.put(r[0] + r[1], new String[]{r[2], r[3]});
 
-            return new MixinDescriptor(mixinClass, targetInternal, ows, orig, reds, injs, shads, synths);
+            return new MixinDescriptor(mixinClass, targetInternal, ows, orig, reds, injs, shads, shadFields, synths);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
         }
@@ -208,6 +217,7 @@ public final class MixinDescriptor {
         List<RedirectEntry>  redirects  = new ArrayList<>();
         List<InjectEntry>    injects    = new ArrayList<>();
         List<ShadowEntry>    shadows    = new ArrayList<>();
+        List<ShadowFieldEntry> shadowFields = new ArrayList<>();
         Map<String, String[]> synths    = new LinkedHashMap<>();
 
         for (Method method : mixinClass.getDeclaredMethods()) {
@@ -307,7 +317,15 @@ public final class MixinDescriptor {
                     cancellable, returnable, method.getName(), Type.getMethodDescriptor(method)));
             }
         }
-        return new MixinDescriptor(mixinClass, targetInternal, overwrites, originals, redirects, injects, shadows, synths);
+        for (java.lang.reflect.Field f : mixinClass.getDeclaredFields()) {
+            Shadow shFld = f.getAnnotation(Shadow.class);
+            if (shFld == null) continue;
+            if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+            String tname = shFld.value().isBlank() ? f.getName() : shFld.value();
+            shadowFields.add(new ShadowFieldEntry(f.getName(), Type.getDescriptor(f.getType()), tname));
+        }
+
+        return new MixinDescriptor(mixinClass, targetInternal, overwrites, originals, redirects, injects, shadows, shadowFields, synths);
     }
 
     /** Inlined SHA-1/16-hex digest used only by the legacy {@link #fromAnnotations} path. */
