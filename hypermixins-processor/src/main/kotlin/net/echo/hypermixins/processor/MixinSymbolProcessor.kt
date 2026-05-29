@@ -18,6 +18,7 @@ import javax.lang.model.element.Modifier
 //   injectCaptureLocals:[handlerName, handlerDesc, paramIndex, slot]
 //   injectShifts:      [handlerName, handlerDesc, shift]   — rows only for non-BEFORE
 //   modifyReturnValueEntries: [targetMethod, invokeDesc, index, handlerName, handlerDesc]
+//   accessorEntries:   [handlerName, handlerDesc, kind, targetField]   kind = GET | SET
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
@@ -32,6 +33,7 @@ private const val INJECT_FQN      = "net.echo.hypermixins.annotations.Inject"
 private const val CANCELLABLE_FQN = "net.echo.hypermixins.annotations.Cancellable"
 private const val SHADOW_FQN      = "net.echo.hypermixins.annotations.Shadow"
 private const val MODIFY_RV_FQN   = "net.echo.hypermixins.annotations.ModifyReturnValue"
+private const val ACCESSOR_FQN    = "net.echo.hypermixins.annotations.Accessor"
 
 class MixinSymbolProcessor(
     private val codeGenerator: CodeGenerator,
@@ -112,6 +114,7 @@ class MixinSymbolProcessor(
         val shadowFields = mutableListOf<ShadowFieldEntry>()
         val shadowStaticFields = mutableListOf<ShadowFieldEntry>()
         val modifyRvs = mutableListOf<ModifyReturnValueEntry>()
+        val accessors = mutableListOf<AccessorEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -121,6 +124,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(INJECT_FQN)     -> validateAndCollectInject(fn, injects, injectLocals)
                 fn.hasAnnotation(SHADOW_FQN)     -> validateAndCollectShadow(fn, shadows)
                 fn.hasAnnotation(MODIFY_RV_FQN)  -> validateAndCollectModifyReturnValue(fn, modifyRvs)
+                fn.hasAnnotation(ACCESSOR_FQN)   -> validateAndCollectAccessor(fn, accessors)
             }
         }
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
@@ -148,7 +152,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, staticTargets)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, accessors, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -256,6 +260,48 @@ class MixinSymbolProcessor(
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    private fun validateAndCollectAccessor(fn: KSFunctionDeclaration, out: MutableList<AccessorEntry>) {
+        val ann = fn.findAnnotation(ACCESSOR_FQN)!!
+        val explicit = (ann.arg("value") as? String).orEmpty()
+        val handlerName = fn.simpleName.asString()
+        val handlerDesc = descriptor(fn)
+        val args = fn.parameters
+        if (args.isEmpty()) {
+            logger.error("@Accessor method must take Object self as first parameter: $handlerName", fn)
+            return
+        }
+        val firstFqn = args[0].type.resolve().declaration.qualifiedName?.asString()
+        if (firstFqn != "kotlin.Any" && firstFqn != "java.lang.Object") {
+            logger.error("@Accessor first parameter must be Object/Any: $handlerName", fn)
+            return
+        }
+        val returnsVoid = (fn.returnType?.resolve()?.declaration?.qualifiedName?.asString() ?: "") in listOf("kotlin.Unit", "java.lang.Void", "void")
+        val isSetter = returnsVoid && args.size == 2
+        val isGetter = !returnsVoid && args.size == 1
+        if (!isGetter && !isSetter) {
+            logger.error("@Accessor must be (Object): T (getter) or (Object, T): void (setter): $handlerName", fn)
+            return
+        }
+        val targetField = if (explicit.isNotBlank()) explicit else deriveAccessorField(handlerName)
+        if (targetField.isBlank()) {
+            logger.error("@Accessor cannot derive target field name from $handlerName — set value()", fn)
+            return
+        }
+        out += AccessorEntry(handlerName, handlerDesc, if (isGetter) "GET" else "SET", targetField)
+    }
+
+    private fun deriveAccessorField(method: String): String {
+        for (prefix in listOf("get", "set", "is")) {
+            if (method.startsWith(prefix) && method.length > prefix.length
+                && method[prefix.length].isUpperCase()
+            ) {
+                val tail = method.substring(prefix.length)
+                return tail[0].lowercase() + tail.substring(1)
+            }
+        }
+        return method
     }
 
     private fun validateAndCollectModifyReturnValue(fn: KSFunctionDeclaration, out: MutableList<ModifyReturnValueEntry>) {
@@ -463,6 +509,7 @@ class MixinSymbolProcessor(
         shadowFields: List<ShadowFieldEntry>,
         shadowStaticFields: List<ShadowFieldEntry>,
         modifyRvs: List<ModifyReturnValueEntry>,
+        accessors: List<AccessorEntry>,
         staticTargets: Set<String>
     ) {
         val mixinFqn = cls.qualifiedName?.asString() ?: return
@@ -518,6 +565,9 @@ class MixinSymbolProcessor(
         }))
         classBuilder.addMethod(entriesMethod("modifyReturnValueEntries", modifyRvs.map {
             arrayOf(it.targetMethod, it.invokeDesc, it.index.toString(), it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("accessorEntries", accessors.map {
+            arrayOf(it.handlerName, it.handlerDesc, it.kind, it.targetField)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
             val paren = it.indexOf('(')
@@ -587,4 +637,5 @@ class MixinSymbolProcessor(
     private data class ShadowFieldEntry(val mixinFieldName: String, val fieldDesc: String, val targetFieldName: String)
     private data class InjectLocalEntry(val handlerName: String, val handlerDesc: String, val paramIndex: Int, val slot: Int)
     private data class ModifyReturnValueEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
+    private data class AccessorEntry(val handlerName: String, val handlerDesc: String, val kind: String, val targetField: String)
 }

@@ -370,6 +370,38 @@ public class MixinTransformer implements ClassFileTransformer {
             method.instructions.add(insns);
         }
 
+        // ---- @Accessor trampolines (getters / setters for target fields) ----
+        if (!mapping.descriptor().accessors().isEmpty()) {
+            String mappedTarget = mapping.getTargetClass().replace('.', '/');
+            Map<String, MixinDescriptor.AccessorEntry> accessorsByKey = new HashMap<>();
+            for (MixinDescriptor.AccessorEntry a : mapping.descriptor().accessors()) {
+                accessorsByKey.put(a.handlerName() + a.handlerDesc(), a);
+            }
+            for (MethodNode method : node.methods) {
+                MixinDescriptor.AccessorEntry acc = accessorsByKey.get(method.name + method.desc);
+                if (acc == null) continue;
+                if ((method.access & Opcodes.ACC_NATIVE) != 0) method.access &= ~Opcodes.ACC_NATIVE;
+                method.instructions.clear();
+                method.tryCatchBlocks.clear();
+                method.localVariables = null;
+                Type returnType = Type.getReturnType(method.desc);
+                Type[] args = Type.getArgumentTypes(method.desc);
+                InsnList ins = new InsnList();
+                ins.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                ins.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
+                if (acc.kind().equals("GET")) {
+                    ins.add(new FieldInsnNode(Opcodes.GETFIELD, mappedTarget, acc.targetField(), returnType.getDescriptor()));
+                    ins.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
+                } else {
+                    Type valueType = args[1];
+                    ins.add(new VarInsnNode(valueType.getOpcode(Opcodes.ILOAD), 2));
+                    ins.add(new FieldInsnNode(Opcodes.PUTFIELD, mappedTarget, acc.targetField(), valueType.getDescriptor()));
+                    ins.add(new InsnNode(Opcodes.RETURN));
+                }
+                method.instructions.add(ins);
+            }
+        }
+
         // ---- @Shadow trampolines ----
         Map<String, String> shadowsByHandlerKey = new HashMap<>();
         for (MixinDescriptor.ShadowEntry s : mapping.descriptor().shadows()) {
