@@ -12,6 +12,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -148,7 +149,7 @@ final class InjectPass {
         if (argsOnlySourceSlots.isEmpty()) return fallback;
         AbstractInsnNode earliestLoad = null;
         for (AbstractInsnNode n = site.getPrevious(); n != null; n = n.getPrevious()) {
-            if (!(n instanceof org.objectweb.asm.tree.VarInsnNode v)) continue;
+            if (!(n instanceof VarInsnNode v)) continue;
             int op = v.getOpcode();
             if (op != Opcodes.ILOAD && op != Opcodes.LLOAD && op != Opcodes.FLOAD
                 && op != Opcodes.DLOAD && op != Opcodes.ALOAD) continue;
