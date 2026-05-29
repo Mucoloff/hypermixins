@@ -1,7 +1,10 @@
 package net.echo.hypermixins.agent;
 
 import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.analysis.BasicValue;
+import org.objectweb.asm.tree.analysis.Frame;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -85,6 +88,68 @@ final class InjectLocalResolver {
                 throw new IllegalStateException(
                     "@Local of type " + wanted + " is ambiguous (matches " + resolvedCount
                         + " target params) — set index or ordinal on "
+                        + handler.getName());
+            }
+            out.put(e.getKey(), resolved);
+        }
+        return out;
+    }
+
+    /**
+     * Frame-driven variant: walks the live locals at {@code site} (as computed by
+     * {@link LocalFrameAnalyzer}) instead of the target's incoming parameters. Handles
+     * @Local(ordinal = N) and bare @Local; bare bindings fail on ambiguity, matching the
+     * static-param resolver's contract.
+     */
+    static Map<Integer, Integer> siteSlotMap(
+        MethodNode target, Method handler, AbstractInsnNode site,
+        Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap,
+        LocalFrameAnalyzer analyzer
+    ) {
+        Map<Integer, Integer> out = new HashMap<>();
+        if (entryMap.isEmpty()) return out;
+        Frame<BasicValue> frame = analyzer.frameAt(site);
+        if (frame == null) {
+            throw new IllegalStateException(
+                "@Local site-frame analysis failed on " + target.name + target.desc
+                + " — annotate every handler param with @Local(index = <slot>) explicitly");
+        }
+        Map<Integer, Type> slotTypes = LocalFrameAnalyzer.slotTypes(frame);
+        for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
+            MixinDescriptor.InjectLocalEntry le = e.getValue();
+            if (le.slot() >= 0) {
+                out.put(e.getKey(), le.slot());
+                continue;
+            }
+            Type[] handlerArgs = Type.getArgumentTypes(Type.getMethodDescriptor(handler));
+            Type wantedRaw = handlerArgs[e.getKey()];
+            Type wanted = le.argsOnly() && wantedRaw.getSort() == Type.ARRAY
+                ? wantedRaw.getElementType()
+                : wantedRaw;
+
+            int seen = 0;
+            int resolved = -1;
+            int resolvedCount = 0;
+            // Iterate slots in ascending order so ordinal counts match declaration order.
+            for (Map.Entry<Integer, Type> st : slotTypes.entrySet()) {
+                if (!st.getValue().equals(wanted)) continue;
+                if (le.ordinal() >= 0) {
+                    if (seen == le.ordinal()) { resolved = st.getKey(); break; }
+                    seen++;
+                } else {
+                    if (resolvedCount == 0) resolved = st.getKey();
+                    resolvedCount++;
+                }
+            }
+            if (resolved < 0) {
+                throw new IllegalStateException(
+                    "@Local of type " + wanted + " not live at injection site in "
+                        + target.name + target.desc);
+            }
+            if (le.ordinal() < 0 && resolvedCount > 1) {
+                throw new IllegalStateException(
+                    "@Local of type " + wanted + " is ambiguous (matches " + resolvedCount
+                        + " live locals at injection site) — set index or ordinal on "
                         + handler.getName());
             }
             out.put(e.getKey(), resolved);

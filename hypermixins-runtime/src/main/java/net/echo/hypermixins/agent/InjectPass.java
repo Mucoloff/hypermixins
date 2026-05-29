@@ -44,33 +44,28 @@ final class InjectPass {
             Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
                 localEntryByHandler.getOrDefault(handlerKey, Map.of());
             Set<Integer> argsOnlyParams = InjectLocalResolver.argsOnlyParams(entryMap);
-            if (requiresFrameAnalysis(inject.point()) && hasUnresolvedLocal(entryMap)) {
-                throw new IllegalStateException(
-                    "@Local without explicit index/ordinal is not yet supported at @Inject point "
-                    + inject.point() + " (handler " + inject.handler() + "). "
-                    + "Set @Local(index = <slot>) on every parameter — type-driven resolution "
-                    + "needs ASM Analyzer hookup which has not shipped yet. "
-                    + "Tracked in CONTINUE.md backlog.");
-            }
-            Map<Integer, Integer> slotMap = InjectLocalResolver.slotMap(target, inject.handler(), entryMap);
+            Map<Integer, Integer> staticSlotMap = InjectLocalResolver.slotMap(target, inject.handler(), entryMap);
             At.Shift shift = descriptor.injectShifts().getOrDefault(handlerKey, At.Shift.BEFORE);
+            LocalFrameAnalyzer analyzer = requiresFrameAnalysis(inject.point()) && hasUnresolvedLocal(entryMap)
+                ? new LocalFrameAnalyzer(owner.name, target)
+                : null;
             switch (inject.point()) {
                 case HEAD -> {
                     AbstractInsnNode first = target.instructions.getFirst();
-                    InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
+                    InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams);
                     if (first == null) target.instructions.add(block);
                     else target.instructions.insertBefore(first, block);
                 }
-                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
-                case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
+                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams);
+                case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                     insn -> InjectSiteMatcher.matchesInvoke(insn, inject));
-                case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
+                case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                     insn -> InjectSiteMatcher.matchesField(insn, inject));
-                case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
+                case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                     insn -> InjectSiteMatcher.matchesConstant(insn, inject));
-                case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
+                case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                     InjectSiteMatcher::isConditionalJump);
-                case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
+                case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                     insn -> InjectSiteMatcher.matchesNew(insn, inject));
                 default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
             }
@@ -93,8 +88,10 @@ final class InjectPass {
 
     private static void injectAtMatchingSites(
         ClassNode owner, MethodNode target, InjectMapping inject,
-        String mixinField, Type targetReturn, Map<Integer, Integer> slotMap,
+        String mixinField, Type targetReturn, Map<Integer, Integer> staticSlotMap,
         Set<Integer> argsOnlyParams, At.Shift shift,
+        LocalFrameAnalyzer analyzer,
+        Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap,
         Predicate<AbstractInsnNode> predicate
     ) {
         List<AbstractInsnNode> sites = new ArrayList<>();
@@ -111,6 +108,9 @@ final class InjectPass {
                 + inject.handler() + " (atDesc=" + inject.atDesc() + ", index=" + inject.index() + ")");
         }
         for (AbstractInsnNode site : sites) {
+            Map<Integer, Integer> slotMap = analyzer != null
+                ? InjectLocalResolver.siteSlotMap(target, inject.handler(), site, entryMap, analyzer)
+                : staticSlotMap;
             InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
             if (shift == At.Shift.AFTER) {
                 target.instructions.insert(site, block);

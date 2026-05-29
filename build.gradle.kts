@@ -36,6 +36,7 @@ subprojects {
         "implementation"("org.jetbrains:annotations:26.0.2")
         "implementation"("org.ow2.asm:asm:9.8")
         "implementation"("org.ow2.asm:asm-tree:9.8")
+        "implementation"("org.ow2.asm:asm-analysis:9.8")
 
         "testImplementation"("org.ow2.asm:asm-util:9.8")
         "testImplementation"(platform("org.junit:junit-bom:6.0.0-M1"))
