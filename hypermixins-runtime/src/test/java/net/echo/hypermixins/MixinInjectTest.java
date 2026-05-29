@@ -431,6 +431,30 @@ public class MixinInjectTest {
         assertEquals(20, ordinalCaptured);
     }
 
+    // ---- bare @Local (unique-type auto-pick) ----
+
+    public static volatile String autoPickCaptured;
+
+    public static class BareTarget {
+        public int run(String tag, int n) { return n + tag.length(); }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$BareTarget")
+    public static class BareMixin {
+        @Inject(method = "run", at = @At(point = At.Point.HEAD))
+        public void onRun(Object self, @net.echo.hypermixins.annotations.Local String tag) {
+            autoPickCaptured = tag;
+        }
+    }
+
+    @Test
+    void captureLocalUniqueTypeAutoPick() throws Exception {
+        Class<?> t = applyMixin(BareTarget.class, BareMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run", String.class, int.class).invoke(inst, "ab", 5);
+        assertEquals(7, result);
+        assertEquals("ab", autoPickCaptured);
+    }
+
     @Test
     void captureLocalByIndex() throws Exception {
         Class<?> t = applyMixin(LocalTarget.class, LocalMixin.class);

@@ -703,25 +703,38 @@ public class MixinTransformer implements ClassFileTransformer {
                 MixinDescriptor.InjectLocalEntry le = e.getValue();
                 if (le.slot() >= 0) {
                     slotMap.put(e.getKey(), le.slot());
-                } else if (le.ordinal() >= 0) {
-                    // Resolve K-th target param of matching type (HEAD-equivalent semantics).
+                } else {
+                    // ordinal >= 0 → K-th matching target param.
+                    // ordinal < 0 → unique matching target param (error if ambiguous).
                     Type[] handlerArgs = Type.getArgumentTypes(Type.getMethodDescriptor(inject.handler()));
                     Type wanted = handlerArgs[e.getKey()];
                     Type[] targetArgs = Type.getArgumentTypes(target.desc);
                     int slotCursor = 1;
                     int seen = 0;
                     int resolved = -1;
+                    int resolvedCount = 0;
                     for (Type t : targetArgs) {
                         if (t.equals(wanted)) {
-                            if (seen == le.ordinal()) { resolved = slotCursor; break; }
-                            seen++;
+                            if (le.ordinal() >= 0) {
+                                if (seen == le.ordinal()) { resolved = slotCursor; break; }
+                                seen++;
+                            } else {
+                                if (resolvedCount == 0) resolved = slotCursor;
+                                resolvedCount++;
+                            }
                         }
                         slotCursor += t.getSize();
                     }
                     if (resolved < 0) {
                         throw new IllegalStateException(
-                            "@Local(ordinal=" + le.ordinal() + ") of type " + wanted
-                                + " not found in target " + target.name + target.desc);
+                            "@Local of type " + wanted + " not found in target "
+                                + target.name + target.desc);
+                    }
+                    if (le.ordinal() < 0 && resolvedCount > 1) {
+                        throw new IllegalStateException(
+                            "@Local of type " + wanted + " is ambiguous (matches " + resolvedCount
+                                + " target params) — set index or ordinal on "
+                                + inject.handler().getName());
                     }
                     slotMap.put(e.getKey(), resolved);
                 }
