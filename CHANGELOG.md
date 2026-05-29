@@ -82,6 +82,8 @@ master is the only published surface so far.
   matched instruction instead of before it.
 - `@Shadow(prefix = "...")` — when no explicit name is given, the prefix is
   stripped from the mixin's method or field name to derive the target name.
+- `@ModifyReturnValue` — static `T (T)` handler that wraps the return value
+  of a specific INVOKE inside the target method (companion to `@Redirect`).
 
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,
