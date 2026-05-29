@@ -154,7 +154,9 @@ See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backl
 
 - 27 runtime tests + 2 example tests green.
 - Supported `@At.Point` for `@Inject`: HEAD, RETURN, TAIL, INVOKE, FIELD,
-  CONSTANT (LDC values), JUMP (conditional).
+  CONSTANT (LDC values), JUMP (conditional), NEW (object allocations).
+- `@At#shift = BEFORE | AFTER` lets handlers anchor either side of the
+  matched instruction.
 - Layered mixins (multiple `@Mixin` classes on the same target) compose for
   overwrites + injects; duplicate overwrites on the same key are rejected at
   transform time.

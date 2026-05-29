@@ -75,6 +75,14 @@ master is the only published surface so far.
   `@Overwrite` / `@Inject` handlers; the transformer rewrites the owner to
   the target class. Companion to the existing instance field shadow.
 
+### Added (extras)
+- `@At.Point.NEW` — `@Inject` may hook object-allocation sites; the matcher
+  walks `TypeInsnNode(NEW)` and compares the type owner against `@At#desc`.
+- `@At#shift = BEFORE | AFTER` — the handler call may be inserted after the
+  matched instruction instead of before it.
+- `@Shadow(prefix = "...")` — when no explicit name is given, the prefix is
+  stripped from the mixin's method or field name to derive the target name.
+
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,
   module table.

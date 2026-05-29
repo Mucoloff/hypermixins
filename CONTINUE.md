@@ -114,8 +114,8 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- **`@At.Point` regex / before-after anchoring** — current matcher requires
-  exact descriptor equality.
+- **`@At.Point` regex / wildcard matching** — current matcher requires
+  exact descriptor equality. `@At#shift` BEFORE/AFTER is supported.
 - **Local-variable capture beyond target parameters** — capture locals
   declared inside the target body, not just incoming params.
 - **Field-level `@Shadow`** — v1 implements method shadows only; field
