@@ -114,10 +114,6 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- **Field redirects (`@Redirect` with `Call.{GET,PUT}{FIELD,STATIC}`)** —
-  rejection pinned by `MixinRedirectFieldTest`. The transformer only walks
-  `MethodInsnNode`. Lift the limit by widening `applyRedirects` to
-  `FieldInsnNode` plus an `@At#desc` parser for the `owner.field:Ldesc;` form.
 - **Static target methods for `@Original`** — currently fail at link time
   (documented JavaDoc warning on `Original.java`). Implement by emitting
   `INVOKESTATIC` against a static `__original$` synthetic on the target.

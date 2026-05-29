@@ -246,14 +246,31 @@ public final class MixinDescriptor {
                     throw new IllegalArgumentException("@Redirect must be static: " + method);
                 if (re.method().isEmpty()) throw new IllegalArgumentException("@Redirect#method() empty on " + method);
                 if (re.at().desc().isEmpty()) throw new IllegalArgumentException("@At#desc() empty on @Redirect " + method);
-                int paren = re.at().desc().indexOf('(');
-                if (paren < 0) throw new IllegalArgumentException("@At#desc() missing '(' on " + method);
-                String invokeSig = re.at().desc().substring(paren);
                 String handlerDesc = Type.getMethodDescriptor(method);
-                if (!handlerDesc.equals(invokeSig))
-                    throw new IllegalArgumentException("Redirect handler signature mismatch on " + method);
+                Call call = re.at().call();
+                if (call == Call.GETFIELD || call == Call.PUTFIELD
+                    || call == Call.GETSTATIC || call == Call.PUTSTATIC) {
+                    int colon = re.at().desc().indexOf(":");
+                    if (colon < 0) {
+                        throw new IllegalArgumentException(
+                            "@At#desc() for field redirect must be \"owner/Class.field:Ldesc;\" on " + method);
+                    }
+                    String fieldDesc = re.at().desc().substring(colon + 1);
+                    String expected = expectedFieldHandlerDesc(call, fieldDesc);
+                    if (!handlerDesc.equals(expected)) {
+                        throw new IllegalArgumentException(
+                            "Field-redirect handler signature mismatch on " + method
+                                + ": expected " + expected + " got " + handlerDesc);
+                    }
+                } else {
+                    int paren = re.at().desc().indexOf('(');
+                    if (paren < 0) throw new IllegalArgumentException("@At#desc() missing '(' on " + method);
+                    String invokeSig = re.at().desc().substring(paren);
+                    if (!handlerDesc.equals(invokeSig))
+                        throw new IllegalArgumentException("Redirect handler signature mismatch on " + method);
+                }
                 redirects.add(new RedirectEntry(re.method(), re.at().desc(), re.at().index(),
-                    re.at().call(), method.getName(), handlerDesc));
+                    call, method.getName(), handlerDesc));
             }
             if (sh != null) {
                 if (method.getParameterCount() == 0 || method.getParameterTypes()[0] != Object.class)
@@ -304,6 +321,23 @@ public final class MixinDescriptor {
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Handler descriptor expected for a field-redirect based on opcode + the field's own desc.
+     * GETFIELD:  {@code (Lowner;)Ldesc;}
+     * PUTFIELD:  {@code (Lowner;Ldesc;)V}  — but we model the owner as Object to mirror @Redirect's self
+     * GETSTATIC: {@code ()Ldesc;}
+     * PUTSTATIC: {@code (Ldesc;)V}
+     */
+    private static String expectedFieldHandlerDesc(Call call, String fieldDesc) {
+        return switch (call) {
+            case GETFIELD -> "(Ljava/lang/Object;)" + fieldDesc;
+            case PUTFIELD -> "(Ljava/lang/Object;" + fieldDesc + ")V";
+            case GETSTATIC -> "()" + fieldDesc;
+            case PUTSTATIC -> "(" + fieldDesc + ")V";
+            default -> throw new IllegalStateException("unreachable: " + call);
+        };
     }
 
     private static String targetDescriptorOf(Method mixinMethod) {

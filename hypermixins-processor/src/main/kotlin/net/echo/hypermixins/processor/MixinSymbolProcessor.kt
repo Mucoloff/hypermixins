@@ -183,20 +183,41 @@ class MixinSymbolProcessor(
             logger.error("@At#desc() must not be empty on @Redirect ${fn.simpleName.asString()}", fn)
             return
         }
-        val parenIdx = desc.indexOf('(')
-        if (parenIdx < 0) {
-            logger.error("@At#desc() missing '(' in @Redirect on ${fn.simpleName.asString()}", fn)
-            return
-        }
-        val invokeSignature = desc.substring(parenIdx)
-        val handlerDesc = descriptor(fn)
-        if (handlerDesc != invokeSignature) {
-            logger.error(
-                "@Redirect handler signature mismatch on ${fn.simpleName.asString()}: expected $invokeSignature found $handlerDesc", fn
-            )
-        }
         val index = (atAnn?.arg("index") as? Int) ?: 0
         val call  = readEnumArg(atAnn?.arg("call"), "INVOKEVIRTUAL")
+        val handlerDesc = descriptor(fn)
+        val isField = call == "GETFIELD" || call == "PUTFIELD" || call == "GETSTATIC" || call == "PUTSTATIC"
+        if (isField) {
+            val colon = desc.indexOf(':')
+            if (colon < 0) {
+                logger.error("@At#desc() for field redirect must be \"owner/Class.field:Ldesc;\" on ${fn.simpleName.asString()}", fn)
+                return
+            }
+            val fieldDesc = desc.substring(colon + 1)
+            val expected = when (call) {
+                "GETFIELD"  -> "(Ljava/lang/Object;)$fieldDesc"
+                "PUTFIELD"  -> "(Ljava/lang/Object;$fieldDesc)V"
+                "GETSTATIC" -> "()$fieldDesc"
+                else        -> "($fieldDesc)V"
+            }
+            if (handlerDesc != expected) {
+                logger.error(
+                    "@Redirect field handler signature mismatch on ${fn.simpleName.asString()}: expected $expected found $handlerDesc", fn
+                )
+            }
+        } else {
+            val parenIdx = desc.indexOf('(')
+            if (parenIdx < 0) {
+                logger.error("@At#desc() missing '(' in @Redirect on ${fn.simpleName.asString()}", fn)
+                return
+            }
+            val invokeSignature = desc.substring(parenIdx)
+            if (handlerDesc != invokeSignature) {
+                logger.error(
+                    "@Redirect handler signature mismatch on ${fn.simpleName.asString()}: expected $invokeSignature found $handlerDesc", fn
+                )
+            }
+        }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
     }
 

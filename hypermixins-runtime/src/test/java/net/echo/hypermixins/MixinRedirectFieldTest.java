@@ -1,45 +1,127 @@
 package net.echo.hypermixins;
 
-import net.echo.hypermixins.agent.MixinDescriptor;
 import net.echo.hypermixins.annotations.At;
 import net.echo.hypermixins.annotations.Call;
 import net.echo.hypermixins.annotations.Mixin;
 import net.echo.hypermixins.annotations.Redirect;
+import net.echo.hypermixins.registry.MixinRegistry;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static net.echo.hypermixins.TransformerTestSupport.applyMixin;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Pins the current behaviour around field-style {@code @Redirect} configurations.
- * The {@link Call} enum exposes GETFIELD/PUTFIELD/GETSTATIC/PUTSTATIC values, but the
- * transformer's {@code applyRedirects} only walks {@link org.objectweb.asm.tree.MethodInsnNode}s
- * and the descriptor loader rejects field-shaped {@code @At#desc()} strings (no opening paren).
- * This test locks the rejection in place; supporting field redirects is tracked in the backlog.
+ * Exercises {@code @Redirect} against field access opcodes (GETFIELD / PUTFIELD / GETSTATIC /
+ * PUTSTATIC). Each handler is a static method matching the expected signature for the opcode.
  */
 public class MixinRedirectFieldTest {
 
-    public static class Target {
-        public int count;
-        public void bump() { count++; }
+    public static volatile int writeCount;
+    public static volatile int writeValueSeen;
+
+    @AfterEach
+    void reset() { MixinRegistry.clearForTests(); writeCount = 0; writeValueSeen = 0; }
+
+    // ---- GETFIELD ----
+
+    public static class GetFieldTarget {
+        public int health = 5;
+        public int read()  { return health; } // single GETFIELD
     }
 
-    @Mixin("net.echo.hypermixins.MixinRedirectFieldTest$Target")
-    public static class FieldRedirectMixin {
-        @Redirect(
-            method = "bump",
-            at = @At(desc = "net/echo/hypermixins/MixinRedirectFieldTest$Target.count:I", call = Call.GETFIELD)
-        )
-        public static int rerouted(Object owner) { return 42; }
+    @Mixin("net.echo.hypermixins.MixinRedirectFieldTest$GetFieldTarget")
+    public static class GetFieldMixin {
+        @Redirect(method = "read", at = @At(
+            desc = "net/echo/hypermixins/MixinRedirectFieldTest$GetFieldTarget.health:I",
+            call = Call.GETFIELD))
+        public static int reroute(Object owner) { return 100; }
     }
 
     @Test
-    void fieldShapedAtDescIsRejected() {
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-            () -> MixinDescriptor.fromAnnotations(FieldRedirectMixin.class));
-        // Either of these phrasings is acceptable as a stable rejection signal.
-        String msg = ex.getMessage();
-        assertTrue(msg.contains("(") || msg.toLowerCase().contains("paren"),
-            "expected paren-missing diagnostic, got: " + msg);
+    void redirectGetField() throws Exception {
+        Class<?> t = applyMixin(GetFieldTarget.class, GetFieldMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(100, t.getMethod("read").invoke(inst));
+    }
+
+    // ---- PUTFIELD ----
+
+    public static class PutFieldTarget {
+        public int health = 0;
+        public void set(int v) { health = v; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinRedirectFieldTest$PutFieldTarget")
+    public static class PutFieldMixin {
+        @Redirect(method = "set", at = @At(
+            desc = "net/echo/hypermixins/MixinRedirectFieldTest$PutFieldTarget.health:I",
+            call = Call.PUTFIELD))
+        public static void reroute(Object owner, int v) {
+            writeCount++;
+            writeValueSeen = v;
+        }
+    }
+
+    @Test
+    void redirectPutField() throws Exception {
+        Class<?> t = applyMixin(PutFieldTarget.class, PutFieldMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        t.getMethod("set", int.class).invoke(inst, 42);
+        assertEquals(1, writeCount);
+        assertEquals(42, writeValueSeen);
+        // Original field stayed at default because PUTFIELD was redirected away.
+        assertEquals(0, t.getField("health").getInt(inst));
+    }
+
+    // ---- GETSTATIC ----
+
+    public static class GetStaticTarget {
+        public static int total = 7;
+        public int read() { return total; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinRedirectFieldTest$GetStaticTarget")
+    public static class GetStaticMixin {
+        @Redirect(method = "read", at = @At(
+            desc = "net/echo/hypermixins/MixinRedirectFieldTest$GetStaticTarget.total:I",
+            call = Call.GETSTATIC))
+        public static int reroute() { return 999; }
+    }
+
+    @Test
+    void redirectGetStatic() throws Exception {
+        Class<?> t = applyMixin(GetStaticTarget.class, GetStaticMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(999, t.getMethod("read").invoke(inst));
+    }
+
+    // ---- PUTSTATIC ----
+
+    public static class PutStaticTarget {
+        public static int log = 0;
+        public void bump(int v) { log = v; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinRedirectFieldTest$PutStaticTarget")
+    public static class PutStaticMixin {
+        @Redirect(method = "bump", at = @At(
+            desc = "net/echo/hypermixins/MixinRedirectFieldTest$PutStaticTarget.log:I",
+            call = Call.PUTSTATIC))
+        public static void reroute(int v) {
+            writeCount++;
+            writeValueSeen = v;
+        }
+    }
+
+    @Test
+    void redirectPutStatic() throws Exception {
+        Class<?> t = applyMixin(PutStaticTarget.class, PutStaticMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        t.getMethod("bump", int.class).invoke(inst, 17);
+        assertEquals(1, writeCount);
+        assertEquals(17, writeValueSeen);
+        // Original static field untouched by the redirected store.
+        assertEquals(0, t.getField("log").getInt(null));
     }
 }

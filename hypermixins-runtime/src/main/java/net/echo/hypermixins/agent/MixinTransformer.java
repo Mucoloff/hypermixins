@@ -571,19 +571,28 @@ public class MixinTransformer implements ClassFileTransformer {
 
     private static void applyRedirects(MethodNode method, Map<String, List<RedirectMapping>> redirectByDesc) {
         if (method.instructions == null) return;
-        Map<RedirectMapping, Integer> invokeCount = new HashMap<>();
+        Map<RedirectMapping, Integer> matchCount = new HashMap<>();
         for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (!(insn instanceof MethodInsnNode mi)) continue;
-            String invokeKey = mi.owner + "." + mi.name + mi.desc;
-            List<RedirectMapping> candidates = redirectByDesc.get(invokeKey);
+            String matchKey;
+            if (insn instanceof MethodInsnNode mi) {
+                matchKey = mi.owner + "." + mi.name + mi.desc;
+            } else if (insn instanceof FieldInsnNode fi) {
+                matchKey = fi.owner + "." + fi.name + ":" + fi.desc;
+            } else continue;
+
+            List<RedirectMapping> candidates = redirectByDesc.get(matchKey);
             if (candidates == null) continue;
             for (RedirectMapping redirect : candidates) {
                 if (!method.name.equals(redirect.targetMethod())) continue;
-                int count = invokeCount.getOrDefault(redirect, 0);
-                invokeCount.put(redirect, count + 1);
+                int count = matchCount.getOrDefault(redirect, 0);
+                matchCount.put(redirect, count + 1);
                 if (count != redirect.index()) continue;
-                validateRedirect(redirect, mi);
-                method.instructions.set(mi, new MethodInsnNode(
+                if (insn instanceof MethodInsnNode mi) {
+                    validateRedirect(redirect, mi);
+                } else {
+                    validateFieldRedirect(redirect, (FieldInsnNode) insn);
+                }
+                method.instructions.set(insn, new MethodInsnNode(
                     Opcodes.INVOKESTATIC,
                     Type.getInternalName(redirect.handler().getDeclaringClass()),
                     redirect.handler().getName(),
@@ -591,6 +600,19 @@ public class MixinTransformer implements ClassFileTransformer {
                 break;
             }
         }
+    }
+
+    private static void validateFieldRedirect(RedirectMapping redirect, FieldInsnNode fi) {
+        Call expected = redirect.call();
+        int op = fi.getOpcode();
+        boolean ok = switch (expected) {
+            case GETFIELD  -> op == Opcodes.GETFIELD;
+            case PUTFIELD  -> op == Opcodes.PUTFIELD;
+            case GETSTATIC -> op == Opcodes.GETSTATIC;
+            case PUTSTATIC -> op == Opcodes.PUTSTATIC;
+            default -> false;
+        };
+        if (!ok) mismatch(expected, op);
     }
 
     private static void validateRedirect(RedirectMapping redirect, MethodInsnNode mi) {
@@ -603,8 +625,13 @@ public class MixinTransformer implements ClassFileTransformer {
             }
             case INVOKEINTERFACE -> { if (opcode != Opcodes.INVOKEINTERFACE) mismatch(expected, opcode); }
             case INVOKESPECIAL   -> { if (opcode != Opcodes.INVOKESPECIAL)   mismatch(expected, opcode); }
-            case NEW, GETFIELD, PUTFIELD, GETSTATIC, PUTSTATIC ->
-                throw new IllegalArgumentException("Call." + expected + " is a field/alloc opcode; use matching @At point");
+            case NEW ->
+                throw new IllegalArgumentException("Call.NEW is an allocation opcode; not yet supported");
+            case GETFIELD, PUTFIELD, GETSTATIC, PUTSTATIC ->
+                // Reachable only if a FieldInsnNode was misinterpreted as a method site —
+                // applyRedirects routes field opcodes through validateFieldRedirect.
+                throw new IllegalArgumentException(
+                    "Call." + expected + " applied to a non-field instruction at " + mi.owner + "." + mi.name);
         }
         Type[] origArgs = Type.getArgumentTypes(mi.desc);
         Type[] handlerArgs = Type.getArgumentTypes(redirect.handlerDesc());
