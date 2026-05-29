@@ -47,4 +47,28 @@ public class MixinModifyArgsTest {
         Object result = t.getMethod("run", String.class).invoke(inst, "orig");
         assertEquals("{swapped-orig=fixed}", result);
     }
+
+    // ---- primitive args rejected at transform time ----
+
+    public static class PrimitiveTarget {
+        public int run(int x) {
+            return Integer.max(x, 0);
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinModifyArgsTest$PrimitiveTarget")
+    public static class PrimitiveMix {
+        @ModifyArgs(method = "run",
+            at = @At(desc = "java/lang/Integer.max(II)I"))
+        public static void capture(Object[] args) { }
+    }
+
+    @Test
+    void modifyArgsRejectsPrimitiveArgsAtTransformTime() {
+        IllegalStateException ex = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> applyMixin(PrimitiveTarget.class, PrimitiveMix.class));
+        org.junit.jupiter.api.Assertions.assertTrue(
+            ex.getMessage().contains("reference-typed"),
+            "expected reference-typed diagnostic, got: " + ex.getMessage());
+    }
 }
