@@ -2,29 +2,10 @@ package net.echo.hypermixins.agent;
 
 import net.echo.hypermixins.annotations.At;
 import net.echo.hypermixins.annotations.Call;
-import net.echo.hypermixins.annotations.Cancellable;
-import net.echo.hypermixins.annotations.Inject;
-import net.echo.hypermixins.annotations.Mixin;
-import net.echo.hypermixins.annotations.Original;
-import net.echo.hypermixins.annotations.Overwrite;
-import net.echo.hypermixins.annotations.Redirect;
-import net.echo.hypermixins.annotations.Shadow;
-import org.objectweb.asm.Type;
 
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -150,28 +131,10 @@ public final class MixinDescriptor {
         List<ModifyReceiverEntry> modifyReceivers,
         Map<String, String[]> synthetics
     ) {
-        this.mixinClass  = mixinClass;
-        this.targetClass = targetClass;
-        this.overwrites  = List.copyOf(overwrites);
-        this.originals   = List.copyOf(originals);
-        this.redirects   = List.copyOf(redirects);
-        this.injects     = List.copyOf(injects);
-        this.injectLocals = List.copyOf(injectLocals);
-        this.injectShifts = Collections.unmodifiableMap(new HashMap<>(injectShifts));
-        this.shadows     = List.copyOf(shadows);
-        this.shadowFields = List.copyOf(shadowFields);
-        this.shadowStaticFields = List.copyOf(shadowStaticFields);
-        this.modifyReturnValues = List.copyOf(modifyReturnValues);
-        this.accessors = List.copyOf(accessors);
-        this.invokers = List.copyOf(invokers);
-        this.modifyConstants = List.copyOf(modifyConstants);
-        this.modifyArgs = List.copyOf(modifyArgs);
-        this.modifyExpressionValues = List.copyOf(modifyExpressionValues);
-        this.modifyArgsAll = List.copyOf(modifyArgsAll);
-        this.modifyReceivers = List.copyOf(modifyReceivers);
-        this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
-        this.staticTargetMethods = Set.of();
-        this.privateShadowTargets = Set.of();
+        this(mixinClass, targetClass, overwrites, originals, redirects, injects, injectLocals,
+            injectShifts, shadows, shadowFields, shadowStaticFields, modifyReturnValues,
+            accessors, invokers, modifyConstants, modifyArgs, modifyExpressionValues,
+            modifyArgsAll, modifyReceivers, synthetics, Set.of(), Set.of());
     }
 
     private MixinDescriptor(
