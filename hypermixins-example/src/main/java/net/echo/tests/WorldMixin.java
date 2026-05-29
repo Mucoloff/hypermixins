@@ -29,13 +29,17 @@ public class WorldMixin {
         System.out.println("[hypermixins] addPlayer intercepted");
     }
 
+    @Shadow("addPlayer")
+    public native void shadowAddPlayer(Object self, Player player);
+
     @Original("getPlayers")
     public native List<Player> getPlayersOrig(Object self);
     
     @Overwrite("getPlayers")
     public List<Player> getPlayers(Object self) {
         List<Player> original = getPlayersOrig(self);
-        original.add(new Player("shelter"));
+        // Route through @Shadow to demonstrate the trampoline ends up on World.addPlayer.
+        shadowAddPlayer(self, new Player("shelter"));
         return original;
     }
 }
