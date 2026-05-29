@@ -8,15 +8,12 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
-import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -134,84 +131,14 @@ final class InjectPass {
         out.add(new VarInsnNode(Opcodes.ALOAD, 0));
         Type[] handlerArgs = Type.getArgumentTypes(handlerDesc);
         int captureCount = handlerArgs.length - 1 - (inject.cancellable() ? 1 : 0);
-        Map<Integer, Integer> argsOnlyArrayLocals = new HashMap<>();
-        Map<Integer, Integer> argsOnlySourceSlots = new HashMap<>();
-        Map<Integer, Type> argsOnlyElementTypes = new HashMap<>();
-        if (captureCount > 0) {
-            Type[] targetArgs = Type.getArgumentTypes(target.desc);
-            int positionalSlot = 1;
-            int positionalIdx = 0;
-            for (int i = 0; i < captureCount; i++) {
-                Type expected = handlerArgs[1 + i];
-                boolean argsOnly = argsOnlyParams.contains(1 + i);
-                Integer forcedSlot = slotMap.get(1 + i);
-                if (argsOnly) {
-                    if (forcedSlot == null) {
-                        throw new IllegalStateException(
-                            "@Local(argsOnly = true) requires a resolvable source slot for handler "
-                                + inject.handler() + " param " + i);
-                    }
-                    if (expected.getSort() != Type.ARRAY) {
-                        throw new IllegalStateException(
-                            "@Local(argsOnly = true) handler param must be a single-element array — got "
-                                + expected + " on " + inject.handler());
-                    }
-                    Type element = expected.getElementType();
-                    out.add(new InsnNode(Opcodes.ICONST_1));
-                    if (element.getSort() == Type.OBJECT || element.getSort() == Type.ARRAY) {
-                        out.add(new TypeInsnNode(Opcodes.ANEWARRAY, element.getInternalName()));
-                    } else {
-                        out.add(new IntInsnNode(Opcodes.NEWARRAY, Bytecode.newarrayOperandForPrimitive(element)));
-                    }
-                    int arrLocal = target.maxLocals;
-                    target.maxLocals += 1;
-                    out.add(new InsnNode(Opcodes.DUP));
-                    out.add(new InsnNode(Opcodes.ICONST_0));
-                    out.add(new VarInsnNode(element.getOpcode(Opcodes.ILOAD), forcedSlot));
-                    out.add(new InsnNode(element.getOpcode(Opcodes.IASTORE)));
-                    out.add(new InsnNode(Opcodes.DUP));
-                    out.add(new VarInsnNode(Opcodes.ASTORE, arrLocal));
-                    argsOnlyArrayLocals.put(1 + i, arrLocal);
-                    argsOnlySourceSlots.put(1 + i, forcedSlot);
-                    argsOnlyElementTypes.put(1 + i, element);
-                    continue;
-                }
-                if (forcedSlot != null) {
-                    out.add(new VarInsnNode(expected.getOpcode(Opcodes.ILOAD), forcedSlot));
-                    continue;
-                }
-                if (positionalIdx >= targetArgs.length) {
-                    throw new IllegalStateException(
-                        "@Inject handler " + inject.handler() +
-                        " declares positional capture beyond target arity for " +
-                        target.name + target.desc);
-                }
-                Type actual = targetArgs[positionalIdx];
-                if (!expected.equals(actual)) {
-                    throw new IllegalStateException(
-                        "@Inject handler " + inject.handler() + " param " + i +
-                        " type " + expected + " does not match target " + target.name + target.desc +
-                        " param " + positionalIdx + " type " + actual);
-                }
-                out.add(new VarInsnNode(actual.getOpcode(Opcodes.ILOAD), positionalSlot));
-                positionalSlot += actual.getSize();
-                positionalIdx++;
-            }
-        }
+        CaptureEmitter.Result captures = CaptureEmitter.emit(
+            out, target, inject, handlerArgs, captureCount, slotMap, argsOnlyParams);
+
         if (inject.cancellable()) out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
         out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mixinInternal,
             inject.handler().getName(), handlerDesc, false));
 
-        for (Map.Entry<Integer, Integer> e : argsOnlyArrayLocals.entrySet()) {
-            int paramIdx = e.getKey();
-            int arrLocal = e.getValue();
-            int sourceSlot = argsOnlySourceSlots.get(paramIdx);
-            Type element = argsOnlyElementTypes.get(paramIdx);
-            out.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
-            out.add(new InsnNode(Opcodes.ICONST_0));
-            out.add(new InsnNode(element.getOpcode(Opcodes.IALOAD)));
-            out.add(new VarInsnNode(element.getOpcode(Opcodes.ISTORE), sourceSlot));
-        }
+        CaptureEmitter.emitArgsOnlyWriteback(out, captures);
 
         if (inject.cancellable()) CallbackInfoEmitter.emitCancelCheck(out, target, inject, targetReturn, ciLocal);
         return out;
