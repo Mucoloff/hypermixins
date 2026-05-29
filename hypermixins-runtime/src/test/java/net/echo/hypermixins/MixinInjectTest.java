@@ -431,6 +431,30 @@ public class MixinInjectTest {
         assertEquals(20, ordinalCaptured);
     }
 
+    // ---- @Local(argsOnly = true) writeback ----
+
+    public static class ArgsOnlyTarget {
+        public int run(int x) {
+            return x * 2;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$ArgsOnlyTarget")
+    public static class ArgsOnlyMixin {
+        @Inject(method = "run", at = @At(point = At.Point.HEAD))
+        public void onRun(Object self,
+                          @net.echo.hypermixins.annotations.Local(argsOnly = true) int[] x) {
+            x[0] = x[0] + 100;
+        }
+    }
+
+    @Test
+    void captureLocalArgsOnlyWritesBack() throws Exception {
+        Class<?> t = applyMixin(ArgsOnlyTarget.class, ArgsOnlyMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // handler shifts x by +100 → run sees 5 + 100 = 105 → returns 210
+        assertEquals(210, t.getMethod("run", int.class).invoke(inst, 5));
+    }
+
     // ---- bare @Local (unique-type auto-pick) ----
 
     public static volatile String autoPickCaptured;

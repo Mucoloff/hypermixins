@@ -698,6 +698,10 @@ public class MixinTransformer implements ClassFileTransformer {
             String handlerKey = inject.handler().getName() + Type.getMethodDescriptor(inject.handler());
             Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
                 localEntryByHandler.getOrDefault(handlerKey, Map.of());
+            Map<Integer, Boolean> argsOnlyMap = new HashMap<>();
+            for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
+                if (e.getValue().argsOnly()) argsOnlyMap.put(e.getKey(), true);
+            }
             Map<Integer, Integer> slotMap = new HashMap<>();
             for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
                 MixinDescriptor.InjectLocalEntry le = e.getValue();
@@ -707,7 +711,11 @@ public class MixinTransformer implements ClassFileTransformer {
                     // ordinal >= 0 → K-th matching target param.
                     // ordinal < 0 → unique matching target param (error if ambiguous).
                     Type[] handlerArgs = Type.getArgumentTypes(Type.getMethodDescriptor(inject.handler()));
-                    Type wanted = handlerArgs[e.getKey()];
+                    Type wantedRaw = handlerArgs[e.getKey()];
+                    // For argsOnly, handler declares T[]; the local we resolve has element type T.
+                    Type wanted = le.argsOnly() && wantedRaw.getSort() == Type.ARRAY
+                        ? wantedRaw.getElementType()
+                        : wantedRaw;
                     Type[] targetArgs = Type.getArgumentTypes(target.desc);
                     int slotCursor = 1;
                     int seen = 0;
@@ -743,20 +751,20 @@ public class MixinTransformer implements ClassFileTransformer {
             switch (inject.point()) {
                 case HEAD -> {
                     AbstractInsnNode first = target.instructions.getFirst();
-                    InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap);
+                    InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap);
                     if (first == null) target.instructions.add(block);
                     else target.instructions.insertBefore(first, block);
                 }
-                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, slotMap);
-                case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, shift,
+                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap);
+                case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
                     insn -> matchesInvoke(insn, inject));
-                case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, shift,
+                case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
                     insn -> matchesField(insn, inject));
-                case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, shift,
+                case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
                     insn -> matchesConstant(insn, inject));
-                case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, shift,
+                case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
                     MixinTransformer::isConditionalJump);
-                case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, shift,
+                case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
                     insn -> matchesNew(insn, inject));
                 default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
             }
@@ -770,7 +778,8 @@ public class MixinTransformer implements ClassFileTransformer {
      */
     private static void injectAtMatchingSites(
         ClassNode owner, MethodNode target, InjectMapping inject,
-        String mixinField, Type targetReturn, Map<Integer, Integer> slotMap, At.Shift shift,
+        String mixinField, Type targetReturn, Map<Integer, Integer> slotMap,
+        Map<Integer, Boolean> argsOnlyMap, At.Shift shift,
         java.util.function.Predicate<AbstractInsnNode> predicate
     ) {
         List<AbstractInsnNode> sites = new ArrayList<>();
@@ -787,7 +796,7 @@ public class MixinTransformer implements ClassFileTransformer {
                 + inject.handler() + " (atDesc=" + inject.atDesc() + ", index=" + inject.index() + ")");
         }
         for (AbstractInsnNode site : sites) {
-            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap);
+            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap);
             if (shift == At.Shift.AFTER) {
                 target.instructions.insert(site, block);
             } else {
@@ -848,7 +857,7 @@ public class MixinTransformer implements ClassFileTransformer {
 
     private static void injectBeforeReturns(
         ClassNode owner, MethodNode target, InjectMapping inject, String mixinField, Type targetReturn,
-        Map<Integer, Integer> slotMap
+        Map<Integer, Integer> slotMap, Map<Integer, Boolean> argsOnlyMap
     ) {
         List<AbstractInsnNode> returns = new ArrayList<>();
         for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null; insn = insn.getNext()) {
@@ -856,7 +865,7 @@ public class MixinTransformer implements ClassFileTransformer {
             if (op >= Opcodes.IRETURN && op <= Opcodes.RETURN) returns.add(insn);
         }
         for (AbstractInsnNode ret : returns) {
-            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap);
+            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap);
             target.instructions.insertBefore(ret, block);
         }
     }
@@ -869,7 +878,8 @@ public class MixinTransformer implements ClassFileTransformer {
      */
     private static InsnList emitInjectCall(
         ClassNode owner, MethodNode target, InjectMapping inject,
-        String mixinField, Type targetReturn, Map<Integer, Integer> slotMap
+        String mixinField, Type targetReturn, Map<Integer, Integer> slotMap,
+        Map<Integer, Boolean> argsOnlyMap
     ) {
         InsnList out = new InsnList();
         Class<?> mixinClass = inject.handler().getDeclaringClass();
@@ -903,15 +913,50 @@ public class MixinTransformer implements ClassFileTransformer {
         // or from explicit slot numbers given by @Local(index=N) on individual handler params.
         Type[] handlerArgs = Type.getArgumentTypes(handlerDesc);
         int captureCount = handlerArgs.length - 1 - (inject.cancellable() ? 1 : 0);
+        // paramIndex (in handlerDesc, 0 = self) → fresh local holding the argsOnly array.
+        Map<Integer, Integer> argsOnlyArrayLocals = new HashMap<>();
+        Map<Integer, Integer> argsOnlySourceSlots = new HashMap<>();
+        Map<Integer, Type> argsOnlyElementTypes = new HashMap<>();
         if (captureCount > 0) {
             Type[] targetArgs = Type.getArgumentTypes(target.desc);
             int positionalSlot = 1;
             int positionalIdx = 0;
             for (int i = 0; i < captureCount; i++) {
                 Type expected = handlerArgs[1 + i];
-                // Handler param index in the descriptor includes `self` at position 0; the @Local
-                // descriptor entries use the same indexing.
+                boolean argsOnly = Boolean.TRUE.equals(argsOnlyMap.get(1 + i));
                 Integer forcedSlot = slotMap.get(1 + i);
+                if (argsOnly) {
+                    if (forcedSlot == null) {
+                        throw new IllegalStateException(
+                            "@Local(argsOnly = true) requires a resolvable source slot for handler "
+                                + inject.handler() + " param " + i);
+                    }
+                    if (expected.getSort() != Type.ARRAY) {
+                        throw new IllegalStateException(
+                            "@Local(argsOnly = true) handler param must be a single-element array — got "
+                                + expected + " on " + inject.handler());
+                    }
+                    Type element = expected.getElementType();
+                    // Allocate fresh array, init array[0], stash in local, push for handler.
+                    out.add(new InsnNode(Opcodes.ICONST_1));
+                    if (element.getSort() == Type.OBJECT || element.getSort() == Type.ARRAY) {
+                        out.add(new TypeInsnNode(Opcodes.ANEWARRAY, element.getInternalName()));
+                    } else {
+                        out.add(new IntInsnNode(Opcodes.NEWARRAY, newarrayOperandForPrimitive(element)));
+                    }
+                    int arrLocal = target.maxLocals;
+                    target.maxLocals += 1;
+                    out.add(new InsnNode(Opcodes.DUP));
+                    out.add(new InsnNode(Opcodes.ICONST_0));
+                    out.add(new VarInsnNode(element.getOpcode(Opcodes.ILOAD), forcedSlot));
+                    out.add(new InsnNode(element.getOpcode(Opcodes.IASTORE)));
+                    out.add(new InsnNode(Opcodes.DUP));
+                    out.add(new VarInsnNode(Opcodes.ASTORE, arrLocal));
+                    argsOnlyArrayLocals.put(1 + i, arrLocal);
+                    argsOnlySourceSlots.put(1 + i, forcedSlot);
+                    argsOnlyElementTypes.put(1 + i, element);
+                    continue;
+                }
                 if (forcedSlot != null) {
                     out.add(new VarInsnNode(expected.getOpcode(Opcodes.ILOAD), forcedSlot));
                     continue;
@@ -939,6 +984,18 @@ public class MixinTransformer implements ClassFileTransformer {
         }
         out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mixinInternal,
             inject.handler().getName(), handlerDesc, false));
+
+        // @Local(argsOnly = true) writeback: load array[0] from each saved local back into source slot.
+        for (Map.Entry<Integer, Integer> e : argsOnlyArrayLocals.entrySet()) {
+            int paramIdx = e.getKey();
+            int arrLocal = e.getValue();
+            int sourceSlot = argsOnlySourceSlots.get(paramIdx);
+            Type element = argsOnlyElementTypes.get(paramIdx);
+            out.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
+            out.add(new InsnNode(Opcodes.ICONST_0));
+            out.add(new InsnNode(element.getOpcode(Opcodes.IALOAD)));
+            out.add(new VarInsnNode(element.getOpcode(Opcodes.ISTORE), sourceSlot));
+        }
 
         if (inject.cancellable()) {
             LabelNode notCancelled = new LabelNode();
@@ -1333,6 +1390,20 @@ public class MixinTransformer implements ClassFileTransformer {
                 break;
             }
         }
+    }
+
+    private static int newarrayOperandForPrimitive(Type t) {
+        return switch (t.getSort()) {
+            case Type.BOOLEAN -> Opcodes.T_BOOLEAN;
+            case Type.BYTE    -> Opcodes.T_BYTE;
+            case Type.CHAR    -> Opcodes.T_CHAR;
+            case Type.SHORT   -> Opcodes.T_SHORT;
+            case Type.INT     -> Opcodes.T_INT;
+            case Type.LONG    -> Opcodes.T_LONG;
+            case Type.FLOAT   -> Opcodes.T_FLOAT;
+            case Type.DOUBLE  -> Opcodes.T_DOUBLE;
+            default -> throw new IllegalStateException("not a primitive type: " + t);
+        };
     }
 
     private static void emitBox(InsnList out, Type t) {

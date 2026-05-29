@@ -15,7 +15,7 @@ import javax.lang.model.element.Modifier
 //   redirectEntries:   [targetMethod, invokeDesc, index, call, handlerName, handlerDesc]
 //   injectEntries:     [targetMethod, point, atDesc, atIndex,
 //                       cancellable, returnable, handlerName, handlerDesc]
-//   injectCaptureLocals:[handlerName, handlerDesc, paramIndex, slot, ordinal]
+//   injectCaptureLocals:[handlerName, handlerDesc, paramIndex, slot, ordinal, argsOnly]
 //   injectShifts:      [handlerName, handlerDesc, shift]   — rows only for non-BEFORE
 //   modifyReturnValueEntries: [targetMethod, invokeDesc, index, handlerName, handlerDesc]
 //   accessorEntries:   [handlerName, handlerDesc, kind, targetField]   kind = GET | SET
@@ -598,7 +598,8 @@ class MixinSymbolProcessor(
             if (localAnn != null) {
                 val slot = (localAnn.arguments.firstOrNull { it.name?.asString() == "index" }?.value as? Int) ?: -1
                 val ord = (localAnn.arguments.firstOrNull { it.name?.asString() == "ordinal" }?.value as? Int) ?: -1
-                localsOut += InjectLocalEntry(handlerName, handlerDesc, i, slot, ord)
+                val argsOnly = (localAnn.arguments.firstOrNull { it.name?.asString() == "argsOnly" }?.value as? Boolean) == true
+                localsOut += InjectLocalEntry(handlerName, handlerDesc, i, slot, ord, argsOnly)
             }
         }
     }
@@ -782,7 +783,7 @@ class MixinSymbolProcessor(
         classBuilder.addMethod(entriesMethod("injectShifts",
             injects.filter { it.shift == "AFTER" }.map { arrayOf(it.handlerName, it.handlerDesc, it.shift) }))
         classBuilder.addMethod(entriesMethod("injectCaptureLocals", injectLocals.map {
-            arrayOf(it.handlerName, it.handlerDesc, it.paramIndex.toString(), it.slot.toString(), it.ordinal.toString())
+            arrayOf(it.handlerName, it.handlerDesc, it.paramIndex.toString(), it.slot.toString(), it.ordinal.toString(), it.argsOnly.toString())
         }))
         classBuilder.addMethod(entriesMethod("shadowEntries", shadows.map {
             arrayOf(it.handlerName, it.handlerDesc, it.targetName)
@@ -887,7 +888,7 @@ class MixinSymbolProcessor(
     private data class InjectEntry(val targetMethod: String, val point: String, val atDesc: String, val atIndex: Int, val cancellable: Boolean, val returnable: Boolean, val handlerName: String, val handlerDesc: String, val shift: String)
     private data class ShadowEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
     private data class ShadowFieldEntry(val mixinFieldName: String, val fieldDesc: String, val targetFieldName: String)
-    private data class InjectLocalEntry(val handlerName: String, val handlerDesc: String, val paramIndex: Int, val slot: Int, val ordinal: Int)
+    private data class InjectLocalEntry(val handlerName: String, val handlerDesc: String, val paramIndex: Int, val slot: Int, val ordinal: Int, val argsOnly: Boolean)
     private data class ModifyReturnValueEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
     private data class AccessorEntry(val handlerName: String, val handlerDesc: String, val kind: String, val targetField: String)
     private data class InvokerEntry(val handlerName: String, val handlerDesc: String, val targetName: String)

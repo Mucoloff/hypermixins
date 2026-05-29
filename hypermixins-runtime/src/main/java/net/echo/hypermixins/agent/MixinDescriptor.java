@@ -86,7 +86,7 @@ public final class MixinDescriptor {
      * </ul>
      */
     public record InjectLocalEntry(String handlerName, String handlerDesc, int paramIndex,
-                                   int slot, int ordinal) {}
+                                   int slot, int ordinal, boolean argsOnly) {}
     public record ShadowEntry(String handlerName, String handlerDesc, String targetName) {}
     public record ShadowFieldEntry(String mixinFieldName, String fieldDesc, String targetFieldName) {}
     public record ModifyReturnValueEntry(String targetMethod, String invokeDesc, int index,
@@ -326,7 +326,8 @@ public final class MixinDescriptor {
             List<InjectLocalEntry> injLocals = new ArrayList<>(injectLocalRows.size());
             for (String[] r : injectLocalRows) {
                 int ord = r.length >= 5 ? Integer.parseInt(r[4]) : -1;
-                injLocals.add(new InjectLocalEntry(r[0], r[1], Integer.parseInt(r[2]), Integer.parseInt(r[3]), ord));
+                boolean argsOnly = r.length >= 6 && Boolean.parseBoolean(r[5]);
+                injLocals.add(new InjectLocalEntry(r[0], r[1], Integer.parseInt(r[2]), Integer.parseInt(r[3]), ord, argsOnly));
             }
 
             Map<String, At.Shift> injShifts = new HashMap<>();
@@ -515,7 +516,7 @@ public final class MixinDescriptor {
                     for (java.lang.annotation.Annotation a : paramAnns[pi]) {
                         if (a instanceof net.echo.hypermixins.annotations.Local lo) {
                             injectLocals.add(new InjectLocalEntry(
-                                method.getName(), handlerDesc, pi, lo.index(), lo.ordinal()));
+                                method.getName(), handlerDesc, pi, lo.index(), lo.ordinal(), lo.argsOnly()));
                         }
                     }
                 }
