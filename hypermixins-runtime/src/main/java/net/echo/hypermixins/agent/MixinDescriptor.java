@@ -536,187 +536,21 @@ public final class MixinDescriptor {
 
         Set<String> staticMap = ReflectionProbes.staticTargetMethods(
             mixinClass, targetInternal, originals, overwrites);
-        Map<String, At.Shift> injectShifts = collectInjectShifts(mixinClass, injects);
-        List<ModifyReturnValueEntry> mrvs = collectModifyReturnValues(mixinClass);
-        List<AccessorEntry> accs = collectAccessors(mixinClass);
-        List<InvokerEntry> invs = collectInvokers(mixinClass);
-        List<ModifyConstantEntry> mcs = collectModifyConstants(mixinClass);
-        List<ModifyArgEntry> mas = collectModifyArgs(mixinClass);
-        List<ModifyExpressionValueEntry> mxs = collectModifyExpressionValues(mixinClass);
-        List<ModifyArgsEntry> mxa = collectModifyArgsAll(mixinClass);
-        List<ModifyReceiverEntry> mxr = collectModifyReceivers(mixinClass);
+        Map<String, At.Shift> injectShifts = ReflectionCollectors.injectShifts(mixinClass);
+        List<ModifyReturnValueEntry> mrvs = ReflectionCollectors.modifyReturnValues(mixinClass);
+        List<AccessorEntry> accs = ReflectionCollectors.accessors(mixinClass);
+        List<InvokerEntry> invs = ReflectionCollectors.invokers(mixinClass);
+        List<ModifyConstantEntry> mcs = ReflectionCollectors.modifyConstants(mixinClass);
+        List<ModifyArgEntry> mas = ReflectionCollectors.modifyArgs(mixinClass);
+        List<ModifyExpressionValueEntry> mxs = ReflectionCollectors.modifyExpressionValues(mixinClass);
+        List<ModifyArgsEntry> mxa = ReflectionCollectors.modifyArgsAll(mixinClass);
+        List<ModifyReceiverEntry> mxr = ReflectionCollectors.modifyReceivers(mixinClass);
         Set<String> privateShadowMap = ReflectionProbes.privateShadowTargets(mixinClass, targetInternal, shadows, invs);
         return new MixinDescriptor(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals, injectShifts,
             shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, synths, staticMap, privateShadowMap);
     }
 
-    private static List<ModifyReceiverEntry> collectModifyReceivers(Class<?> mixinClass) {
-        List<ModifyReceiverEntry> out = new ArrayList<>();
-        for (Method m : mixinClass.getDeclaredMethods()) {
-            net.echo.hypermixins.annotations.ModifyReceiver ann =
-                m.getAnnotation(net.echo.hypermixins.annotations.ModifyReceiver.class);
-            if (ann == null) continue;
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyReceiver must be static: " + m);
-            out.add(new ModifyReceiverEntry(ann.method(), ann.at().desc(), m.getName(), Type.getMethodDescriptor(m)));
-        }
-        return out;
-    }
-
-    private static List<ModifyArgsEntry> collectModifyArgsAll(Class<?> mixinClass) {
-        List<ModifyArgsEntry> out = new ArrayList<>();
-        for (Method m : mixinClass.getDeclaredMethods()) {
-            net.echo.hypermixins.annotations.ModifyArgs ann =
-                m.getAnnotation(net.echo.hypermixins.annotations.ModifyArgs.class);
-            if (ann == null) continue;
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyArgs must be static: " + m);
-            String handlerDesc = Type.getMethodDescriptor(m);
-            if (!handlerDesc.equals("([Ljava/lang/Object;)V"))
-                throw new IllegalArgumentException("@ModifyArgs handler must be (Object[]): void on " + m);
-            out.add(new ModifyArgsEntry(ann.method(), ann.at().desc(), m.getName(), handlerDesc));
-        }
-        return out;
-    }
-
-    private static List<ModifyExpressionValueEntry> collectModifyExpressionValues(Class<?> mixinClass) {
-        List<ModifyExpressionValueEntry> out = new ArrayList<>();
-        for (Method m : mixinClass.getDeclaredMethods()) {
-            net.echo.hypermixins.annotations.ModifyExpressionValue ann =
-                m.getAnnotation(net.echo.hypermixins.annotations.ModifyExpressionValue.class);
-            if (ann == null) continue;
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyExpressionValue must be static: " + m);
-            out.add(new ModifyExpressionValueEntry(ann.method(), ann.at().point(), ann.at().desc(),
-                ann.at().index(), m.getName(), Type.getMethodDescriptor(m)));
-        }
-        return out;
-    }
-
-    private static List<ModifyArgEntry> collectModifyArgs(Class<?> mixinClass) {
-        List<ModifyArgEntry> out = new ArrayList<>();
-        for (Method m : mixinClass.getDeclaredMethods()) {
-            net.echo.hypermixins.annotations.ModifyArg ann =
-                m.getAnnotation(net.echo.hypermixins.annotations.ModifyArg.class);
-            if (ann == null) continue;
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyArg must be static: " + m);
-            out.add(new ModifyArgEntry(ann.method(), ann.at().desc(), ann.index(),
-                m.getName(), Type.getMethodDescriptor(m)));
-        }
-        return out;
-    }
-
-    private static List<ModifyConstantEntry> collectModifyConstants(Class<?> mixinClass) {
-        List<ModifyConstantEntry> out = new ArrayList<>();
-        for (Method m : mixinClass.getDeclaredMethods()) {
-            net.echo.hypermixins.annotations.ModifyConstant ann =
-                m.getAnnotation(net.echo.hypermixins.annotations.ModifyConstant.class);
-            if (ann == null) continue;
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyConstant must be static: " + m);
-            net.echo.hypermixins.annotations.ModifyConstant.Constant c = ann.constant();
-            String type; String value;
-            if (c.intValue() != Integer.MIN_VALUE) { type = "I"; value = Integer.toString(c.intValue()); }
-            else if (c.longValue() != Long.MIN_VALUE) { type = "J"; value = Long.toString(c.longValue()); }
-            else if (!Float.isNaN(c.floatValue())) { type = "F"; value = Float.toString(c.floatValue()); }
-            else if (!Double.isNaN(c.doubleValue())) { type = "D"; value = Double.toString(c.doubleValue()); }
-            else if (!c.stringValue().isEmpty()) { type = "Ljava/lang/String;"; value = c.stringValue(); }
-            else throw new IllegalArgumentException("@ModifyConstant must specify a constant on " + m);
-            out.add(new ModifyConstantEntry(ann.method(), type, value, ann.index(),
-                m.getName(), Type.getMethodDescriptor(m)));
-        }
-        return out;
-    }
-
-    private static List<InvokerEntry> collectInvokers(Class<?> mixinClass) {
-        List<InvokerEntry> out = new ArrayList<>();
-        for (Method m : mixinClass.getDeclaredMethods()) {
-            net.echo.hypermixins.annotations.Invoker ann =
-                m.getAnnotation(net.echo.hypermixins.annotations.Invoker.class);
-            if (ann == null) continue;
-            Class<?>[] params = m.getParameterTypes();
-            if (params.length == 0 || params[0] != Object.class)
-                throw new IllegalArgumentException("@Invoker first param must be Object self on " + m);
-            String targetName = !ann.value().isBlank() ? ann.value() : deriveInvokerName(m.getName());
-            out.add(new InvokerEntry(m.getName(), Type.getMethodDescriptor(m), targetName));
-        }
-        return out;
-    }
-
-    private static String deriveInvokerName(String method) {
-        for (String prefix : new String[]{"invoke", "call"}) {
-            if (method.startsWith(prefix) && method.length() > prefix.length()
-                && Character.isUpperCase(method.charAt(prefix.length()))) {
-                String tail = method.substring(prefix.length());
-                return Character.toLowerCase(tail.charAt(0)) + tail.substring(1);
-            }
-        }
-        return method;
-    }
-
-    private static List<AccessorEntry> collectAccessors(Class<?> mixinClass) {
-        List<AccessorEntry> out = new ArrayList<>();
-        for (Method m : mixinClass.getDeclaredMethods()) {
-            net.echo.hypermixins.annotations.Accessor ann =
-                m.getAnnotation(net.echo.hypermixins.annotations.Accessor.class);
-            if (ann == null) continue;
-            Class<?>[] params = m.getParameterTypes();
-            boolean returnsVoid = m.getReturnType() == void.class;
-            boolean isSetter = returnsVoid && params.length == 2;
-            boolean isGetter = !returnsVoid && params.length == 1;
-            if (!isGetter && !isSetter)
-                throw new IllegalArgumentException("@Accessor must be (Object): T or (Object, T): void on " + m);
-            String targetField = !ann.value().isBlank() ? ann.value() : deriveAccessorField(m.getName());
-            out.add(new AccessorEntry(m.getName(), Type.getMethodDescriptor(m), isGetter ? "GET" : "SET", targetField));
-        }
-        return out;
-    }
-
-    private static String deriveAccessorField(String method) {
-        for (String prefix : new String[]{"get", "set", "is"}) {
-            if (method.startsWith(prefix) && method.length() > prefix.length()
-                && Character.isUpperCase(method.charAt(prefix.length()))) {
-                String tail = method.substring(prefix.length());
-                return Character.toLowerCase(tail.charAt(0)) + tail.substring(1);
-            }
-        }
-        return method;
-    }
-
-    private static List<ModifyReturnValueEntry> collectModifyReturnValues(Class<?> mixinClass) {
-        List<ModifyReturnValueEntry> out = new ArrayList<>();
-        for (Method m : mixinClass.getDeclaredMethods()) {
-            net.echo.hypermixins.annotations.ModifyReturnValue ann =
-                m.getAnnotation(net.echo.hypermixins.annotations.ModifyReturnValue.class);
-            if (ann == null) continue;
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyReturnValue must be static: " + m);
-            out.add(new ModifyReturnValueEntry(ann.method(), ann.at().desc(), ann.at().index(),
-                m.getName(), Type.getMethodDescriptor(m)));
-        }
-        return out;
-    }
-
-    private static Map<String, At.Shift> collectInjectShifts(Class<?> mixinClass, List<InjectEntry> injects) {
-        Map<String, At.Shift> out = new HashMap<>();
-        for (Method method : mixinClass.getDeclaredMethods()) {
-            Inject in = method.getAnnotation(Inject.class);
-            if (in == null) continue;
-            At.Shift shift = in.at().shift();
-            if (shift == At.Shift.BEFORE) continue;
-            String handlerDesc = Type.getMethodDescriptor(method);
-            out.put(method.getName() + handlerDesc, shift);
-        }
-        return out;
-    }
-
-    /**
-     * Merges the KSP-emitted {@code staticTargetMethods} table into the descriptor that
-     * {@link #load} returns. Called from {@link #load} so the production path picks up
-     * static-target info without triggering {@code Class.forName} on the target.
-     */
     private static MixinDescriptor withTargetMaps(
         MixinDescriptor base, List<String[]> staticRows, List<String[]> privateRows
     ) {
