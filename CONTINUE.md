@@ -114,9 +114,6 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- **Wildcard matching for `@Redirect` / `@ModifyReturnValue` / `@ModifyArg`** —
-  `DescriptorMatcher` is plumbed into the `@Inject` INVOKE + FIELD matchers,
-  but the static call-site path still uses HashMap exact-match lookups.
 - **`@ModifyArgs` / `@ModifyReceiver` / `@ModifyExpressionValue`** — annotation
   surfaces exist; runtime support deferred. `@ModifyArgs` needs primitive
   boxing into Object[]; `@ModifyReceiver` needs a SWAP/DUP_X1 stack-shuffle

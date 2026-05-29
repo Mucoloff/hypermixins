@@ -880,6 +880,11 @@ public class MixinTransformer implements ClassFileTransformer {
 
     private static void applyRedirects(MethodNode method, Map<String, List<RedirectMapping>> redirectByDesc) {
         if (method.instructions == null) return;
+        // Pre-compute wildcard candidates once so the hot loop iterates a flat list.
+        List<RedirectMapping> wildcards = redirectByDesc.entrySet().stream()
+            .filter(e -> e.getKey().indexOf('*') >= 0 || e.getKey().startsWith("regex:"))
+            .flatMap(e -> e.getValue().stream())
+            .toList();
         Map<RedirectMapping, Integer> matchCount = new HashMap<>();
         for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
             String matchKey;
@@ -890,8 +895,18 @@ public class MixinTransformer implements ClassFileTransformer {
             } else continue;
 
             List<RedirectMapping> candidates = redirectByDesc.get(matchKey);
-            if (candidates == null) continue;
-            for (RedirectMapping redirect : candidates) {
+            if (candidates == null && wildcards.isEmpty()) continue;
+            if (candidates == null) candidates = List.of();
+            // Append wildcards whose pattern matches the candidate key.
+            List<RedirectMapping> effective = candidates;
+            if (!wildcards.isEmpty()) {
+                List<RedirectMapping> all = new ArrayList<>(candidates);
+                for (RedirectMapping w : wildcards) {
+                    if (DescriptorMatcher.matches(w.invokeDesc(), matchKey)) all.add(w);
+                }
+                effective = all;
+            }
+            for (RedirectMapping redirect : effective) {
                 if (!method.name.equals(redirect.targetMethod())) continue;
                 int count = matchCount.getOrDefault(redirect, 0);
                 matchCount.put(redirect, count + 1);
@@ -921,6 +936,10 @@ public class MixinTransformer implements ClassFileTransformer {
         Class<?> mixinClass
     ) {
         if (method.instructions == null) return;
+        List<MixinDescriptor.ModifyReturnValueEntry> wildcards = mrvByDesc.entrySet().stream()
+            .filter(e -> e.getKey().indexOf('*') >= 0 || e.getKey().startsWith("regex:"))
+            .flatMap(e -> e.getValue().stream())
+            .toList();
         Map<MixinDescriptor.ModifyReturnValueEntry, Integer> matchCount = new HashMap<>();
         List<AbstractInsnNode> snapshot = new ArrayList<>();
         for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
@@ -931,8 +950,16 @@ public class MixinTransformer implements ClassFileTransformer {
             if (!(insn instanceof MethodInsnNode mi)) continue;
             String invokeKey = mi.owner + "." + mi.name + mi.desc;
             List<MixinDescriptor.ModifyReturnValueEntry> candidates = mrvByDesc.get(invokeKey);
-            if (candidates == null) continue;
-            for (MixinDescriptor.ModifyReturnValueEntry mrv : candidates) {
+            if (candidates == null && wildcards.isEmpty()) continue;
+            List<MixinDescriptor.ModifyReturnValueEntry> effective = candidates != null ? candidates : List.of();
+            if (!wildcards.isEmpty()) {
+                List<MixinDescriptor.ModifyReturnValueEntry> all = new ArrayList<>(effective);
+                for (MixinDescriptor.ModifyReturnValueEntry w : wildcards) {
+                    if (DescriptorMatcher.matches(w.invokeDesc(), invokeKey)) all.add(w);
+                }
+                effective = all;
+            }
+            for (MixinDescriptor.ModifyReturnValueEntry mrv : effective) {
                 if (!method.name.equals(mrv.targetMethod())) continue;
                 int count = matchCount.getOrDefault(mrv, 0);
                 matchCount.put(mrv, count + 1);
@@ -1029,6 +1056,10 @@ public class MixinTransformer implements ClassFileTransformer {
     ) {
         if (method.instructions == null) return;
         String mixinInternal = Type.getInternalName(mixinClass);
+        List<MixinDescriptor.ModifyArgEntry> wildcards = masByDesc.entrySet().stream()
+            .filter(e -> e.getKey().indexOf('*') >= 0 || e.getKey().startsWith("regex:"))
+            .flatMap(e -> e.getValue().stream())
+            .toList();
         Map<MixinDescriptor.ModifyArgEntry, Integer> matchCount = new HashMap<>();
         List<AbstractInsnNode> snapshot = new ArrayList<>();
         for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
@@ -1037,8 +1068,16 @@ public class MixinTransformer implements ClassFileTransformer {
             if (!(insn instanceof MethodInsnNode mi)) continue;
             String key = mi.owner + "." + mi.name + mi.desc;
             List<MixinDescriptor.ModifyArgEntry> candidates = masByDesc.get(key);
-            if (candidates == null) continue;
-            for (MixinDescriptor.ModifyArgEntry ma : candidates) {
+            if (candidates == null && wildcards.isEmpty()) continue;
+            List<MixinDescriptor.ModifyArgEntry> effective = candidates != null ? candidates : List.of();
+            if (!wildcards.isEmpty()) {
+                List<MixinDescriptor.ModifyArgEntry> all = new ArrayList<>(effective);
+                for (MixinDescriptor.ModifyArgEntry w : wildcards) {
+                    if (DescriptorMatcher.matches(w.invokeDesc(), key)) all.add(w);
+                }
+                effective = all;
+            }
+            for (MixinDescriptor.ModifyArgEntry ma : effective) {
                 if (!method.name.equals(ma.targetMethod())) continue;
                 int count = matchCount.getOrDefault(ma, 0);
                 matchCount.put(ma, count + 1);
