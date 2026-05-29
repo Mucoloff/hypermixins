@@ -568,6 +568,33 @@ public class MixinInjectTest {
         assertNotNull(Integer.valueOf(result));
     }
 
+    // ---- @Local(argsOnly = true) at non-HEAD point ----
+
+    public static class SiteArgsOnlyTarget {
+        public int run(int seed) {
+            int mid = seed + 1;
+            return Math.abs(mid);
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteArgsOnlyTarget")
+    public static class SiteArgsOnlyMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/lang/Math.abs(I)I"))
+        public void onAbs(Object self,
+                          @net.echo.hypermixins.annotations.Local(argsOnly = true, ordinal = 1) int[] mid) {
+            mid[0] = mid[0] + 100;
+        }
+    }
+
+    @Test
+    void argsOnlyLocalAtInvokePointWritesBackMidMethodSlot() throws Exception {
+        Class<?> t = applyMixin(SiteArgsOnlyTarget.class, SiteArgsOnlyMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // handler bumps mid (ordinal 1 = first non-param int local = mid) by +100.
+        // run computes Math.abs(seed + 1 + 100) = abs(7 + 1 + 100) = 108.
+        assertEquals(108, t.getMethod("run", int.class).invoke(inst, 7));
+    }
+
     // ---- bare @Local ambiguity at non-HEAD point ----
 
     public static class SiteAmbiguousTarget {

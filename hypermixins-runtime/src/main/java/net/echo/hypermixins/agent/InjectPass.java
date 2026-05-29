@@ -14,6 +14,7 @@ import org.objectweb.asm.tree.VarInsnNode;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -118,10 +119,42 @@ final class InjectPass {
             InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
             if (shift == At.Shift.AFTER) {
                 target.instructions.insert(site, block);
-            } else {
-                target.instructions.insertBefore(site, block);
+                continue;
             }
+            AbstractInsnNode insertBefore = analyzer != null
+                ? findArgsOnlyAnchor(site, slotMap, argsOnlyParams, site)
+                : site;
+            target.instructions.insertBefore(insertBefore, block);
         }
+    }
+
+    /**
+     * @Local(argsOnly = true) writes back into the source slot only after the handler returns,
+     * but the matched site's preceding ILOAD has already pushed the pre-mutation value onto the
+     * stack. Scan backward from the site for the earliest *LOAD of any argsOnly source slot and
+     * relocate the insertion point there so the writeback lands before the consuming push.
+     * Falls back to the site itself when no candidate load is found within the method body.
+     */
+    private static AbstractInsnNode findArgsOnlyAnchor(
+        AbstractInsnNode site, Map<Integer, Integer> slotMap, Set<Integer> argsOnlyParams,
+        AbstractInsnNode fallback
+    ) {
+        if (argsOnlyParams.isEmpty()) return fallback;
+        Set<Integer> argsOnlySourceSlots = new HashSet<>();
+        for (Integer paramIdx : argsOnlyParams) {
+            Integer slot = slotMap.get(paramIdx);
+            if (slot != null) argsOnlySourceSlots.add(slot);
+        }
+        if (argsOnlySourceSlots.isEmpty()) return fallback;
+        AbstractInsnNode earliestLoad = null;
+        for (AbstractInsnNode n = site.getPrevious(); n != null; n = n.getPrevious()) {
+            if (!(n instanceof org.objectweb.asm.tree.VarInsnNode v)) continue;
+            int op = v.getOpcode();
+            if (op != Opcodes.ILOAD && op != Opcodes.LLOAD && op != Opcodes.FLOAD
+                && op != Opcodes.DLOAD && op != Opcodes.ALOAD) continue;
+            if (argsOnlySourceSlots.contains(v.var)) earliestLoad = n;
+        }
+        return earliestLoad != null ? earliestLoad : fallback;
     }
 
     private static void injectBeforeReturns(

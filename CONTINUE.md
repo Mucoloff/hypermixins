@@ -122,13 +122,10 @@ hypermixins-example/run/test-world-1.0.jar \
   Edge case still open: targets compiled without `-g` carry no
   `LocalVariableTable`; the resolver throws a clear "compile with -g or
   annotate @Local(index = …) explicitly" error in that case.
-  Open sub-case: {@code @Local(argsOnly = true)} at non-HEAD points
-  writes the array back into the source slot *after* the handler
-  returns, but the slot's value was already pushed to the stack by the
-  preceding ILOAD that fed the matched INVOKE / FIELD / etc., so the
-  matched site reads the pre-mutation value. Fix would require scanning
-  backward from the site to the last ILOAD of the targeted slot and
-  inserting the writeback there — non-trivial.
+  `@Local(argsOnly = true)` at non-HEAD points now relocates the
+  injection block to before the earliest preceding {@code *LOAD} of the
+  source slot via {@link InjectPass#findArgsOnlyAnchor}, so the
+  writeback lands before the consuming push.
 
 ## Key files
 
