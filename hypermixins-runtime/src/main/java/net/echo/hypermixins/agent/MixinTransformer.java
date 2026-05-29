@@ -698,9 +698,9 @@ public class MixinTransformer implements ClassFileTransformer {
             String handlerKey = inject.handler().getName() + Type.getMethodDescriptor(inject.handler());
             Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
                 localEntryByHandler.getOrDefault(handlerKey, Map.of());
-            Map<Integer, Boolean> argsOnlyMap = new HashMap<>();
+            Set<Integer> argsOnlyParams = new HashSet<>();
             for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
-                if (e.getValue().argsOnly()) argsOnlyMap.put(e.getKey(), true);
+                if (e.getValue().argsOnly()) argsOnlyParams.add(e.getKey());
             }
             Map<Integer, Integer> slotMap = new HashMap<>();
             for (Map.Entry<Integer, MixinDescriptor.InjectLocalEntry> e : entryMap.entrySet()) {
@@ -751,20 +751,20 @@ public class MixinTransformer implements ClassFileTransformer {
             switch (inject.point()) {
                 case HEAD -> {
                     AbstractInsnNode first = target.instructions.getFirst();
-                    InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap);
+                    InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
                     if (first == null) target.instructions.add(block);
                     else target.instructions.insertBefore(first, block);
                 }
-                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap);
-                case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
+                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
+                case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
                     insn -> matchesInvoke(insn, inject));
-                case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
+                case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
                     insn -> matchesField(insn, inject));
-                case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
+                case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
                     insn -> matchesConstant(insn, inject));
-                case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
+                case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
                     MixinTransformer::isConditionalJump);
-                case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap, shift,
+                case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams, shift,
                     insn -> matchesNew(insn, inject));
                 default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
             }
@@ -779,7 +779,7 @@ public class MixinTransformer implements ClassFileTransformer {
     private static void injectAtMatchingSites(
         ClassNode owner, MethodNode target, InjectMapping inject,
         String mixinField, Type targetReturn, Map<Integer, Integer> slotMap,
-        Map<Integer, Boolean> argsOnlyMap, At.Shift shift,
+        Set<Integer> argsOnlyParams, At.Shift shift,
         java.util.function.Predicate<AbstractInsnNode> predicate
     ) {
         List<AbstractInsnNode> sites = new ArrayList<>();
@@ -796,7 +796,7 @@ public class MixinTransformer implements ClassFileTransformer {
                 + inject.handler() + " (atDesc=" + inject.atDesc() + ", index=" + inject.index() + ")");
         }
         for (AbstractInsnNode site : sites) {
-            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap);
+            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
             if (shift == At.Shift.AFTER) {
                 target.instructions.insert(site, block);
             } else {
@@ -857,7 +857,7 @@ public class MixinTransformer implements ClassFileTransformer {
 
     private static void injectBeforeReturns(
         ClassNode owner, MethodNode target, InjectMapping inject, String mixinField, Type targetReturn,
-        Map<Integer, Integer> slotMap, Map<Integer, Boolean> argsOnlyMap
+        Map<Integer, Integer> slotMap, Set<Integer> argsOnlyParams
     ) {
         List<AbstractInsnNode> returns = new ArrayList<>();
         for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null; insn = insn.getNext()) {
@@ -865,7 +865,7 @@ public class MixinTransformer implements ClassFileTransformer {
             if (op >= Opcodes.IRETURN && op <= Opcodes.RETURN) returns.add(insn);
         }
         for (AbstractInsnNode ret : returns) {
-            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyMap);
+            InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
             target.instructions.insertBefore(ret, block);
         }
     }
@@ -879,7 +879,7 @@ public class MixinTransformer implements ClassFileTransformer {
     private static InsnList emitInjectCall(
         ClassNode owner, MethodNode target, InjectMapping inject,
         String mixinField, Type targetReturn, Map<Integer, Integer> slotMap,
-        Map<Integer, Boolean> argsOnlyMap
+        Set<Integer> argsOnlyParams
     ) {
         InsnList out = new InsnList();
         Class<?> mixinClass = inject.handler().getDeclaringClass();
@@ -923,7 +923,7 @@ public class MixinTransformer implements ClassFileTransformer {
             int positionalIdx = 0;
             for (int i = 0; i < captureCount; i++) {
                 Type expected = handlerArgs[1 + i];
-                boolean argsOnly = Boolean.TRUE.equals(argsOnlyMap.get(1 + i));
+                boolean argsOnly = argsOnlyParams.contains(1 + i);
                 Integer forcedSlot = slotMap.get(1 + i);
                 if (argsOnly) {
                     if (forcedSlot == null) {

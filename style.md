@@ -588,6 +588,55 @@ Regola: non mescolare modelli nello stesso modulo.
 
 ---
 
-# 22. Regola finale
+# 22. Mappe come insiemi
+
+## Regola
+Non usare `Map<K, Boolean>` quando l'unica semantica è la presenza della
+chiave. Preferire `Set<K>` con `Set#contains`.
+
+### ❌ Da evitare
+```java
+Map<String, Boolean> staticTargets = new HashMap<>();
+staticTargets.put(name + desc, true);
+if (Boolean.TRUE.equals(staticTargets.get(name + desc))) { ... }
+```
+
+### ✔️ Preferire
+```java
+Set<String> staticTargets = new HashSet<>();
+staticTargets.add(name + desc);
+if (staticTargets.contains(name + desc)) { ... }
+```
+
+`Map<K, Boolean>` è ammesso solo se servono valori `false` distinti
+dall'assenza (es. tristate: present-true / present-false / absent).
+
+---
+
+# 23. Niente superclassi che fanno tutto
+
+## Regola
+Evitare classi monolitiche che gestiscono molte responsabilità
+indipendenti (parser di N annotazioni, rewriter di N istruzioni, ecc.).
+Quando si supera il limite ragionevole (≈ 600 righe o più di 5
+responsabilità ortogonali), spezzare in classi/metodi separati ciascuno
+con una sola responsabilità.
+
+### Linee guida
+- Ogni annotazione/feature → suo pass dedicato (`AccessorPass`,
+  `InvokerPass`, `ShadowFieldPass`, …) con un singolo metodo statico
+  `apply(...)`.
+- L'orchestratore di alto livello chiama i pass uno dopo l'altro.
+- Lo stato condiviso passa come parametri espliciti, non come campi
+  dell'orchestratore.
+
+### Sintomo del problema
+Se aggiungere una nuova annotazione richiede modificare un file > 1000
+righe in 3+ posti diversi, il design è già sbagliato — estrarre prima
+di aggiungere.
+
+---
+
+# 24. Regola finale
 
 > Codice semplice > codice "smart"
