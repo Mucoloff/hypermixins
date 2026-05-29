@@ -683,12 +683,12 @@ public class MixinTransformer implements ClassFileTransformer {
 
     private static boolean matchesInvoke(AbstractInsnNode insn, InjectMapping inject) {
         if (!(insn instanceof MethodInsnNode mi)) return false;
-        return (mi.owner + "." + mi.name + mi.desc).equals(inject.atDesc());
+        return DescriptorMatcher.matches(inject.atDesc(), mi.owner + "." + mi.name + mi.desc);
     }
 
     private static boolean matchesField(AbstractInsnNode insn, InjectMapping inject) {
         if (!(insn instanceof FieldInsnNode fi)) return false;
-        return (fi.owner + "." + fi.name + ":" + fi.desc).equals(inject.atDesc());
+        return DescriptorMatcher.matches(inject.atDesc(), fi.owner + "." + fi.name + ":" + fi.desc);
     }
 
     /**

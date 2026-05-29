@@ -351,6 +351,34 @@ public class MixinInjectTest {
         assertEquals(java.util.List.of("after"), shiftOrder);
     }
 
+    // ---- @At#desc wildcard ----
+
+    public static volatile int wildcardCalls;
+
+    public static class WildcardTarget {
+        public String run() {
+            String a = String.valueOf(1);
+            String b = String.valueOf(2);
+            return a + b;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$WildcardTarget")
+    public static class WildcardMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/lang/String.valueOf*"))
+        public void onAny(Object self) { wildcardCalls++; }
+    }
+
+    @Test
+    void atDescWildcardMatchesAllOccurrences() throws Exception {
+        wildcardCalls = 0;
+        Class<?> t = applyMixin(WildcardTarget.class, WildcardMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals("12", t.getMethod("run").invoke(inst));
+        // Two String.valueOf calls match the wildcard.
+        assertEquals(2, wildcardCalls);
+    }
+
     // ---- @At.Point.NEW ----
 
     public static volatile int newAllocCounter;
