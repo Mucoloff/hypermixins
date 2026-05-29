@@ -623,6 +623,34 @@ public class MixinInjectTest {
         assertEquals(108, t.getMethod("run", int.class).invoke(inst, 7));
     }
 
+    // ---- @Local at JUMP point ----
+
+    public static volatile int siteJumpCaptured;
+
+    public static class SiteJumpTarget {
+        public int run(int seed) {
+            int threshold = seed * 2;
+            if (threshold > 50) return 1;
+            return 0;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteJumpTarget")
+    public static class SiteJumpMixin {
+        @Inject(method = "run", at = @At(point = At.Point.JUMP))
+        public void onJump(Object self, @net.echo.hypermixins.annotations.Local(ordinal = 1) int threshold) {
+            siteJumpCaptured = threshold;
+        }
+    }
+
+    @Test
+    void captureLocalAtJumpPoint() throws Exception {
+        Class<?> t = applyMixin(SiteJumpTarget.class, SiteJumpMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run", int.class).invoke(inst, 30);
+        assertEquals(1, result);
+        assertEquals(60, siteJumpCaptured);
+    }
+
     // ---- bare @Local ambiguity at non-HEAD point ----
 
     public static class SiteAmbiguousTarget {
