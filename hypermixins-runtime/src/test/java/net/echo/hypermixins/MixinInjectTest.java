@@ -307,4 +307,30 @@ public class MixinInjectTest {
         assertEquals("before-cancel", ((IllegalStateException) ex.getCause()).getMessage());
         assertFalse(bodyRan);
     }
+
+    // ---- @Local capture ----
+
+    public static volatile int localCaptured;
+
+    public static class LocalTarget {
+        public int run(int x) {
+            return x + 1;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$LocalTarget")
+    public static class LocalMixin {
+        @Inject(method = "run", at = @At(point = At.Point.HEAD))
+        public void onRun(Object self, @net.echo.hypermixins.annotations.Local(index = 1) int x) {
+            localCaptured = x;
+        }
+    }
+
+    @Test
+    void captureLocalByIndex() throws Exception {
+        Class<?> t = applyMixin(LocalTarget.class, LocalMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run", int.class).invoke(inst, 41);
+        assertEquals(42, result);
+        assertEquals(41, localCaptured);
+    }
 }

@@ -14,6 +14,7 @@ import javax.lang.model.element.Modifier
 //   redirectEntries:   [targetMethod, invokeDesc, index, call, handlerName, handlerDesc]
 //   injectEntries:     [targetMethod, point, atDesc, atIndex,
 //                       cancellable, returnable, handlerName, handlerDesc]
+//   injectCaptureLocals:[handlerName, handlerDesc, paramIndex, slot]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
@@ -100,6 +101,7 @@ class MixinSymbolProcessor(
         val originals  = mutableListOf<OriginalEntry>()
         val redirects  = mutableListOf<RedirectEntry>()
         val injects    = mutableListOf<InjectEntry>()
+        val injectLocals = mutableListOf<InjectLocalEntry>()
         val shadows    = mutableListOf<ShadowEntry>()
         val shadowFields = mutableListOf<ShadowFieldEntry>()
 
@@ -108,7 +110,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(OVERWRITE_FQN)  -> validateAndCollectOverwrite(fn, targetClass, overwrites)
                 fn.hasAnnotation(ORIGINAL_FQN)   -> validateAndCollectOriginal(fn, originals)
                 fn.hasAnnotation(REDIRECT_FQN)   -> validateAndCollectRedirect(fn, redirects)
-                fn.hasAnnotation(INJECT_FQN)     -> validateAndCollectInject(fn, injects)
+                fn.hasAnnotation(INJECT_FQN)     -> validateAndCollectInject(fn, injects, injectLocals)
                 fn.hasAnnotation(SHADOW_FQN)     -> validateAndCollectShadow(fn, shadows)
             }
         }
@@ -121,7 +123,7 @@ class MixinSymbolProcessor(
             }
         }
 
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, shadows, shadowFields)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields)
     }
 
     // ---- Validation + collection ----
@@ -248,7 +250,11 @@ class MixinSymbolProcessor(
         out += ShadowEntry(fn.simpleName.asString(), descriptor(fn), targetName)
     }
 
-    private fun validateAndCollectInject(fn: KSFunctionDeclaration, out: MutableList<InjectEntry>) {
+    private fun validateAndCollectInject(
+        fn: KSFunctionDeclaration,
+        out: MutableList<InjectEntry>,
+        localsOut: MutableList<InjectLocalEntry>
+    ) {
         val ann = fn.findAnnotation(INJECT_FQN)!!
         val method = ann.arg("method") as? String ?: ""
         if (method.isBlank()) {
@@ -274,7 +280,20 @@ class MixinSymbolProcessor(
             logger.error("@Inject point $point requires @At#desc() on ${fn.simpleName.asString()}", fn)
             return
         }
-        out += InjectEntry(method, point, atDesc, atIndex, cancellable, returnable, fn.simpleName.asString(), descriptor(fn))
+        val handlerName = fn.simpleName.asString()
+        val handlerDesc = descriptor(fn)
+        out += InjectEntry(method, point, atDesc, atIndex, cancellable, returnable, handlerName, handlerDesc)
+        fn.parameters.forEachIndexed { i, p ->
+            val localAnn = p.annotations.firstOrNull {
+                it.annotationType.resolve().declaration.qualifiedName?.asString() == "net.echo.hypermixins.annotations.Local"
+            }
+            if (localAnn != null) {
+                val slot = (localAnn.arguments.firstOrNull { it.name?.asString() == "index" }?.value as? Int) ?: -1
+                if (slot >= 0) {
+                    localsOut += InjectLocalEntry(handlerName, handlerDesc, i, slot)
+                }
+            }
+        }
     }
 
     // ---- Descriptor helpers ----
@@ -335,6 +354,7 @@ class MixinSymbolProcessor(
         originals: List<OriginalEntry>,
         redirects: List<RedirectEntry>,
         injects: List<InjectEntry>,
+        injectLocals: List<InjectLocalEntry>,
         shadows: List<ShadowEntry>,
         shadowFields: List<ShadowFieldEntry>
     ) {
@@ -374,6 +394,9 @@ class MixinSymbolProcessor(
         classBuilder.addMethod(entriesMethod("injectEntries", injects.map {
             arrayOf(it.targetMethod, it.point, it.atDesc, it.atIndex.toString(),
                 it.cancellable.toString(), it.returnable.toString(), it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("injectCaptureLocals", injectLocals.map {
+            arrayOf(it.handlerName, it.handlerDesc, it.paramIndex.toString(), it.slot.toString())
         }))
         classBuilder.addMethod(entriesMethod("shadowEntries", shadows.map {
             arrayOf(it.handlerName, it.handlerDesc, it.targetName)
@@ -443,4 +466,5 @@ class MixinSymbolProcessor(
     private data class InjectEntry(val targetMethod: String, val point: String, val atDesc: String, val atIndex: Int, val cancellable: Boolean, val returnable: Boolean, val handlerName: String, val handlerDesc: String)
     private data class ShadowEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
     private data class ShadowFieldEntry(val mixinFieldName: String, val fieldDesc: String, val targetFieldName: String)
+    private data class InjectLocalEntry(val handlerName: String, val handlerDesc: String, val paramIndex: Int, val slot: Int)
 }
