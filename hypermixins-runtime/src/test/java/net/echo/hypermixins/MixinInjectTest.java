@@ -515,4 +515,37 @@ public class MixinInjectTest {
         assertEquals(42, result);
         assertEquals("tag-42", siteFrameCaptured);
     }
+
+    // ---- @Local(ordinal = K) at non-HEAD point ----
+
+    public static volatile int siteOrdinalCaptured;
+
+    public static class SiteOrdinalTarget {
+        public int run(int seed) {
+            int first = seed + 1;
+            int second = seed + 2;
+            return Math.max(first, second);
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteOrdinalTarget")
+    public static class SiteOrdinalMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/lang/Math.max(II)I"))
+        public void onMax(Object self,
+                          @net.echo.hypermixins.annotations.Local(ordinal = 1) int secondMid) {
+            siteOrdinalCaptured = secondMid;
+        }
+    }
+
+    @Test
+    void captureLocalOrdinalAtInvokePoint() throws Exception {
+        Class<?> t = applyMixin(SiteOrdinalTarget.class, SiteOrdinalMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run", int.class).invoke(inst, 10);
+        assertEquals(12, result);
+        // ordinal 0 = seed (param), ordinal 1 = first, ordinal 2 = second.
+        // Live int locals at Math.max site in declaration order: seed, first, second.
+        // ordinal = 1 → first → 11.
+        assertEquals(11, siteOrdinalCaptured);
+    }
 }
