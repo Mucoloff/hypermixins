@@ -96,8 +96,20 @@ master is the only published surface so far.
 - `@ModifyArg` — replaces the last argument of a matched INVOKE call site
   (other indices rejected at transform time in v1).
 - `@At#desc` wildcard / regex — `*` is treated as `.*` and `regex:<pat>`
-  short-circuits to a Java `Pattern`. Currently wired into `@Inject` INVOKE
-  and FIELD matchers.
+  short-circuits to a Java `Pattern`. Wired into `@Inject`, `@Redirect`,
+  `@ModifyReturnValue`, `@ModifyArg`, `@ModifyExpressionValue`, and
+  `@ModifyArgs`.
+
+### Added (annotation wave 3 — modify / accessor expansion)
+- `@ModifyExpressionValue` — generalises `@ModifyReturnValue` over
+  `INVOKE`, `FIELD`, and `CONSTANT` producing instructions.
+- `@ModifyArgs` — handler `void(Object[])` may mutate every
+  reference-typed arg of a matched INVOKE in place (primitive args still
+  rejected at transform time).
+- **Private-target `@Shadow` / `@Invoker`** — private target methods are
+  reached via a public synthetic `__access$<name>$<hash>` method generated
+  on the target. KSP probes the target via the resolver; the legacy
+  reflection path uses `Class.forName`.
 
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,

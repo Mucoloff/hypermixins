@@ -98,7 +98,9 @@ public static void premain(String args, Instrumentation inst) throws Exception {
 | `@ModifyConstant` | Static handler `T (T)` replaces a numeric / String constant load matching the typed `@Constant` clause. |
 | `@ModifyArg` | Static handler `T (T)` replaces the last argument of a specific INVOKE call site (v1 last-arg only). |
 | `@Accessor` | Native mixin method becomes a `GETFIELD`/`PUTFIELD` trampoline; field name auto-resolves from the `getFoo`/`setFoo`/`isFoo` convention. |
-| `@Invoker` | Native mixin method becomes an `INVOKEVIRTUAL` trampoline to a named target method (auto-derives via `invokeFoo`/`callFoo`). |
+| `@Invoker` | Native mixin method becomes an `INVOKEVIRTUAL` trampoline to a named target method (auto-derives via `invokeFoo`/`callFoo`). Supports private targets via a generated public synthetic accessor. |
+| `@ModifyExpressionValue` | Static handler `T (T)` wraps the value produced by an INVOKE / FIELD / CONSTANT site. |
+| `@ModifyArgs` | Static handler `void(Object[])` mutates every reference-typed argument of a matched INVOKE before it fires. |
 
 Inject handlers may capture target parameters positionally between `Object self`
 and the optional trailing `CallbackInfo[Returnable]`:
