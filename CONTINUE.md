@@ -114,15 +114,6 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- **`@Original` on a static target via the KSP descriptor path** —
-  `fromAnnotations` probes target staticness via `Class.forName` and emits an
-  `INVOKESTATIC` trampoline when the target method is static. The
-  `MixinDescriptor.load` path (used by the agent) intentionally skips the
-  probe to avoid loading the target before the `ClassFileTransformer` is
-  registered (which would silently disable the mixin). Fix path: extend
-  `originalEntries()` with a static-target column emitted by the KSP
-  processor or thread the `Instrumentation` handle into `load` so it can
-  consult `getAllLoadedClasses` instead of `Class.forName`.
 - **`@At.Point` regex / before-after anchoring** — current matcher requires
   exact descriptor equality.
 - **Local-variable capture beyond target parameters** — capture locals

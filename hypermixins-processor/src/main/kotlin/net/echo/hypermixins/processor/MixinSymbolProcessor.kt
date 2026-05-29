@@ -1,5 +1,6 @@
 package net.echo.hypermixins.processor
 
+import com.google.devtools.ksp.getDeclaredFunctions
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.validate
@@ -17,6 +18,7 @@ import javax.lang.model.element.Modifier
 //   injectCaptureLocals:[handlerName, handlerDesc, paramIndex, slot]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
+//   staticTargetMethods:[name, desc]   — only entries the resolver could see as static
 //   syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
 
 private const val MIXIN_FQN       = "net.echo.hypermixins.annotations.Mixin"
@@ -44,7 +46,7 @@ class MixinSymbolProcessor(
         symbols
             .filterIsInstance<KSClassDeclaration>()
             .filter { it.validate() }
-            .forEach { processMixin(it) }
+            .forEach { processMixin(it, resolver) }
 
         return deferred
     }
@@ -77,7 +79,7 @@ class MixinSymbolProcessor(
 
     // ---- Main processing ----
 
-    private fun processMixin(cls: KSClassDeclaration) {
+    private fun processMixin(cls: KSClassDeclaration, resolver: Resolver) {
         val mixinAnn = cls.findAnnotation(MIXIN_FQN) ?: return
         val targetClass = mixinAnn.arg("value") as? String ?: run {
             logger.error("@Mixin#value() must not be empty", cls)
@@ -123,7 +125,11 @@ class MixinSymbolProcessor(
             }
         }
 
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields)
+        // Probe static-target methods via KSP's classpath resolver. Targets reachable from the
+        // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
+        // everything else falls back to instance dispatch.
+        val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -347,6 +353,44 @@ class MixinSymbolProcessor(
 
     // ---- Code generation ----
 
+    private fun probeStaticTargets(
+        resolver: Resolver,
+        targetClass: String,
+        originals: List<OriginalEntry>,
+        overwrites: List<OverwriteEntry>
+    ): Set<String> {
+        val result = mutableSetOf<String>()
+        val targetDecl = resolver.getClassDeclarationByName(
+            resolver.getKSNameFromString(targetClass)
+        ) ?: return result
+        val pairs = mutableSetOf<Pair<String, String>>()
+        for (oe in originals) {
+            // handlerDesc starts with (Ljava/lang/Object;...); drop the leading Object self to recover target desc.
+            val td = dropFirstArgDesc(oe.handlerDesc)
+            pairs += oe.targetName to td
+        }
+        for (oe in overwrites) {
+            pairs += oe.targetName to oe.targetDesc
+        }
+        for ((name, desc) in pairs) {
+            val match = targetDecl.getDeclaredFunctions().firstOrNull {
+                it.simpleName.asString() == name && descriptor(it) == desc
+            }
+            if (match != null
+                && com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC in match.modifiers
+            ) {
+                result += name + desc
+            }
+        }
+        return result
+    }
+
+    private fun dropFirstArgDesc(desc: String): String {
+        // (Ljava/lang/Object;...args)ret → (args)ret
+        if (!desc.startsWith("(Ljava/lang/Object;")) return desc
+        return "(" + desc.removePrefix("(Ljava/lang/Object;")
+    }
+
     private fun generateDescriptor(
         cls: KSClassDeclaration,
         targetClass: String,
@@ -356,7 +400,8 @@ class MixinSymbolProcessor(
         injects: List<InjectEntry>,
         injectLocals: List<InjectLocalEntry>,
         shadows: List<ShadowEntry>,
-        shadowFields: List<ShadowFieldEntry>
+        shadowFields: List<ShadowFieldEntry>,
+        staticTargets: Set<String>
     ) {
         val mixinFqn = cls.qualifiedName?.asString() ?: return
         val descriptorFqn = "$mixinFqn\$\$Descriptor"
@@ -403,6 +448,10 @@ class MixinSymbolProcessor(
         }))
         classBuilder.addMethod(entriesMethod("shadowFieldEntries", shadowFields.map {
             arrayOf(it.mixinFieldName, it.fieldDesc, it.targetFieldName)
+        }))
+        classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
+            val paren = it.indexOf('(')
+            arrayOf(it.substring(0, paren), it.substring(paren))
         }))
         classBuilder.addMethod(entriesMethod("syntheticNames", overwrites.map {
             arrayOf(

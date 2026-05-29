@@ -197,6 +197,7 @@ public final class MixinDescriptor {
             List<String[]> injectLocalRows = invokeStringListOrEmpty(lookup, desc, "injectCaptureLocals");
             List<String[]> shadowRows    = invokeStringListOrEmpty(lookup, desc, "shadowEntries");
             List<String[]> shadowFieldRows = invokeStringListOrEmpty(lookup, desc, "shadowFieldEntries");
+            List<String[]> staticTargetRows = invokeStringListOrEmpty(lookup, desc, "staticTargetMethods");
             List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
 
             List<OverwriteEntry> ows = new ArrayList<>(overwriteRows.size());
@@ -227,7 +228,9 @@ public final class MixinDescriptor {
             Map<String, String[]> synths = new LinkedHashMap<>();
             for (String[] r : syntheticRows) synths.put(r[0] + r[1], new String[]{r[2], r[3]});
 
-            return new MixinDescriptor(mixinClass, targetInternal, ows, orig, reds, injs, injLocals, shads, shadFields, synths);
+            MixinDescriptor base = new MixinDescriptor(
+                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, shads, shadFields, synths);
+            return withStaticTargets(base, staticTargetRows);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
         }
@@ -385,6 +388,20 @@ public final class MixinDescriptor {
         return new MixinDescriptor(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals,
             shadows, shadowFields, synths, staticMap);
+    }
+
+    /**
+     * Merges the KSP-emitted {@code staticTargetMethods} table into the descriptor that
+     * {@link #load} returns. Called from {@link #load} so the production path picks up
+     * static-target info without triggering {@code Class.forName} on the target.
+     */
+    private static MixinDescriptor withStaticTargets(MixinDescriptor base, List<String[]> rows) {
+        if (rows.isEmpty()) return base;
+        Map<String, Boolean> map = new HashMap<>();
+        for (String[] r : rows) map.put(r[0] + r[1], true);
+        return new MixinDescriptor(base.mixinClass, base.targetClass,
+            base.overwrites, base.originals, base.redirects, base.injects, base.injectLocals,
+            base.shadows, base.shadowFields, base.synthetics, map);
     }
 
     /**

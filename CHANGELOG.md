@@ -59,12 +59,15 @@ master is the only published surface so far.
   emits static `__original$` / `__dispatch$` synthetics, and the registry
   bootstrap falls back to `findStatic` lazy install for the resulting
   static call-site shape.
-- **`@Original` on static target methods (test/legacy path only)** —
-  `MixinDescriptor.fromAnnotations` reflects on the target to detect a
-  static `@Original` target and emits an `INVOKESTATIC` trampoline. The
-  agent (KSP-descriptor) path keeps the existing instance-only trampoline
-  for now (probing the target class at load time would prematurely load
-  it past the `ClassFileTransformer` chain).
+- **`@Original` on static target methods** — works through both the legacy
+  reflection path (`MixinDescriptor.fromAnnotations` reflects on the target)
+  and the production KSP descriptor path. The processor probes the target
+  class via the KSP `Resolver` and emits a `staticTargetMethods()` table on
+  the `$$Descriptor`; the runtime merges it into the descriptor's
+  `staticTargetMethods` map. The transformer emits an `INVOKESTATIC`
+  trampoline (skipping the `ALOAD 1; CHECKCAST` self prologue) whenever the
+  map flags a static target. Targets that the resolver cannot see at compile
+  time fall back to the instance dispatch — same as before.
 
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,
