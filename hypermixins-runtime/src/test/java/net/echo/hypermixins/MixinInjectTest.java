@@ -537,6 +537,37 @@ public class MixinInjectTest {
         }
     }
 
+    // ---- @Local at FIELD point ----
+
+    public static volatile String siteFieldCaptured;
+
+    public static class SiteFieldTarget {
+        public java.io.PrintStream sink = System.out;
+        public int read() {
+            String tag = "field-read";
+            return sink.hashCode() + tag.length();
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SiteFieldTarget")
+    public static class SiteFieldMixin {
+        @Inject(method = "read", at = @At(point = At.Point.FIELD,
+            desc = "net/echo/hypermixins/MixinInjectTest$SiteFieldTarget.sink:Ljava/io/PrintStream;"))
+        public void onFieldRead(Object self, @net.echo.hypermixins.annotations.Local String tag) {
+            siteFieldCaptured = tag;
+        }
+    }
+
+    @Test
+    void captureLocalAtFieldPointResolvesMidMethodSlot() throws Exception {
+        Class<?> t = applyMixin(SiteFieldTarget.class, SiteFieldMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("read").invoke(inst);
+        // tag is alive across the GETFIELD insn.
+        assertEquals("field-read", siteFieldCaptured);
+        // Just sanity that read() still produces a value.
+        assertNotNull(Integer.valueOf(result));
+    }
+
     // ---- bare @Local ambiguity at non-HEAD point ----
 
     public static class SiteAmbiguousTarget {
