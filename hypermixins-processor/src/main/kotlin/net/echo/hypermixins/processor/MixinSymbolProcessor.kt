@@ -19,6 +19,7 @@ import javax.lang.model.element.Modifier
 //   injectShifts:      [handlerName, handlerDesc, shift]   — rows only for non-BEFORE
 //   modifyReturnValueEntries: [targetMethod, invokeDesc, index, handlerName, handlerDesc]
 //   accessorEntries:   [handlerName, handlerDesc, kind, targetField]   kind = GET | SET
+//   invokerEntries:    [handlerName, handlerDesc, targetName]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
@@ -34,6 +35,7 @@ private const val CANCELLABLE_FQN = "net.echo.hypermixins.annotations.Cancellabl
 private const val SHADOW_FQN      = "net.echo.hypermixins.annotations.Shadow"
 private const val MODIFY_RV_FQN   = "net.echo.hypermixins.annotations.ModifyReturnValue"
 private const val ACCESSOR_FQN    = "net.echo.hypermixins.annotations.Accessor"
+private const val INVOKER_FQN     = "net.echo.hypermixins.annotations.Invoker"
 
 class MixinSymbolProcessor(
     private val codeGenerator: CodeGenerator,
@@ -115,6 +117,7 @@ class MixinSymbolProcessor(
         val shadowStaticFields = mutableListOf<ShadowFieldEntry>()
         val modifyRvs = mutableListOf<ModifyReturnValueEntry>()
         val accessors = mutableListOf<AccessorEntry>()
+        val invokers = mutableListOf<InvokerEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -125,6 +128,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(SHADOW_FQN)     -> validateAndCollectShadow(fn, shadows)
                 fn.hasAnnotation(MODIFY_RV_FQN)  -> validateAndCollectModifyReturnValue(fn, modifyRvs)
                 fn.hasAnnotation(ACCESSOR_FQN)   -> validateAndCollectAccessor(fn, accessors)
+                fn.hasAnnotation(INVOKER_FQN)    -> validateAndCollectInvoker(fn, invokers)
             }
         }
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
@@ -152,7 +156,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, accessors, staticTargets)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, accessors, invokers, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -260,6 +264,44 @@ class MixinSymbolProcessor(
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    private fun validateAndCollectInvoker(fn: KSFunctionDeclaration, out: MutableList<InvokerEntry>) {
+        val ann = fn.findAnnotation(INVOKER_FQN)!!
+        val explicit = (ann.arg("value") as? String).orEmpty()
+        val handlerName = fn.simpleName.asString()
+        val handlerDesc = descriptor(fn)
+        val params = fn.parameters
+        if (params.isEmpty()) {
+            logger.error("@Invoker method must take Object self as first parameter: $handlerName", fn)
+            return
+        }
+        val firstFqn = params[0].type.resolve().declaration.qualifiedName?.asString()
+        if (firstFqn != "kotlin.Any" && firstFqn != "java.lang.Object") {
+            logger.error("@Invoker first parameter must be Object/Any: $handlerName", fn)
+            return
+        }
+        val targetName = when {
+            explicit.isNotBlank() -> explicit
+            else -> deriveInvokerName(handlerName)
+        }
+        if (targetName.isBlank()) {
+            logger.error("@Invoker cannot derive target method from $handlerName — set value()", fn)
+            return
+        }
+        out += InvokerEntry(handlerName, handlerDesc, targetName)
+    }
+
+    private fun deriveInvokerName(method: String): String {
+        for (prefix in listOf("invoke", "call")) {
+            if (method.startsWith(prefix) && method.length > prefix.length
+                && method[prefix.length].isUpperCase()
+            ) {
+                val tail = method.substring(prefix.length)
+                return tail[0].lowercase() + tail.substring(1)
+            }
+        }
+        return method
     }
 
     private fun validateAndCollectAccessor(fn: KSFunctionDeclaration, out: MutableList<AccessorEntry>) {
@@ -510,6 +552,7 @@ class MixinSymbolProcessor(
         shadowStaticFields: List<ShadowFieldEntry>,
         modifyRvs: List<ModifyReturnValueEntry>,
         accessors: List<AccessorEntry>,
+        invokers: List<InvokerEntry>,
         staticTargets: Set<String>
     ) {
         val mixinFqn = cls.qualifiedName?.asString() ?: return
@@ -568,6 +611,9 @@ class MixinSymbolProcessor(
         }))
         classBuilder.addMethod(entriesMethod("accessorEntries", accessors.map {
             arrayOf(it.handlerName, it.handlerDesc, it.kind, it.targetField)
+        }))
+        classBuilder.addMethod(entriesMethod("invokerEntries", invokers.map {
+            arrayOf(it.handlerName, it.handlerDesc, it.targetName)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
             val paren = it.indexOf('(')
@@ -638,4 +684,5 @@ class MixinSymbolProcessor(
     private data class InjectLocalEntry(val handlerName: String, val handlerDesc: String, val paramIndex: Int, val slot: Int)
     private data class ModifyReturnValueEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
     private data class AccessorEntry(val handlerName: String, val handlerDesc: String, val kind: String, val targetField: String)
+    private data class InvokerEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
 }

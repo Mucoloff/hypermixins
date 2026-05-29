@@ -402,6 +402,40 @@ public class MixinTransformer implements ClassFileTransformer {
             }
         }
 
+        // ---- @Invoker trampolines (forward to a target method) ----
+        if (!mapping.descriptor().invokers().isEmpty()) {
+            String mappedTarget = mapping.getTargetClass().replace('.', '/');
+            Map<String, MixinDescriptor.InvokerEntry> invokersByKey = new HashMap<>();
+            for (MixinDescriptor.InvokerEntry iv : mapping.descriptor().invokers()) {
+                invokersByKey.put(iv.handlerName() + iv.handlerDesc(), iv);
+            }
+            for (MethodNode method : node.methods) {
+                MixinDescriptor.InvokerEntry iv = invokersByKey.get(method.name + method.desc);
+                if (iv == null) continue;
+                Type[] args = Type.getArgumentTypes(method.desc);
+                Type returnType = Type.getReturnType(method.desc);
+                Type[] targetArgs = Arrays.copyOfRange(args, 1, args.length);
+                String targetDesc = Type.getMethodDescriptor(returnType, targetArgs);
+
+                if ((method.access & Opcodes.ACC_NATIVE) != 0) method.access &= ~Opcodes.ACC_NATIVE;
+                method.instructions.clear();
+                method.tryCatchBlocks.clear();
+                method.localVariables = null;
+
+                InsnList ins = new InsnList();
+                ins.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                ins.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
+                int slot = 2;
+                for (Type a : targetArgs) {
+                    ins.add(new VarInsnNode(a.getOpcode(Opcodes.ILOAD), slot));
+                    slot += a.getSize();
+                }
+                ins.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, mappedTarget, iv.targetName(), targetDesc, false));
+                ins.add(new InsnNode(returnType.getOpcode(Opcodes.IRETURN)));
+                method.instructions.add(ins);
+            }
+        }
+
         // ---- @Shadow trampolines ----
         Map<String, String> shadowsByHandlerKey = new HashMap<>();
         for (MixinDescriptor.ShadowEntry s : mapping.descriptor().shadows()) {
