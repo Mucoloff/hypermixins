@@ -21,7 +21,6 @@ master is the only published surface so far.
 - **`style.md` §22 (Map<K, Boolean> → Set<K>) + §23 (no God classes)** with
   the codebase already conforming.
 
-### Added (earlier in this cycle)
 - **Compile-time descriptor pipeline.** KSP processor emits `<MixinFQN>$$Descriptor.java`
   with pre-computed `overwriteEntries`, `originalEntries`, `redirectEntries`,
   `injectEntries`, `syntheticNames`, and `mixinClass()` / `targetClass()`.
