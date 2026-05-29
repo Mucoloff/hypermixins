@@ -54,6 +54,12 @@ master is the only published surface so far.
 - **`@Local(index = N)`** — `@Inject` handler parameters may opt into reading
   a specific local slot of the target method instead of the positional
   default. Mixed positional + `@Local` in the same handler is allowed.
+- **`@Overwrite` on static target methods** — the transformer adds a static
+  mixin instance field on the target class, initializes it in `<clinit>`,
+  emits static `__original$` / `__dispatch$` synthetics, and the registry
+  bootstrap falls back to `findStatic` lazy install for the resulting
+  static call-site shape. `@Original` on a static target remains a known
+  limitation.
 
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,

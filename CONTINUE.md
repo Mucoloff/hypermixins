@@ -114,14 +114,15 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- **Static target methods for `@Overwrite` / `@Original`** — requires a
-  parallel static mixin field (`__mixin$static$X`) initialized in `<clinit>`,
-  static `__original$` / `__dispatch$` synthetics on the target, an
-  INVOKEDYNAMIC call-site descriptor without the leading receiver type, and
-  `MethodHandles.Lookup.findStatic` instead of `findVirtual` in
-  `HyperMixins.installHandles`. Documented as a limitation on
-  `Original.java` and `Overwrite.java` for now (recommended workaround:
-  write a plain static helper inside the mixin and call it from the handler).
+- **`@Original` on a static target method** — `@Overwrite` is supported
+  (transformer adds `__mixin$static$X` + `<clinit>` init + static
+  `__original$`/`__dispatch$` synthetics + `findStatic` lazy install), but
+  the `@Original` trampoline still emits `ALOAD 1; CHECKCAST; INVOKEVIRTUAL`
+  and would fail at link time against a static synthetic. Fix path: extend
+  `originalEntries()` with a `staticTarget` boolean (resolved via
+  `Class.forName(target).getDeclaredMethod(...)` in `fromAnnotations` and
+  via a similar runtime probe for the KSP path), then branch the trampoline
+  emission to `INVOKESTATIC` without `self`.
 - **`@At.Point` regex / before-after anchoring** — current matcher requires
   exact descriptor equality.
 - **Local-variable capture beyond target parameters** — capture locals

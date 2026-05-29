@@ -18,10 +18,12 @@ import java.lang.annotation.*;
  * }</pre>
  *
  * <p>
- * <b>Limitation:</b> only instance target methods are supported. Pointing {@code @Original}
- * at a static target method will fail at class link time (the generated trampoline assumes
- * an {@code INVOKEVIRTUAL} dispatch with {@code self} on the stack). For static targets,
- * write a plain static helper on your mixin and call it from your {@code @Overwrite} handler.
+ * <b>Limitation:</b> {@code @Original} trampolines work only for instance target methods.
+ * Static targets are supported by {@code @Overwrite} (the transformer adds a per-target
+ * static mixin field initialized in {@code <clinit>}), but {@code @Original} on a static
+ * target will fail at link time because the generated trampoline assumes an
+ * {@code INVOKEVIRTUAL} dispatch. For static targets, write a plain static helper on your
+ * mixin or capture the original behaviour directly inside the handler.
  *
  * @author xEcho1337
  */

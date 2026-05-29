@@ -120,11 +120,26 @@ public final class MixinRegistry {
     private static void tryLazyInstall(MethodHandles.Lookup lookup, MethodType callSiteType, String key) {
         String[] pending = PENDING.get(key);
         if (pending == null) return;
+        Class<?> lookupClass = lookup.lookupClass();
+        // Try the virtual shape first (callSiteType has a leading receiver). If that fails, fall
+        // back to the static shape — synthetics emitted by MixinTransformer for a static target
+        // method carry ACC_STATIC and have no receiver in their MethodType.
         try {
-            // callSiteType = (TargetClass, params...) -> ret; findVirtual needs (params...) -> ret
-            MethodType methodType = callSiteType.dropParameterTypes(0, 1);
-            MethodHandle origMH = lookup.findVirtual(lookup.lookupClass(), pending[0], methodType);
-            MethodHandle dispMH = lookup.findVirtual(lookup.lookupClass(), pending[1], methodType);
+            MethodType virtualType = callSiteType.dropParameterTypes(0, 1);
+            MethodHandle origMH = lookup.findVirtual(lookupClass, pending[0], virtualType);
+            MethodHandle dispMH = lookup.findVirtual(lookupClass, pending[1], virtualType);
+            ORIGINALS.put(key, origMH);
+            MIXINS.put(key, dispMH);
+            PENDING.remove(key);
+            return;
+        } catch (NoSuchMethodException virtualMiss) {
+            // fall through to static
+        } catch (IllegalAccessException e) {
+            throw new BootstrapMethodError("Lazy install failed for mixin key: " + key, e);
+        }
+        try {
+            MethodHandle origMH = lookup.findStatic(lookupClass, pending[0], callSiteType);
+            MethodHandle dispMH = lookup.findStatic(lookupClass, pending[1], callSiteType);
             ORIGINALS.put(key, origMH);
             MIXINS.put(key, dispMH);
             PENDING.remove(key);
