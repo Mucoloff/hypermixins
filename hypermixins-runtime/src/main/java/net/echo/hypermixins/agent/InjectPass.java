@@ -148,9 +148,7 @@ final class InjectPass {
         AbstractInsnNode earliestLoad = null;
         for (AbstractInsnNode n = site.getPrevious(); n != null; n = n.getPrevious()) {
             if (!(n instanceof VarInsnNode v)) continue;
-            int op = v.getOpcode();
-            if (op != Opcodes.ILOAD && op != Opcodes.LLOAD && op != Opcodes.FLOAD
-                && op != Opcodes.DLOAD && op != Opcodes.ALOAD) continue;
+            if (!Bytecode.isLoadOpcode(v.getOpcode())) continue;
             if (argsOnlySourceSlots.contains(v.var)) earliestLoad = n;
         }
         return earliestLoad != null ? earliestLoad : fallback;

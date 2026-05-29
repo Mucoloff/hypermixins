@@ -70,6 +70,11 @@ final class Bytecode {
         }
     }
 
+    /** True for ILOAD / LLOAD / FLOAD / DLOAD / ALOAD; false for STORE / RET / IINC. */
+    static boolean isLoadOpcode(int op) {
+        return op >= Opcodes.ILOAD && op <= Opcodes.ALOAD;
+    }
+
     static AbstractInsnNode intConst(int n) {
         if (n >= -1 && n <= 5) return new InsnNode(Opcodes.ICONST_0 + n);
         if (n >= Byte.MIN_VALUE && n <= Byte.MAX_VALUE) return new IntInsnNode(Opcodes.BIPUSH, n);
