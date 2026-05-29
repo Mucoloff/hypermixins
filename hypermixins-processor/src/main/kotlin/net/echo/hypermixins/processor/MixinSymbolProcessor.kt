@@ -20,6 +20,7 @@ import javax.lang.model.element.Modifier
 //   modifyReturnValueEntries: [targetMethod, invokeDesc, index, handlerName, handlerDesc]
 //   accessorEntries:   [handlerName, handlerDesc, kind, targetField]   kind = GET | SET
 //   invokerEntries:    [handlerName, handlerDesc, targetName]
+//   modifyConstantEntries: [targetMethod, type, value, index, handlerName, handlerDesc]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
@@ -36,6 +37,7 @@ private const val SHADOW_FQN      = "net.echo.hypermixins.annotations.Shadow"
 private const val MODIFY_RV_FQN   = "net.echo.hypermixins.annotations.ModifyReturnValue"
 private const val ACCESSOR_FQN    = "net.echo.hypermixins.annotations.Accessor"
 private const val INVOKER_FQN     = "net.echo.hypermixins.annotations.Invoker"
+private const val MODIFY_CONST_FQN = "net.echo.hypermixins.annotations.ModifyConstant"
 
 class MixinSymbolProcessor(
     private val codeGenerator: CodeGenerator,
@@ -118,6 +120,7 @@ class MixinSymbolProcessor(
         val modifyRvs = mutableListOf<ModifyReturnValueEntry>()
         val accessors = mutableListOf<AccessorEntry>()
         val invokers = mutableListOf<InvokerEntry>()
+        val modifyConsts = mutableListOf<ModifyConstantEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -129,6 +132,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(MODIFY_RV_FQN)  -> validateAndCollectModifyReturnValue(fn, modifyRvs)
                 fn.hasAnnotation(ACCESSOR_FQN)   -> validateAndCollectAccessor(fn, accessors)
                 fn.hasAnnotation(INVOKER_FQN)    -> validateAndCollectInvoker(fn, invokers)
+                fn.hasAnnotation(MODIFY_CONST_FQN) -> validateAndCollectModifyConstant(fn, modifyConsts)
             }
         }
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
@@ -156,7 +160,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, accessors, invokers, staticTargets)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, accessors, invokers, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -264,6 +268,42 @@ class MixinSymbolProcessor(
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    private fun validateAndCollectModifyConstant(fn: KSFunctionDeclaration, out: MutableList<ModifyConstantEntry>) {
+        val ann = fn.findAnnotation(MODIFY_CONST_FQN)!!
+        val method = (ann.arg("method") as? String).orEmpty()
+        if (method.isBlank()) {
+            logger.error("@ModifyConstant#method() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC !in fn.modifiers) {
+            logger.error("@ModifyConstant method must be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val constAnn = ann.arg("constant") as? KSAnnotation
+        val intValue = (constAnn?.arg("intValue") as? Int) ?: Int.MIN_VALUE
+        val longValue = (constAnn?.arg("longValue") as? Long) ?: Long.MIN_VALUE
+        val floatValue = (constAnn?.arg("floatValue") as? Float) ?: Float.NaN
+        val doubleValue = (constAnn?.arg("doubleValue") as? Double) ?: Double.NaN
+        val stringValue = (constAnn?.arg("stringValue") as? String).orEmpty()
+        val type: String
+        val value: String
+        when {
+            intValue != Int.MIN_VALUE -> { type = "I"; value = intValue.toString() }
+            longValue != Long.MIN_VALUE -> { type = "J"; value = longValue.toString() }
+            !floatValue.isNaN() -> { type = "F"; value = floatValue.toString() }
+            !doubleValue.isNaN() -> { type = "D"; value = doubleValue.toString() }
+            stringValue.isNotEmpty() -> { type = "Ljava/lang/String;"; value = stringValue }
+            else -> {
+                logger.error("@Constant must specify exactly one value on ${fn.simpleName.asString()}", fn)
+                return
+            }
+        }
+        val index = (ann.arg("index") as? Int) ?: 0
+        val handlerName = fn.simpleName.asString()
+        val handlerDesc = descriptor(fn)
+        out += ModifyConstantEntry(method, type, value, index, handlerName, handlerDesc)
     }
 
     private fun validateAndCollectInvoker(fn: KSFunctionDeclaration, out: MutableList<InvokerEntry>) {
@@ -551,6 +591,7 @@ class MixinSymbolProcessor(
         shadowFields: List<ShadowFieldEntry>,
         shadowStaticFields: List<ShadowFieldEntry>,
         modifyRvs: List<ModifyReturnValueEntry>,
+        modifyConsts: List<ModifyConstantEntry>,
         accessors: List<AccessorEntry>,
         invokers: List<InvokerEntry>,
         staticTargets: Set<String>
@@ -614,6 +655,9 @@ class MixinSymbolProcessor(
         }))
         classBuilder.addMethod(entriesMethod("invokerEntries", invokers.map {
             arrayOf(it.handlerName, it.handlerDesc, it.targetName)
+        }))
+        classBuilder.addMethod(entriesMethod("modifyConstantEntries", modifyConsts.map {
+            arrayOf(it.targetMethod, it.type, it.value, it.index.toString(), it.handlerName, it.handlerDesc)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
             val paren = it.indexOf('(')
@@ -685,4 +729,5 @@ class MixinSymbolProcessor(
     private data class ModifyReturnValueEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
     private data class AccessorEntry(val handlerName: String, val handlerDesc: String, val kind: String, val targetField: String)
     private data class InvokerEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
+    private data class ModifyConstantEntry(val targetMethod: String, val type: String, val value: String, val index: Int, val handlerName: String, val handlerDesc: String)
 }
