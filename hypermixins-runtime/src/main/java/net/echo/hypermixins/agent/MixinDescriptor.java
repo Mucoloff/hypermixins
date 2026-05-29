@@ -86,6 +86,7 @@ public final class MixinDescriptor {
     private final List<RedirectEntry> redirects;
     private final List<InjectEntry> injects;
     private final List<InjectLocalEntry> injectLocals;
+    private final Map<String, At.Shift> injectShifts;
     private final List<ShadowEntry> shadows;
     private final List<ShadowFieldEntry> shadowFields;
     private final List<ShadowFieldEntry> shadowStaticFields;
@@ -98,6 +99,7 @@ public final class MixinDescriptor {
         List<OverwriteEntry> overwrites, List<OriginalEntry> originals,
         List<RedirectEntry> redirects, List<InjectEntry> injects,
         List<InjectLocalEntry> injectLocals,
+        Map<String, At.Shift> injectShifts,
         List<ShadowEntry> shadows,
         List<ShadowFieldEntry> shadowFields,
         List<ShadowFieldEntry> shadowStaticFields,
@@ -110,6 +112,7 @@ public final class MixinDescriptor {
         this.redirects   = List.copyOf(redirects);
         this.injects     = List.copyOf(injects);
         this.injectLocals = List.copyOf(injectLocals);
+        this.injectShifts = Collections.unmodifiableMap(new HashMap<>(injectShifts));
         this.shadows     = List.copyOf(shadows);
         this.shadowFields = List.copyOf(shadowFields);
         this.shadowStaticFields = List.copyOf(shadowStaticFields);
@@ -122,6 +125,7 @@ public final class MixinDescriptor {
         List<OverwriteEntry> overwrites, List<OriginalEntry> originals,
         List<RedirectEntry> redirects, List<InjectEntry> injects,
         List<InjectLocalEntry> injectLocals,
+        Map<String, At.Shift> injectShifts,
         List<ShadowEntry> shadows,
         List<ShadowFieldEntry> shadowFields,
         List<ShadowFieldEntry> shadowStaticFields,
@@ -135,6 +139,7 @@ public final class MixinDescriptor {
         this.redirects   = List.copyOf(redirects);
         this.injects     = List.copyOf(injects);
         this.injectLocals = List.copyOf(injectLocals);
+        this.injectShifts = Collections.unmodifiableMap(new HashMap<>(injectShifts));
         this.shadows     = List.copyOf(shadows);
         this.shadowFields = List.copyOf(shadowFields);
         this.shadowStaticFields = List.copyOf(shadowStaticFields);
@@ -150,6 +155,7 @@ public final class MixinDescriptor {
     public List<RedirectEntry>  redirects()  { return redirects; }
     public List<InjectEntry>    injects()    { return injects; }
     public List<InjectLocalEntry> injectLocals() { return injectLocals; }
+    public Map<String, At.Shift> injectShifts() { return injectShifts; }
     public List<ShadowEntry>    shadows()    { return shadows; }
     public List<ShadowFieldEntry> shadowFields() { return shadowFields; }
     public List<ShadowFieldEntry> shadowStaticFields() { return shadowStaticFields; }
@@ -201,6 +207,7 @@ public final class MixinDescriptor {
             List<String[]> redirectRows  = invokeStringList(lookup, desc, "redirectEntries");
             List<String[]> injectRows    = invokeStringList(lookup, desc, "injectEntries");
             List<String[]> injectLocalRows = invokeStringListOrEmpty(lookup, desc, "injectCaptureLocals");
+            List<String[]> injectShiftRows = invokeStringListOrEmpty(lookup, desc, "injectShifts");
             List<String[]> shadowRows    = invokeStringListOrEmpty(lookup, desc, "shadowEntries");
             List<String[]> shadowFieldRows = invokeStringListOrEmpty(lookup, desc, "shadowFieldEntries");
             List<String[]> shadowStaticFieldRows = invokeStringListOrEmpty(lookup, desc, "shadowStaticFieldEntries");
@@ -226,6 +233,9 @@ public final class MixinDescriptor {
             for (String[] r : injectLocalRows) injLocals.add(new InjectLocalEntry(
                 r[0], r[1], Integer.parseInt(r[2]), Integer.parseInt(r[3])));
 
+            Map<String, At.Shift> injShifts = new HashMap<>();
+            for (String[] r : injectShiftRows) injShifts.put(r[0] + r[1], At.Shift.valueOf(r[2]));
+
             List<ShadowEntry> shads = new ArrayList<>(shadowRows.size());
             for (String[] r : shadowRows) shads.add(new ShadowEntry(r[0], r[1], r[2]));
 
@@ -239,7 +249,7 @@ public final class MixinDescriptor {
             for (String[] r : syntheticRows) synths.put(r[0] + r[1], new String[]{r[2], r[3]});
 
             MixinDescriptor base = new MixinDescriptor(
-                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, shads, shadFields, shadStaticFields, synths);
+                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, injShifts, shads, shadFields, shadStaticFields, synths);
             return withStaticTargets(base, staticTargetRows);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
@@ -401,9 +411,23 @@ public final class MixinDescriptor {
 
         Map<String, Boolean> staticMap = probeStaticTargetMethods(
             mixinClass, targetInternal, originals, overwrites);
+        Map<String, At.Shift> injectShifts = collectInjectShifts(mixinClass, injects);
         return new MixinDescriptor(mixinClass, targetInternal,
-            overwrites, originals, redirects, injects, injectLocals,
+            overwrites, originals, redirects, injects, injectLocals, injectShifts,
             shadows, shadowFields, shadowStaticFields, synths, staticMap);
+    }
+
+    private static Map<String, At.Shift> collectInjectShifts(Class<?> mixinClass, List<InjectEntry> injects) {
+        Map<String, At.Shift> out = new HashMap<>();
+        for (Method method : mixinClass.getDeclaredMethods()) {
+            Inject in = method.getAnnotation(Inject.class);
+            if (in == null) continue;
+            At.Shift shift = in.at().shift();
+            if (shift == At.Shift.BEFORE) continue;
+            String handlerDesc = Type.getMethodDescriptor(method);
+            out.put(method.getName() + handlerDesc, shift);
+        }
+        return out;
     }
 
     /**
@@ -417,7 +441,7 @@ public final class MixinDescriptor {
         for (String[] r : rows) map.put(r[0] + r[1], true);
         return new MixinDescriptor(base.mixinClass, base.targetClass,
             base.overwrites, base.originals, base.redirects, base.injects, base.injectLocals,
-            base.shadows, base.shadowFields, base.shadowStaticFields, base.synthetics, map);
+            base.injectShifts, base.shadows, base.shadowFields, base.shadowStaticFields, base.synthetics, map);
     }
 
     private static String resolveShadowName(String simpleName, String value, String prefix) {

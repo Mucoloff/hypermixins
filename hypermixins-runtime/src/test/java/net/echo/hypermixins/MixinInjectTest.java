@@ -325,6 +325,32 @@ public class MixinInjectTest {
         }
     }
 
+    // ---- @At#shift = AFTER ----
+
+    public static volatile java.util.List<String> shiftOrder;
+
+    public static class ShiftTarget {
+        public int run() {
+            int x = 999999;
+            return x + 1;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$ShiftTarget")
+    public static class ShiftMixin {
+        @Inject(method = "run", at = @At(point = At.Point.CONSTANT, desc = "I:999999",
+            shift = At.Shift.AFTER))
+        public void onAfter(Object self) { shiftOrder.add("after"); }
+    }
+
+    @Test
+    void shiftAfterRunsAfterMatchedInstruction() throws Exception {
+        shiftOrder = new java.util.ArrayList<>();
+        Class<?> t = applyMixin(ShiftTarget.class, ShiftMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(1_000_000, t.getMethod("run").invoke(inst));
+        assertEquals(java.util.List.of("after"), shiftOrder);
+    }
+
     // ---- @At.Point.NEW ----
 
     public static volatile int newAllocCounter;

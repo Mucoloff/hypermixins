@@ -16,6 +16,7 @@ import javax.lang.model.element.Modifier
 //   injectEntries:     [targetMethod, point, atDesc, atIndex,
 //                       cancellable, returnable, handlerName, handlerDesc]
 //   injectCaptureLocals:[handlerName, handlerDesc, paramIndex, slot]
+//   injectShifts:      [handlerName, handlerDesc, shift]   — rows only for non-BEFORE
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
@@ -302,13 +303,14 @@ class MixinSymbolProcessor(
         val point = readEnumArg(atAnn?.arg("point"), "HEAD")
         val atDesc = (atAnn?.arg("desc") as? String) ?: ""
         val atIndex = (atAnn?.arg("index") as? Int) ?: 0
+        val shift = readEnumArg(atAnn?.arg("shift"), "BEFORE")
         if ((point == "INVOKE" || point == "FIELD" || point == "CONSTANT" || point == "NEW") && atDesc.isBlank()) {
             logger.error("@Inject point $point requires @At#desc() on ${fn.simpleName.asString()}", fn)
             return
         }
         val handlerName = fn.simpleName.asString()
         val handlerDesc = descriptor(fn)
-        out += InjectEntry(method, point, atDesc, atIndex, cancellable, returnable, handlerName, handlerDesc)
+        out += InjectEntry(method, point, atDesc, atIndex, cancellable, returnable, handlerName, handlerDesc, shift)
         fn.parameters.forEachIndexed { i, p ->
             val localAnn = p.annotations.firstOrNull {
                 it.annotationType.resolve().declaration.qualifiedName?.asString() == "net.echo.hypermixins.annotations.Local"
@@ -461,6 +463,8 @@ class MixinSymbolProcessor(
             arrayOf(it.targetMethod, it.point, it.atDesc, it.atIndex.toString(),
                 it.cancellable.toString(), it.returnable.toString(), it.handlerName, it.handlerDesc)
         }))
+        classBuilder.addMethod(entriesMethod("injectShifts",
+            injects.filter { it.shift == "AFTER" }.map { arrayOf(it.handlerName, it.handlerDesc, it.shift) }))
         classBuilder.addMethod(entriesMethod("injectCaptureLocals", injectLocals.map {
             arrayOf(it.handlerName, it.handlerDesc, it.paramIndex.toString(), it.slot.toString())
         }))
@@ -536,7 +540,7 @@ class MixinSymbolProcessor(
     private data class OverwriteEntry(val targetName: String, val targetDesc: String, val handlerName: String, val handlerDesc: String)
     private data class OriginalEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
     private data class RedirectEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val call: String, val handlerName: String, val handlerDesc: String)
-    private data class InjectEntry(val targetMethod: String, val point: String, val atDesc: String, val atIndex: Int, val cancellable: Boolean, val returnable: Boolean, val handlerName: String, val handlerDesc: String)
+    private data class InjectEntry(val targetMethod: String, val point: String, val atDesc: String, val atIndex: Int, val cancellable: Boolean, val returnable: Boolean, val handlerName: String, val handlerDesc: String, val shift: String)
     private data class ShadowEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
     private data class ShadowFieldEntry(val mixinFieldName: String, val fieldDesc: String, val targetFieldName: String)
     private data class InjectLocalEntry(val handlerName: String, val handlerDesc: String, val paramIndex: Int, val slot: Int)

@@ -32,6 +32,12 @@ public @interface At {
     /** Injection point for {@link Inject}: position within the method body. */
     Point point() default Point.INVOKE;
 
+    /** Anchor: insert {@link Shift#BEFORE before} or {@link Shift#AFTER after} the matched instruction. */
+    Shift shift() default Shift.BEFORE;
+
+    /** Anchor relative to the matched instruction. */
+    enum Shift { BEFORE, AFTER }
+
     /** Injection point positions for {@link Inject}. */
     enum Point {
         /** Before the first instruction of the method. */
