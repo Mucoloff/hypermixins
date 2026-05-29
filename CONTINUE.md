@@ -102,23 +102,34 @@ hypermixins-example/run/test-world-1.0.jar \
 
 ## Backlog
 
-### Medium
-- True `MixinHandle.reload(Instrumentation, Class<?>)` — see hot-reload note above.
-- Processor unit tests — partial coverage via integration test in
-  `hypermixins-example` (`WorldMixinDescriptorTest`): asserts the KSP-generated
-  `WorldMixin$$Descriptor` exposes every entry table the runtime loader expects
-  and that the auto-generated `*.mixins.yml` is on the classpath. Pure unit
-  tests via `dev.zacsweers.kctfork` are blocked: 0.7.1 + 0.5.1 both fail under
-  Kotlin 2.3.20 — 0.7.1 hits an opt-in propagation bug; 0.5.1 lacks the
-  `ExperimentalCompilerApi` marker entirely and uses an older API shape.
-  Retry once a kctfork release tracks Kotlin 2.3, or wait for the canonical
-  `com.squareup.tools.testing:compile-testing` KSP support.
-
-### Bigger
-- `@At.Point.INVOKE / FIELD / CONSTANT / JUMP` support for `@Inject`.
-- `@Inject` local-capture: forward target locals beyond `Object self` + `CallbackInfo*`.
-- Standalone `hypermixins-agent` shadow jar with `Premain-Class` calling
-  `HyperMixins.registerFromClasspath(inst)` — drop-in `-javaagent:` for users.
+### Open
+- **True `MixinHandle.reload(Class<?>)` across different mixin Class instances** —
+  documented limitation: the `__mixin$X` field on each target is typed against
+  the original mixin Class, so swapping to a different Class would require
+  retransforming the target. Workaround: redefine the existing Class's
+  bytecode in place (virtual dispatch picks up new code) or call uninstall +
+  fresh register.
+- **Pure processor unit tests** via `dev.zacsweers.kctfork` — blocked on Kotlin
+  2.3.20 compat (0.7.1 has opt-in propagation bug; 0.5.1 lacks
+  `ExperimentalCompilerApi` marker and uses an older API shape). Integration
+  test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
+  + YAML emission end-to-end as a substitute.
+- **Field redirects (`@Redirect` with `Call.{GET,PUT}{FIELD,STATIC}`)** —
+  rejection pinned by `MixinRedirectFieldTest`. The transformer only walks
+  `MethodInsnNode`. Lift the limit by widening `applyRedirects` to
+  `FieldInsnNode` plus an `@At#desc` parser for the `owner.field:Ldesc;` form.
+- **Static target methods for `@Original`** — currently fail at link time
+  (documented JavaDoc warning on `Original.java`). Implement by emitting
+  `INVOKESTATIC` against a static `__original$` synthetic on the target.
+- **`@At.Point` regex / before-after anchoring** — current matcher requires
+  exact descriptor equality.
+- **Local-variable capture beyond target parameters** — capture locals
+  declared inside the target body, not just incoming params.
+- **Field-level `@Shadow`** — v1 implements method shadows only; field
+  forwarding would need ASM rewrites on every `GETFIELD/PUTFIELD` in the
+  mixin pointing at a `@Shadow` field.
+- **Cross-platform CI matrix (macOS / Windows)** — workflow currently runs
+  only on `ubuntu-latest`.
 
 ## Key files
 
