@@ -55,4 +55,24 @@ public class MixinModifyExpressionValueTest {
         Object inst = t.getDeclaredConstructor().newInstance();
         assertEquals(1234568, t.getMethod("big").invoke(inst));
     }
+
+    public static class InvokeTarget {
+        public int run() {
+            return Integer.parseInt("7");
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinModifyExpressionValueTest$InvokeTarget")
+    public static class InvokeMix {
+        @ModifyExpressionValue(method = "run",
+            at = @At(point = At.Point.INVOKE,
+                desc = "java/lang/Integer.parseInt(Ljava/lang/String;)I"))
+        public static int wrap(int original) { return original + 100; }
+    }
+
+    @Test
+    void modifyExpressionValueOnInvoke() throws Exception {
+        Class<?> t = applyMixin(InvokeTarget.class, InvokeMix.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(107, t.getMethod("run").invoke(inst));
+    }
 }
