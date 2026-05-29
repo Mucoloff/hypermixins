@@ -114,16 +114,12 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- `@ModifyArg` supports any argument position (last position is a fast
-  path; middle positions stash trailing args into temp locals across the
-  handler call). `@ModifyArgs` boxes primitives; `@ModifyReceiver` ships
-  for INVOKEVIRTUAL / INVOKEINTERFACE; `@ModifyExpressionValue` ships for
-  INVOKE / FIELD / CONSTANT.
-- **Local-variable capture beyond target parameters** — capture locals
-  declared inside the target body, not just incoming params.
-- **Field-level `@Shadow`** — v1 implements method shadows only; field
-  forwarding would need ASM rewrites on every `GETFIELD/PUTFIELD` in the
-  mixin pointing at a `@Shadow` field.
+- **`@Local` ordinal / type-based / argsOnly resolution** — current
+  implementation accepts only `@Local(index = N)` slot literals. Ordinal
+  + type-only resolution needs ASM's `Analyzer` to enumerate live locals
+  at the injection point; `argsOnly = true` writeback needs the handler
+  param wrapped in a fresh single-element array with read-back into the
+  slot after the handler returns.
 
 ## Key files
 
