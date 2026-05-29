@@ -99,8 +99,16 @@ public class MixinTransformer implements ClassFileTransformer {
                 break;
             }
 
+            // Group @ModifyReturnValue handlers by [targetMethod -> by invokeDesc].
+            Map<String, List<MixinDescriptor.ModifyReturnValueEntry>> mrvByDesc = new HashMap<>();
+            for (MixinDescriptor.ModifyReturnValueEntry mrv : mapping.descriptor().modifyReturnValues()) {
+                mrvByDesc.computeIfAbsent(mrv.invokeDesc(), k -> new ArrayList<>()).add(mrv);
+            }
+            Class<?> mixinClassForMrv = mapping.getMixinClass();
+
             for (MethodNode method : new ArrayList<>(node.methods)) {
                 applyRedirects(method, redirectByDesc);
+                if (!mrvByDesc.isEmpty()) applyModifyReturnValues(method, mrvByDesc, mixinClassForMrv);
 
                 if (method.name.equals("<init>")) {
                     patchConstructor(method, node, mapping, mixinField);
@@ -823,6 +831,39 @@ public class MixinTransformer implements ClassFileTransformer {
                     Type.getInternalName(redirect.handler().getDeclaringClass()),
                     redirect.handler().getName(),
                     redirect.handlerDesc(), false));
+                break;
+            }
+        }
+    }
+
+    /**
+     * For each MethodInsnNode whose owner.name.desc matches a @ModifyReturnValue's invokeDesc and
+     * whose target method matches, inserts an INVOKESTATIC call to the handler immediately after
+     * the INVOKE. Handler signature is (T) -> T where T matches the call site's return type.
+     */
+    private static void applyModifyReturnValues(
+        MethodNode method, Map<String, List<MixinDescriptor.ModifyReturnValueEntry>> mrvByDesc,
+        Class<?> mixinClass
+    ) {
+        if (method.instructions == null) return;
+        Map<MixinDescriptor.ModifyReturnValueEntry, Integer> matchCount = new HashMap<>();
+        List<AbstractInsnNode> snapshot = new ArrayList<>();
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext())
+            snapshot.add(insn);
+        String mixinInternal = Type.getInternalName(mixinClass);
+
+        for (AbstractInsnNode insn : snapshot) {
+            if (!(insn instanceof MethodInsnNode mi)) continue;
+            String invokeKey = mi.owner + "." + mi.name + mi.desc;
+            List<MixinDescriptor.ModifyReturnValueEntry> candidates = mrvByDesc.get(invokeKey);
+            if (candidates == null) continue;
+            for (MixinDescriptor.ModifyReturnValueEntry mrv : candidates) {
+                if (!method.name.equals(mrv.targetMethod())) continue;
+                int count = matchCount.getOrDefault(mrv, 0);
+                matchCount.put(mrv, count + 1);
+                if (count != mrv.index()) continue;
+                method.instructions.insert(mi, new MethodInsnNode(
+                    Opcodes.INVOKESTATIC, mixinInternal, mrv.handlerName(), mrv.handlerDesc(), false));
                 break;
             }
         }

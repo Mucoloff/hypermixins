@@ -17,6 +17,7 @@ import javax.lang.model.element.Modifier
 //                       cancellable, returnable, handlerName, handlerDesc]
 //   injectCaptureLocals:[handlerName, handlerDesc, paramIndex, slot]
 //   injectShifts:      [handlerName, handlerDesc, shift]   — rows only for non-BEFORE
+//   modifyReturnValueEntries: [targetMethod, invokeDesc, index, handlerName, handlerDesc]
 //   shadowEntries:     [handlerName, handlerDesc, targetName]
 //   shadowFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
 //   shadowStaticFieldEntries:[mixinFieldName, fieldDesc, targetFieldName]
@@ -30,6 +31,7 @@ private const val REDIRECT_FQN    = "net.echo.hypermixins.annotations.Redirect"
 private const val INJECT_FQN      = "net.echo.hypermixins.annotations.Inject"
 private const val CANCELLABLE_FQN = "net.echo.hypermixins.annotations.Cancellable"
 private const val SHADOW_FQN      = "net.echo.hypermixins.annotations.Shadow"
+private const val MODIFY_RV_FQN   = "net.echo.hypermixins.annotations.ModifyReturnValue"
 
 class MixinSymbolProcessor(
     private val codeGenerator: CodeGenerator,
@@ -109,6 +111,7 @@ class MixinSymbolProcessor(
         val shadows    = mutableListOf<ShadowEntry>()
         val shadowFields = mutableListOf<ShadowFieldEntry>()
         val shadowStaticFields = mutableListOf<ShadowFieldEntry>()
+        val modifyRvs = mutableListOf<ModifyReturnValueEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -117,6 +120,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(REDIRECT_FQN)   -> validateAndCollectRedirect(fn, redirects)
                 fn.hasAnnotation(INJECT_FQN)     -> validateAndCollectInject(fn, injects, injectLocals)
                 fn.hasAnnotation(SHADOW_FQN)     -> validateAndCollectShadow(fn, shadows)
+                fn.hasAnnotation(MODIFY_RV_FQN)  -> validateAndCollectModifyReturnValue(fn, modifyRvs)
             }
         }
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
@@ -144,7 +148,7 @@ class MixinSymbolProcessor(
         // compile classpath (i.e., declared as compileOnly or implementation in Gradle) light up;
         // everything else falls back to instance dispatch.
         val staticTargets = probeStaticTargets(resolver, targetClass, originals, overwrites)
-        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, staticTargets)
+        generateDescriptor(cls, targetClass, overwrites, originals, redirects, injects, injectLocals, shadows, shadowFields, shadowStaticFields, modifyRvs, staticTargets)
     }
 
     // ---- Validation + collection ----
@@ -252,6 +256,40 @@ class MixinSymbolProcessor(
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    private fun validateAndCollectModifyReturnValue(fn: KSFunctionDeclaration, out: MutableList<ModifyReturnValueEntry>) {
+        val ann = fn.findAnnotation(MODIFY_RV_FQN)!!
+        val method = ann.arg("method") as? String ?: ""
+        if (method.isBlank()) {
+            logger.error("@ModifyReturnValue#method() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (com.google.devtools.ksp.symbol.Modifier.JAVA_STATIC !in fn.modifiers) {
+            logger.error("@ModifyReturnValue method must be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val atAnn = ann.arg("at") as? KSAnnotation
+        val desc = atAnn?.arg("desc") as? String ?: ""
+        if (desc.isBlank()) {
+            logger.error("@At#desc() must not be empty on @ModifyReturnValue ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val parenIdx = desc.indexOf('(')
+        if (parenIdx < 0) {
+            logger.error("@At#desc() must be the invoke form on @ModifyReturnValue ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val invokeSig = desc.substring(parenIdx)
+        val handlerDesc = descriptor(fn)
+        val invokeReturn = invokeSig.substring(invokeSig.indexOf(')') + 1)
+        val expected = "($invokeReturn)$invokeReturn"
+        if (handlerDesc != expected) {
+            logger.error("@ModifyReturnValue handler signature must match (${invokeReturn})${invokeReturn} (got $handlerDesc): ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val index = (atAnn?.arg("index") as? Int) ?: 0
+        out += ModifyReturnValueEntry(method, desc, index, fn.simpleName.asString(), handlerDesc)
     }
 
     private fun validateAndCollectShadow(fn: KSFunctionDeclaration, out: MutableList<ShadowEntry>) {
@@ -424,6 +462,7 @@ class MixinSymbolProcessor(
         shadows: List<ShadowEntry>,
         shadowFields: List<ShadowFieldEntry>,
         shadowStaticFields: List<ShadowFieldEntry>,
+        modifyRvs: List<ModifyReturnValueEntry>,
         staticTargets: Set<String>
     ) {
         val mixinFqn = cls.qualifiedName?.asString() ?: return
@@ -476,6 +515,9 @@ class MixinSymbolProcessor(
         }))
         classBuilder.addMethod(entriesMethod("shadowStaticFieldEntries", shadowStaticFields.map {
             arrayOf(it.mixinFieldName, it.fieldDesc, it.targetFieldName)
+        }))
+        classBuilder.addMethod(entriesMethod("modifyReturnValueEntries", modifyRvs.map {
+            arrayOf(it.targetMethod, it.invokeDesc, it.index.toString(), it.handlerName, it.handlerDesc)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", staticTargets.map {
             val paren = it.indexOf('(')
@@ -544,4 +586,5 @@ class MixinSymbolProcessor(
     private data class ShadowEntry(val handlerName: String, val handlerDesc: String, val targetName: String)
     private data class ShadowFieldEntry(val mixinFieldName: String, val fieldDesc: String, val targetFieldName: String)
     private data class InjectLocalEntry(val handlerName: String, val handlerDesc: String, val paramIndex: Int, val slot: Int)
+    private data class ModifyReturnValueEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
 }
