@@ -114,9 +114,14 @@ hypermixins-example/run/test-world-1.0.jar \
   `ExperimentalCompilerApi` marker and uses an older API shape). Integration
   test `WorldMixinDescriptorTest` in `hypermixins-example` covers the descriptor
   + YAML emission end-to-end as a substitute.
-- **Static target methods for `@Original`** — currently fail at link time
-  (documented JavaDoc warning on `Original.java`). Implement by emitting
-  `INVOKESTATIC` against a static `__original$` synthetic on the target.
+- **Static target methods for `@Overwrite` / `@Original`** — requires a
+  parallel static mixin field (`__mixin$static$X`) initialized in `<clinit>`,
+  static `__original$` / `__dispatch$` synthetics on the target, an
+  INVOKEDYNAMIC call-site descriptor without the leading receiver type, and
+  `MethodHandles.Lookup.findStatic` instead of `findVirtual` in
+  `HyperMixins.installHandles`. Documented as a limitation on
+  `Original.java` and `Overwrite.java` for now (recommended workaround:
+  write a plain static helper inside the mixin and call it from the handler).
 - **`@At.Point` regex / before-after anchoring** — current matcher requires
   exact descriptor equality.
 - **Local-variable capture beyond target parameters** — capture locals

@@ -46,6 +46,15 @@ master is the only published surface so far.
   robustly across `KSType` / `KSClassDeclaration` / `String` shapes —
   `Call.INVOKESTATIC` no longer fell back to default `INVOKEVIRTUAL`.
 
+### Added (phase A–C)
+- **Field-level `@Shadow`** — mixins may declare `@Shadow private int foo;`
+  and reference it as `this.foo` inside `@Overwrite` / `@Inject` handlers;
+  the transformer rewrites the canonical `ALOAD 0; GETFIELD/PUTFIELD` pattern
+  to access the target's field via the `Object self` parameter.
+- **`@Local(index = N)`** — `@Inject` handler parameters may opt into reading
+  a specific local slot of the target method instead of the positional
+  default. Mixed positional + `@Local` in the same handler is allowed.
+
 ### Documentation
 - New `README.md` with quick start, annotation reference, architecture diagram,
   module table.
