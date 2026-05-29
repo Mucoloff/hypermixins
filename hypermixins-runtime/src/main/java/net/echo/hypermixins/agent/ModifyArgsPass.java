@@ -56,16 +56,16 @@ final class ModifyArgsPass {
                 for (int i = n - 1; i >= 0; i--) {
                     block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ISTORE), argLocals[i]));
                 }
-                block.add(MixinTransformer.intConst(n));
+                block.add(Bytecode.intConst(n));
                 block.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/Object"));
                 int arrLocal = method.maxLocals;
                 method.maxLocals += 1;
                 block.add(new VarInsnNode(Opcodes.ASTORE, arrLocal));
                 for (int i = 0; i < n; i++) {
                     block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
-                    block.add(MixinTransformer.intConst(i));
+                    block.add(Bytecode.intConst(i));
                     block.add(new VarInsnNode(argTypes[i].getOpcode(Opcodes.ILOAD), argLocals[i]));
-                    MixinTransformer.emitBox(block, argTypes[i]);
+                    Bytecode.emitBox(block, argTypes[i]);
                     block.add(new InsnNode(Opcodes.AASTORE));
                 }
                 block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
@@ -73,9 +73,9 @@ final class ModifyArgsPass {
                     ma.handlerName(), ma.handlerDesc(), false));
                 for (int i = 0; i < n; i++) {
                     block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
-                    block.add(MixinTransformer.intConst(i));
+                    block.add(Bytecode.intConst(i));
                     block.add(new InsnNode(Opcodes.AALOAD));
-                    MixinTransformer.unboxOrCast(block, argTypes[i]);
+                    Bytecode.unboxOrCast(block, argTypes[i]);
                 }
                 method.instructions.insertBefore(insn, block);
                 break;

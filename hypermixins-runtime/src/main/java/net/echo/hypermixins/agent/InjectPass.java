@@ -268,7 +268,7 @@ final class InjectPass {
                     if (element.getSort() == Type.OBJECT || element.getSort() == Type.ARRAY) {
                         out.add(new TypeInsnNode(Opcodes.ANEWARRAY, element.getInternalName()));
                     } else {
-                        out.add(new IntInsnNode(Opcodes.NEWARRAY, MixinTransformer.newarrayOperandForPrimitive(element)));
+                        out.add(new IntInsnNode(Opcodes.NEWARRAY, Bytecode.newarrayOperandForPrimitive(element)));
                     }
                     int arrLocal = target.maxLocals;
                     target.maxLocals += 1;
@@ -332,7 +332,7 @@ final class InjectPass {
                 out.add(new VarInsnNode(Opcodes.ALOAD, ciLocal));
                 out.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, CB_RET_INTERNAL, "getReturnValue",
                     "()Ljava/lang/Object;", false));
-                MixinTransformer.unboxOrCast(out, targetReturn);
+                Bytecode.unboxOrCast(out, targetReturn);
                 out.add(new InsnNode(targetReturn.getOpcode(Opcodes.IRETURN)));
             } else {
                 if (targetReturn.getSort() != Type.VOID) {
