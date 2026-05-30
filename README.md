@@ -159,7 +159,7 @@ See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backl
 
 ## Status
 
-- 77 runtime tests + 2 example tests + 1 agent test green.
+- 110 runtime tests + 6 processor tests + 2 example tests + 1 agent test green.
 - Supported `@At.Point` for `@Inject`: HEAD, RETURN, TAIL, INVOKE, FIELD,
   CONSTANT (LDC values), JUMP (conditional), NEW (object allocations).
 - `@At#shift = BEFORE | AFTER` lets handlers anchor either side of the
