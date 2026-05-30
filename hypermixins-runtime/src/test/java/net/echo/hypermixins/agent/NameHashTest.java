@@ -32,13 +32,15 @@ class NameHashTest {
     }
 
     /**
-     * Lock the first-16-hex prefix of SHA-1("getPlayers()Ljava/util/List;").
-     * The processor-side NameMangling.sha1Hex16 must produce the same string —
+     * Lock the first-16-hex prefix of SHA-1("()Ljava/util/List;"). The
+     * processor-side NameMangling.sha1Hex16 must produce the same string —
      * if either side drifts, $$Descriptor.syntheticNames stops matching the
-     * synthetic methods OverwritePass generates at transform time.
+     * synthetic methods OverwritePass generates at transform time. The input
+     * is the bare method descriptor because both call sites hash the desc
+     * alone (target name is concatenated unhashed).
      */
     @Test
     void hashMatchesProcessorPipelineForKnownDescriptor() {
-        assertEquals("2099ce492404b44b", NameHash.hashHex("getPlayers()Ljava/util/List;"));
+        assertEquals("26fc8d8cbd4e22af", NameHash.hashHex("()Ljava/util/List;"));
     }
 }
