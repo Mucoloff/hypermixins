@@ -127,16 +127,19 @@ internal class Collectors(private val logger: KSPLogger) {
                 )
             }
         } else {
-            val parenIdx = desc.indexOf('(')
-            if (parenIdx < 0) {
-                logger.error("@At#desc() missing '(' in @Redirect on ${fn.simpleName.asString()}", fn)
-                return
-            }
-            val invokeSignature = desc.substring(parenIdx)
-            if (handlerDesc != invokeSignature) {
-                logger.error(
-                    "@Redirect handler signature mismatch on ${fn.simpleName.asString()}: expected $invokeSignature found $handlerDesc", fn
-                )
+            val isPattern = desc.contains('*') || desc.startsWith("regex:")
+            if (!isPattern) {
+                val parenIdx = desc.indexOf('(')
+                if (parenIdx < 0) {
+                    logger.error("@At#desc() missing '(' in @Redirect on ${fn.simpleName.asString()}", fn)
+                    return
+                }
+                val invokeSignature = desc.substring(parenIdx)
+                if (handlerDesc != invokeSignature) {
+                    logger.error(
+                        "@Redirect handler signature mismatch on ${fn.simpleName.asString()}: expected $invokeSignature found $handlerDesc", fn
+                    )
+                }
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
