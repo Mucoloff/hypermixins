@@ -146,11 +146,15 @@ final class AnnotationDescriptorReader {
                         + ": expected " + expected + " got " + handlerDesc);
             }
         } else {
-            int paren = re.at().desc().indexOf('(');
-            if (paren < 0) throw new IllegalArgumentException("@At#desc() missing '(' on " + method);
-            String invokeSig = re.at().desc().substring(paren);
-            if (!handlerDesc.equals(invokeSig))
-                throw new IllegalArgumentException("Redirect handler signature mismatch on " + method);
+            String d = re.at().desc();
+            boolean pattern = d.indexOf('*') >= 0 || d.startsWith("regex:");
+            if (!pattern) {
+                int paren = d.indexOf('(');
+                if (paren < 0) throw new IllegalArgumentException("@At#desc() missing '(' on " + method);
+                String invokeSig = d.substring(paren);
+                if (!handlerDesc.equals(invokeSig))
+                    throw new IllegalArgumentException("Redirect handler signature mismatch on " + method);
+            }
         }
         out.add(new MixinDescriptor.RedirectEntry(re.method(), re.at().desc(), re.at().index(),
             call, method.getName(), handlerDesc));
