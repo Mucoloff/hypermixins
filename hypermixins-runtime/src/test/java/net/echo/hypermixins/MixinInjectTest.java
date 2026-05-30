@@ -379,6 +379,34 @@ public class MixinInjectTest {
         assertEquals(2, wildcardCalls);
     }
 
+    // ---- @At#desc regex ----
+
+    public static volatile int regexCalls;
+
+    public static class RegexTarget {
+        public String run() {
+            String a = String.valueOf(7);
+            String b = Integer.toString(8);
+            return a + b;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$RegexTarget")
+    public static class RegexMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "regex:java/lang/.*\\.(valueOf|toString)\\(I\\)Ljava/lang/String;"))
+        public void onAny(Object self) { regexCalls++; }
+    }
+
+    @Test
+    void atDescRegexMatchesAcrossOwners() throws Exception {
+        regexCalls = 0;
+        Class<?> t = applyMixin(RegexTarget.class, RegexMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals("78", t.getMethod("run").invoke(inst));
+        // Two int→String conversions match the regex.
+        assertEquals(2, regexCalls);
+    }
+
     // ---- @At.Point.NEW ----
 
     public static volatile int newAllocCounter;
