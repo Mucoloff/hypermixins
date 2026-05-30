@@ -30,4 +30,15 @@ class NameHashTest {
             NameHash.hashHex("foo()V"),
             NameHash.hashHex("bar()V"));
     }
+
+    /**
+     * Lock the first-16-hex prefix of SHA-1("getPlayers()Ljava/util/List;").
+     * The processor-side NameMangling.sha1Hex16 must produce the same string —
+     * if either side drifts, $$Descriptor.syntheticNames stops matching the
+     * synthetic methods OverwritePass generates at transform time.
+     */
+    @Test
+    void hashMatchesProcessorPipelineForKnownDescriptor() {
+        assertEquals("2099ce492404b44b", NameHash.hashHex("getPlayers()Ljava/util/List;"));
+    }
 }
