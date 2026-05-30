@@ -381,6 +381,10 @@ internal class Collectors(private val logger: KSPLogger) {
             logger.error("@Inject#method() must not be empty on ${fn.simpleName.asString()}", fn)
             return
         }
+        if (Modifier.STATIC in fn.javaModifiers()) {
+            logger.error("@Inject method must not be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
         val firstParam = fn.parameters.firstOrNull()
         if (firstParam == null) {
             logger.error("@Inject method must declare 'Object self' as first parameter: ${fn.simpleName.asString()}", fn)
