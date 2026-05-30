@@ -118,6 +118,9 @@ final class AnnotationDescriptorReader {
 
     private static void collectOriginal(Method method, Original or, List<MixinDescriptor.OriginalEntry> out) {
         if (or.value().isEmpty()) throw new IllegalArgumentException("@Original#value() is empty on " + method);
+        Class<?>[] params = method.getParameterTypes();
+        if (params.length == 0 || params[0] != Object.class)
+            throw new IllegalArgumentException("@Original first param must be Object self on " + method);
         out.add(new MixinDescriptor.OriginalEntry(method.getName(), Type.getMethodDescriptor(method), or.value()));
     }
 
