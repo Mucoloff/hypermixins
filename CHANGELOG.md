@@ -6,6 +6,11 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Fixed
+- **Compile-time validation gaps** on the `@Inject` and `@Original` collectors:
+  the processor now rejects non-`Object`/`Any` first parameters and static
+  `@Inject` declarations, matching the runtime reflection-fallback checks.
+
 ### Added
 - **Frame-driven `@Local` at every non-HEAD `@Inject` point.** Ordinal and bare
   bindings now resolve through the target's preserved `LocalVariableTable`
