@@ -335,18 +335,23 @@ internal class Collectors(private val logger: KSPLogger) {
             logger.error("@At#desc() must not be empty on @ModifyReturnValue ${fn.simpleName.asString()}", fn)
             return
         }
-        val parenIdx = desc.indexOf('(')
-        if (parenIdx < 0) {
-            logger.error("@At#desc() must be the invoke form on @ModifyReturnValue ${fn.simpleName.asString()}", fn)
-            return
-        }
-        val invokeSig = desc.substring(parenIdx)
         val handlerDesc = descriptor(fn)
-        val invokeReturn = invokeSig.substring(invokeSig.indexOf(')') + 1)
-        val expected = "($invokeReturn)$invokeReturn"
-        if (handlerDesc != expected) {
-            logger.error("@ModifyReturnValue handler signature must match (${invokeReturn})${invokeReturn} (got $handlerDesc): ${fn.simpleName.asString()}", fn)
-            return
+        val parenIdx = desc.indexOf('(')
+        // Wildcard / regex matchers can't be statically checked — DescriptorMatcher resolves
+        // the concrete invoke shape at transform time.
+        val isPattern = desc.contains('*') || desc.startsWith("regex:")
+        if (!isPattern) {
+            if (parenIdx < 0) {
+                logger.error("@At#desc() must be the invoke form on @ModifyReturnValue ${fn.simpleName.asString()}", fn)
+                return
+            }
+            val invokeSig = desc.substring(parenIdx)
+            val invokeReturn = invokeSig.substring(invokeSig.indexOf(')') + 1)
+            val expected = "($invokeReturn)$invokeReturn"
+            if (handlerDesc != expected) {
+                logger.error("@ModifyReturnValue handler signature must match (${invokeReturn})${invokeReturn} (got $handlerDesc): ${fn.simpleName.asString()}", fn)
+                return
+            }
         }
         val index = (atAnn?.arg("index") as? Int) ?: 0
         out += ModifyReturnValueEntry(method, desc, index, fn.simpleName.asString(), handlerDesc)
