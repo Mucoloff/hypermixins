@@ -79,6 +79,11 @@ internal class Collectors(private val logger: KSPLogger) {
             logger.error("@Original method must have at least 'Object self' as first parameter: ${fn.simpleName.asString()}", fn)
             return
         }
+        val firstFqn = fn.parameters[0].type.resolve().declaration.qualifiedName?.asString()
+        if (firstFqn != "kotlin.Any" && firstFqn != "java.lang.Object") {
+            logger.error("@Original first parameter must be Object/Any (found $firstFqn): ${fn.simpleName.asString()}", fn)
+            return
+        }
         out += OriginalEntry(fn.simpleName.asString(), descriptor(fn), targetName)
     }
 
