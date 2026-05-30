@@ -141,8 +141,23 @@ final class ReflectionCollectors {
             if (ann == null) continue;
             if (!Modifier.isStatic(m.getModifiers()))
                 throw new IllegalArgumentException("@ModifyReturnValue must be static: " + m);
-            out.add(new MixinDescriptor.ModifyReturnValueEntry(ann.method(), ann.at().desc(), ann.at().index(),
-                m.getName(), Type.getMethodDescriptor(m)));
+            String desc = ann.at().desc();
+            String handlerDesc = Type.getMethodDescriptor(m);
+            int parenIdx = desc.indexOf('(');
+            // Wildcard / regex matchers skip the signature check — DescriptorMatcher resolves
+            // the actual invoke shape at transform time.
+            if (parenIdx >= 0 && desc.indexOf('*') < 0 && !desc.startsWith("regex:")) {
+                String invokeSig = desc.substring(parenIdx);
+                String invokeReturn = invokeSig.substring(invokeSig.indexOf(')') + 1);
+                String expected = "(" + invokeReturn + ")" + invokeReturn;
+                if (!handlerDesc.equals(expected)) {
+                    throw new IllegalArgumentException(
+                        "@ModifyReturnValue handler signature must match " + expected
+                        + " (got " + handlerDesc + ") on " + m);
+                }
+            }
+            out.add(new MixinDescriptor.ModifyReturnValueEntry(ann.method(), desc, ann.at().index(),
+                m.getName(), handlerDesc));
         }
         return out;
     }
