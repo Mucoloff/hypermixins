@@ -381,6 +381,16 @@ internal class Collectors(private val logger: KSPLogger) {
             logger.error("@Inject#method() must not be empty on ${fn.simpleName.asString()}", fn)
             return
         }
+        val firstParam = fn.parameters.firstOrNull()
+        if (firstParam == null) {
+            logger.error("@Inject method must declare 'Object self' as first parameter: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val firstFqn = firstParam.type.resolve().declaration.qualifiedName?.asString()
+        if (firstFqn != "kotlin.Any" && firstFqn != "java.lang.Object") {
+            logger.error("@Inject first parameter must be Object/Any (found $firstFqn): ${fn.simpleName.asString()}", fn)
+            return
+        }
         val cancellable = (ann.arg("cancellable") as? Boolean) == true
                 || fn.hasAnnotation(CANCELLABLE_FQN)
         var returnable = false
