@@ -488,6 +488,28 @@ public class MixinInjectTest {
         assertEquals(41, localCaptured);
     }
 
+    // ---- @Cancellable shorthand ----
+
+    public static class CancellableShorthandTarget {
+        public int compute(int x) { return x; }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$CancellableShorthandTarget")
+    public static class CancellableShorthandMixin {
+        @Inject(method = "compute", at = @At(point = At.Point.HEAD))
+        @net.echo.hypermixins.annotations.Cancellable
+        public void onCompute(Object self, int x, CallbackInfoReturnable<Integer> cir) {
+            if (x < 0) cir.setReturnValue(-100);
+        }
+    }
+
+    @Test
+    void cancellableAnnotationShorthandActsLikeFlag() throws Exception {
+        Class<?> t = applyMixin(CancellableShorthandTarget.class, CancellableShorthandMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(-100, t.getMethod("compute", int.class).invoke(inst, -5));
+        assertEquals(7, t.getMethod("compute", int.class).invoke(inst, 7));
+    }
+
     // ---- bare @Local at non-HEAD point (Analyzer-driven) ----
 
     public static volatile String siteFrameCaptured;
