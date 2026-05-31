@@ -5,15 +5,54 @@ import com.intellij.psi.search.GlobalSearchScope
 
 /** Fully-qualified annotation names — source of truth for all plugin lookups. */
 object MixinAnnotations {
-    const val MIXIN      = "net.echo.hypermixins.annotations.Mixin"
-    const val OVERWRITE  = "net.echo.hypermixins.annotations.Overwrite"
-    const val ORIGINAL   = "net.echo.hypermixins.annotations.Original"
-    const val REDIRECT   = "net.echo.hypermixins.annotations.Redirect"
-    const val AT         = "net.echo.hypermixins.annotations.At"
-    const val INJECT     = "net.echo.hypermixins.annotations.Inject"
-    const val WRAP_OP    = "net.echo.hypermixins.annotations.WrapOperation"
-    const val WRAP_MTH   = "net.echo.hypermixins.annotations.WrapMethod"
-    const val CANCELLABLE = "net.echo.hypermixins.annotations.Cancellable"
+    private const val PKG = "net.echo.hypermixins.annotations"
+
+    // Class-level
+    const val MIXIN       = "$PKG.Mixin"
+    const val IMPLEMENTS  = "$PKG.Implements"
+
+    // Method-targeting (carry `method = "..."` or `value = "..."` naming the target)
+    const val OVERWRITE              = "$PKG.Overwrite"
+    const val ORIGINAL               = "$PKG.Original"
+    const val REDIRECT               = "$PKG.Redirect"
+    const val INJECT                 = "$PKG.Inject"
+    const val WRAP_OP                = "$PKG.WrapOperation"
+    const val WRAP_MTH               = "$PKG.WrapMethod"
+    const val WRAP_WITH_CONDITION    = "$PKG.WrapWithCondition"
+    const val MODIFY_RETURN_VALUE    = "$PKG.ModifyReturnValue"
+    const val MODIFY_CONSTANT        = "$PKG.ModifyConstant"
+    const val MODIFY_ARG             = "$PKG.ModifyArg"
+    const val MODIFY_ARGS            = "$PKG.ModifyArgs"
+    const val MODIFY_EXPRESSION      = "$PKG.ModifyExpressionValue"
+    const val MODIFY_RECEIVER        = "$PKG.ModifyReceiver"
+    const val SURROGATE              = "$PKG.Surrogate"
+    const val SHADOW                 = "$PKG.Shadow"
+    const val ACCESSOR               = "$PKG.Accessor"
+    const val INVOKER                = "$PKG.Invoker"
+
+    // Site / handler metadata (no target on their own)
+    const val AT          = "$PKG.At"
+    const val SLICE       = "$PKG.Slice"
+    const val CANCELLABLE = "$PKG.Cancellable"
+    const val DEFINITION  = "$PKG.Definition"
+    const val DEFINITIONS = "$PKG.Definitions"
+    const val EXPRESSION  = "$PKG.Expression"
+
+    // Pure markers (parameter / method)
+    const val SOFT    = "$PKG.Soft"
+    const val FINAL   = "$PKG.Final"
+    const val MUTABLE = "$PKG.Mutable"
+    const val COERCE  = "$PKG.Coerce"
+    const val SHARE   = "$PKG.Share"
+    const val UNIQUE  = "$PKG.Unique"
+    const val LOCAL   = "$PKG.Local"
+
+    /** Method-targeting annotations eligible for gutter / target-not-found resolution. */
+    val METHOD_TARGETING: Set<String> = setOf(
+        OVERWRITE, ORIGINAL, REDIRECT, INJECT, WRAP_OP, WRAP_MTH, WRAP_WITH_CONDITION,
+        MODIFY_RETURN_VALUE, MODIFY_CONSTANT, MODIFY_ARG, MODIFY_ARGS,
+        MODIFY_EXPRESSION, MODIFY_RECEIVER, SURROGATE, SHADOW, ACCESSOR, INVOKER
+    )
 }
 
 object MixinPsiUtil {

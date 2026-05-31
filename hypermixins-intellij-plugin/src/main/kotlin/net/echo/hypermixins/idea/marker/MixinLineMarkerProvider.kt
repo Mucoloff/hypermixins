@@ -48,15 +48,7 @@ class MixinLineMarkerProvider : RelatedItemLineMarkerProvider() {
 
         val annotationFqn = method.annotations.firstNotNullOfOrNull { ann ->
             val fqn = ann.qualifiedName ?: return@firstNotNullOfOrNull null
-            when (fqn) {
-                MixinAnnotations.OVERWRITE,
-                MixinAnnotations.REDIRECT,
-                MixinAnnotations.INJECT,
-                MixinAnnotations.ORIGINAL,
-                MixinAnnotations.WRAP_OP,
-                MixinAnnotations.WRAP_MTH -> fqn
-                else -> null
-            }
+            if (fqn in MixinAnnotations.METHOD_TARGETING) fqn else null
         } ?: return
 
         val methodName = resolveTargetMethodName(method, annotationFqn) ?: method.name
@@ -64,11 +56,24 @@ class MixinLineMarkerProvider : RelatedItemLineMarkerProvider() {
         if (targets.isEmpty()) return
 
         val tooltip = when (annotationFqn) {
-            MixinAnnotations.OVERWRITE -> "Overwrites ${targetClass.name}.$methodName"
-            MixinAnnotations.REDIRECT  -> "Redirects call in ${targetClass.name}.$methodName"
-            MixinAnnotations.INJECT    -> "Injects into ${targetClass.name}.$methodName"
-            MixinAnnotations.ORIGINAL  -> "Original of ${targetClass.name}.$methodName"
-            else                       -> "Targets ${targetClass.name}.$methodName"
+            MixinAnnotations.OVERWRITE         -> "Overwrites ${targetClass.name}.$methodName"
+            MixinAnnotations.REDIRECT          -> "Redirects call in ${targetClass.name}.$methodName"
+            MixinAnnotations.INJECT            -> "Injects into ${targetClass.name}.$methodName"
+            MixinAnnotations.ORIGINAL          -> "Original of ${targetClass.name}.$methodName"
+            MixinAnnotations.SURROGATE         -> "Surrogate for ${targetClass.name}.$methodName"
+            MixinAnnotations.SHADOW            -> "Shadows ${targetClass.name}.$methodName"
+            MixinAnnotations.WRAP_WITH_CONDITION -> "Wraps with condition in ${targetClass.name}.$methodName"
+            MixinAnnotations.WRAP_OP           -> "Wraps operation in ${targetClass.name}.$methodName"
+            MixinAnnotations.WRAP_MTH          -> "Wraps method ${targetClass.name}.$methodName"
+            MixinAnnotations.MODIFY_RETURN_VALUE -> "Modifies return value in ${targetClass.name}.$methodName"
+            MixinAnnotations.MODIFY_CONSTANT   -> "Modifies constant in ${targetClass.name}.$methodName"
+            MixinAnnotations.MODIFY_ARG        -> "Modifies arg in ${targetClass.name}.$methodName"
+            MixinAnnotations.MODIFY_ARGS       -> "Modifies args in ${targetClass.name}.$methodName"
+            MixinAnnotations.MODIFY_EXPRESSION -> "Modifies expression in ${targetClass.name}.$methodName"
+            MixinAnnotations.MODIFY_RECEIVER   -> "Modifies receiver in ${targetClass.name}.$methodName"
+            MixinAnnotations.ACCESSOR          -> "Accessor for ${targetClass.name}.$methodName"
+            MixinAnnotations.INVOKER           -> "Invoker for ${targetClass.name}.$methodName"
+            else                               -> "Targets ${targetClass.name}.$methodName"
         }
 
         val marker = NavigationGutterIconBuilder.create(MixinIcons.MIXIN)
@@ -80,6 +85,9 @@ class MixinLineMarkerProvider : RelatedItemLineMarkerProvider() {
 
     private fun resolveTargetMethodName(method: PsiMethod, annotationFqn: String): String? {
         val annotation = method.getAnnotation(annotationFqn) ?: return null
-        return MixinPsiUtil.stringAttr(annotation, "value") ?: method.name
+        // Most newer annotations use `method = "..."`; legacy ones use `value = "..."`.
+        return MixinPsiUtil.stringAttr(annotation, "method")
+            ?: MixinPsiUtil.stringAttr(annotation, "value")
+            ?: method.name
     }
 }
