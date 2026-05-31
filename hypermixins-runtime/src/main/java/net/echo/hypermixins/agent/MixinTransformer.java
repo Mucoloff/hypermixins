@@ -142,6 +142,8 @@ public class MixinTransformer implements ClassFileTransformer {
             }
             Set<String> wrapAdaptersGenerated = new HashSet<>();
 
+            WrapMethodPass.apply(node, mapping, overwrittenKeys, extraMethods);
+
             for (MethodNode method : new ArrayList<>(node.methods)) {
                 RedirectPass.apply(method, redirectByDesc);
                 if (!mrvByDesc.isEmpty()) ModifyReturnValuePass.apply(method, mrvByDesc, mixinClassForMrv);

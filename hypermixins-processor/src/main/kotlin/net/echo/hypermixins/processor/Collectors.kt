@@ -24,6 +24,7 @@ internal const val MODIFY_ARGS_FQN  = "net.echo.hypermixins.annotations.ModifyAr
 internal const val MODIFY_RECV_FQN  = "net.echo.hypermixins.annotations.ModifyReceiver"
 internal const val WRAP_COND_FQN    = "net.echo.hypermixins.annotations.WrapWithCondition"
 internal const val WRAP_OP_FQN      = "net.echo.hypermixins.annotations.WrapOperation"
+internal const val WRAP_METH_FQN    = "net.echo.hypermixins.annotations.WrapMethod"
 internal const val AT_FQN           = "net.echo.hypermixins.annotations.At"
 internal const val LOCAL_FQN        = "net.echo.hypermixins.annotations.Local"
 
@@ -173,6 +174,26 @@ internal class Collectors(private val logger: KSPLogger) {
         }
         val index = (atAnn?.arg("index") as? Int) ?: 0
         out += WrapConditionEntry(method, desc, index, fn.simpleName.asString(), handlerDesc)
+    }
+
+    fun wrapMethod(fn: KSFunctionDeclaration, out: MutableList<WrapMethodEntry>) {
+        val ann = fn.findAnnotation(WRAP_METH_FQN)!!
+        val target = (ann.arg("value") as? String).orEmpty()
+        if (target.isBlank()) {
+            logger.error("@WrapMethod#value() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (Modifier.STATIC in fn.javaModifiers()) {
+            logger.error("@WrapMethod method must not be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val lastParam = fn.parameters.lastOrNull()
+        val lastFqn = lastParam?.type?.resolve()?.declaration?.qualifiedName?.asString() ?: ""
+        if (lastFqn != "net.echo.hypermixins.annotations.Operation") {
+            logger.error("@WrapMethod handler's last parameter must be Operation<R>: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        out += WrapMethodEntry(target, fn.simpleName.asString(), descriptor(fn))
     }
 
     fun wrapOperation(fn: KSFunctionDeclaration, out: MutableList<WrapOperationEntry>) {

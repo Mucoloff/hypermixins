@@ -11,9 +11,18 @@ master is the only published surface so far.
   INVOKE / FIELD call site. Handler returns `boolean`; `true` lets the
   original site fire, `false` skips it and pushes the default value for
   the original return type. `index <= 0` wraps every match; `index > 0`
-  selects the 1-based occurrence. `@WrapOperation` / `@WrapMethod`
-  remain on the backlog — they need LambdaMetafactory + per-site
-  synthetic methods and are a separate planning iteration.
+  selects the 1-based occurrence.
+- **`@WrapOperation`** — wraps a single matched INVOKE site with an
+  `Operation<R>` lambda. Handler receives the original args plus the
+  lambda as the last param; `op.call(args...)` re-invokes the wrapped
+  site with whatever args the handler hands in. Lambda is built via
+  `INVOKEDYNAMIC` + `LambdaMetafactory` bound to a per-site static
+  adapter that lives on the target class.
+- **`@WrapMethod`** — wraps the entire target method. Original body is
+  cloned into `__wrappedOrig$<name>$<hash>`; the method's body is
+  rewritten to build the same `Operation<R>` lambda + `INVOKEVIRTUAL`
+  the instance handler on the mixin class. Conflicts with `@Overwrite`
+  on the same target are rejected at transform.
 
 ## 1.3 — 2026-05-31
 
