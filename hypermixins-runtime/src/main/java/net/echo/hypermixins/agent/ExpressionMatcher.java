@@ -140,6 +140,7 @@ final class ExpressionMatcher {
         if (!(insn instanceof MethodInsnNode mi)) return false;
         MixinDescriptor.DefinitionEntry d = Objects.requireNonNull(defsById.get(call.defId()));
         if (!DescriptorMatcher.matches(d.method(), mi.owner + "." + mi.name + mi.desc)) return false;
+        if (!literalArgsMatch(insn, call.args())) return false;
         if (countParams(mi.desc) != call.args().size()) return false;
         if (requireThis && !receiverIsThis(insn, call.args().size())) return false;
         return true;
@@ -198,6 +199,7 @@ final class ExpressionMatcher {
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v && isLoadOpcode(v.getOpcode());
             case ExpressionNode.NamedArg ignored ->
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v && isLoadOpcode(v.getOpcode());
+            case ExpressionNode.LiteralArg lit -> literalMatches(insn, lit);
             case ExpressionNode.ThisRef ignored ->
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v
                     && v.getOpcode() == Opcodes.ALOAD && v.var == 0;
@@ -231,6 +233,41 @@ final class ExpressionMatcher {
     private static boolean isLoadOpcode(int op) {
         return op == Opcodes.ILOAD || op == Opcodes.LLOAD || op == Opcodes.FLOAD
             || op == Opcodes.DLOAD || op == Opcodes.ALOAD;
+    }
+
+    private boolean literalArgsMatch(AbstractInsnNode insn, List<ExpressionNode.Arg> args) {
+        for (int i = 0; i < args.size(); i++) {
+            if (!(args.get(i) instanceof ExpressionNode.LiteralArg lit)) continue;
+            int stackOffset = args.size() - 1 - i;
+            AbstractInsnNode producer = ExpressionStackWalker.findProducerAt(insn, stackOffset);
+            if (producer == null) return false;
+            if (!literalMatches(producer, lit)) return false;
+        }
+        return true;
+    }
+
+    private static boolean literalMatches(AbstractInsnNode producer, ExpressionNode.LiteralArg lit) {
+        return switch (lit.kind()) {
+            case INT -> matchesIntConst(producer, (Integer) lit.value());
+            case STRING -> producer instanceof org.objectweb.asm.tree.LdcInsnNode l
+                && l.cst instanceof String s && s.equals(lit.value());
+            case BOOL -> producer.getOpcode() == (Boolean.TRUE.equals(lit.value())
+                ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+            case NULL -> producer.getOpcode() == Opcodes.ACONST_NULL;
+        };
+    }
+
+    private static boolean matchesIntConst(AbstractInsnNode producer, int wanted) {
+        int op = producer.getOpcode();
+        if (op >= Opcodes.ICONST_M1 && op <= Opcodes.ICONST_5) {
+            return wanted == op - Opcodes.ICONST_0;
+        }
+        if (producer instanceof org.objectweb.asm.tree.IntInsnNode iin
+            && (op == Opcodes.BIPUSH || op == Opcodes.SIPUSH)) {
+            return wanted == iin.operand;
+        }
+        return producer instanceof org.objectweb.asm.tree.LdcInsnNode l
+            && l.cst instanceof Integer i && i == wanted;
     }
 
     private boolean matchesAssign(AbstractInsnNode insn, ExpressionNode.Assign a) {
@@ -298,6 +335,8 @@ final class ExpressionMatcher {
                 validateOperand(bo.lhs(), defs, handler, paramIndexByName);
                 validateOperand(bo.rhs(), defs, handler, paramIndexByName);
             }
+            case ExpressionNode.LiteralArg lit -> throw new IllegalStateException(
+                "@Expression cannot be a bare literal '" + lit.value() + "' on " + handler);
             case ExpressionNode.Wildcard ignored -> throw new IllegalStateException(
                 "@Expression cannot be bare `?` on " + handler);
             case ExpressionNode.NamedArg na -> throw new IllegalStateException(
@@ -320,6 +359,7 @@ final class ExpressionMatcher {
         switch (node) {
             case ExpressionNode.Wildcard ignored -> {}
             case ExpressionNode.NamedArg ignored -> {}
+            case ExpressionNode.LiteralArg ignored -> {}
             case ExpressionNode.ThisRef ignored -> {}
             case ExpressionNode.BinaryOp bo -> {
                 validateOperand(bo.lhs(), defs, handler, paramIndexByName);

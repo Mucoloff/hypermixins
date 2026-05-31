@@ -147,9 +147,49 @@ final class ExpressionParser {
         char c = src.charAt(pos);
         if (c == '?') { pos++; return ExpressionNode.Wildcard.INSTANCE; }
         if (peekKeyword(THIS)) { pos += THIS.length(); return ExpressionNode.ThisRef.INSTANCE; }
+        if (peekKeyword("true"))  { pos += 4; return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.BOOL, Boolean.TRUE); }
+        if (peekKeyword("false")) { pos += 5; return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.BOOL, Boolean.FALSE); }
+        if (peekKeyword("null"))  { pos += 4; return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.NULL, null); }
+        if (c == '"') return readStringLiteral();
+        if (c == '-' || isDigit(c)) return readIntLiteral();
         if (isIdentStart(c)) return new ExpressionNode.NamedArg(readIdent());
         throw new IllegalArgumentException(
             "Unsupported argument at offset " + pos + " in expression: " + src);
+    }
+
+    private ExpressionNode.LiteralArg readIntLiteral() {
+        int start = pos;
+        if (src.charAt(pos) == '-') pos++;
+        while (pos < src.length() && isDigit(src.charAt(pos))) pos++;
+        String txt = src.substring(start, pos);
+        if (txt.equals("-") || txt.isEmpty()) {
+            throw new IllegalArgumentException(
+                "Malformed integer literal at offset " + start + " in expression: " + src);
+        }
+        try {
+            return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.INT, Integer.parseInt(txt));
+        } catch (NumberFormatException nfe) {
+            throw new IllegalArgumentException(
+                "Integer literal '" + txt + "' out of range at offset " + start + " in expression: " + src);
+        }
+    }
+
+    private ExpressionNode.LiteralArg readStringLiteral() {
+        int start = pos;
+        pos++;
+        int contentStart = pos;
+        while (pos < src.length() && src.charAt(pos) != '"') pos++;
+        if (pos >= src.length()) {
+            throw new IllegalArgumentException(
+                "Unterminated string literal at offset " + start + " in expression: " + src);
+        }
+        String value = src.substring(contentStart, pos);
+        pos++;
+        return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.STRING, value);
+    }
+
+    private static boolean isDigit(char c) {
+        return c >= '0' && c <= '9';
     }
 
     private String readIdent() {

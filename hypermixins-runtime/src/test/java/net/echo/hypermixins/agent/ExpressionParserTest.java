@@ -44,9 +44,12 @@ class ExpressionParserTest {
     }
 
     @Test
-    void rejectsNonWildcardArgument() {
-        assertThrows(IllegalArgumentException.class,
-            () -> ExpressionParser.parse("emit(42)"));
+    void parsesIntLiteralArg() {
+        ExpressionNode node = ExpressionParser.parse("emit(42)");
+        ExpressionNode.Call c = assertInstanceOf(ExpressionNode.Call.class, node);
+        ExpressionNode.LiteralArg lit = assertInstanceOf(ExpressionNode.LiteralArg.class, c.args().get(0));
+        assertEquals(ExpressionNode.LiteralArg.Kind.INT, lit.kind());
+        assertEquals(42, lit.value());
     }
 
     @Test

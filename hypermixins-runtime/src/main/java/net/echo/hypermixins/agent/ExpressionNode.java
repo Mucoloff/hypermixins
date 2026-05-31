@@ -57,4 +57,13 @@ sealed interface ExpressionNode {
 
     /** Named identifier in arg position. Resolves to a handler param by {@code -parameters} name. */
     record NamedArg(String name) implements ExpressionNode, Arg {}
+
+    /**
+     * Literal constant in arg position. Acts as a *constraint* on the matched call: the stack
+     * slot at the corresponding position must be produced by a constant load whose value
+     * equals {@link #value()}. Never binds to a handler param.
+     */
+    record LiteralArg(Kind kind, Object value) implements ExpressionNode, Arg {
+        public enum Kind { INT, STRING, BOOL, NULL }
+    }
 }
