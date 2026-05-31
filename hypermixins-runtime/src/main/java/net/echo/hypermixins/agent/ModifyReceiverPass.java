@@ -40,7 +40,9 @@ final class ModifyReceiverPass {
                 int op = mi.getOpcode();
                 if (op != Opcodes.INVOKEVIRTUAL && op != Opcodes.INVOKEINTERFACE) {
                     throw new IllegalStateException(
-                        "@ModifyReceiver only applies to virtual / interface call sites — got opcode " + op + " on " + key);
+                        "@ModifyReceiver handler " + mr.handlerName() + mr.handlerDesc()
+                        + " in " + mixinClass.getName()
+                        + " only applies to virtual / interface call sites — got opcode " + op + " on " + key);
                 }
                 int count = matchCount.getOrDefault(mr, 0);
                 matchCount.put(mr, count + 1);

@@ -21,7 +21,8 @@ final class ImplementsPass {
         for (Class<?> iface : ann.value()) {
             if (!iface.isInterface()) {
                 throw new IllegalStateException(
-                    "@Implements lists a non-interface type: " + iface.getName());
+                    "@Implements on " + mapping.getMixinClass().getName()
+                    + " lists a non-interface type: " + iface.getName());
             }
             String internal = Type.getInternalName(iface);
             if (node.interfaces == null) continue;

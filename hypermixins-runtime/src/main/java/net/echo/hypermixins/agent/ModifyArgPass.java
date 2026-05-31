@@ -57,7 +57,9 @@ final class ModifyArgPass {
                 int argIdx = ma.argIndex();
                 if (argIdx < 0 || argIdx >= argTypes.length) {
                     throw new IllegalStateException(
-                        "@ModifyArg index=" + argIdx + " out of range for site " + key);
+                        "@ModifyArg handler " + ma.handlerName() + ma.handlerDesc()
+                        + " in " + mixinClass.getName()
+                        + ": index=" + argIdx + " out of range for site " + key);
                 }
                 if (argIdx == argTypes.length - 1) {
                     method.instructions.insertBefore(mi, new MethodInsnNode(
