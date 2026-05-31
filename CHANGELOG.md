@@ -6,6 +6,26 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Added
+- **`@Expression` DSL v4** — adds literal constraints and comparison
+  operators while keeping the single-instruction match model:
+  - **v4-A literal args**: `accept(42)`, `accept("hello")`,
+    `accept(true)` / `accept(false)`, `accept(null)`. The matched
+    instruction's corresponding argument position must be produced by
+    a constant load whose value equals the literal — int decodes
+    `ICONST_M1..ICONST_5` / `BIPUSH` / `SIPUSH` / `LDC<Integer>`,
+    string matches `LDC<String>`, bool maps to `ICONST_0` / `ICONST_1`,
+    null maps to `ACONST_NULL`. Mixed shapes like `accept(?, 42)`
+    work — `?` binds positionally, literals constrain.
+  - **v4-B comparison ops**: `? == ?`, `? != ?`, `? < ?`, `? <= ?`,
+    `? > ?`, `? >= ?` match the corresponding `IF_ICMP*` /
+    `IF_ACMP*` instruction. Operators match both the literal and the
+    inverse opcode for each comparison because javac emits the
+    inverse branch (`if (a == b)` compiles to `IF_ICMPNE skip`); the
+    DSL operator is semantic, not syntactic. Boolean combinators
+    (`&&` / `||` / `!`) are still v5 because they expand to a
+    multi-`IF*` chain.
+
 ### Changed
 - **`@Expression` / `@Definition` baked into descriptor schema** —
   these were the last annotations the runtime read via reflection.
