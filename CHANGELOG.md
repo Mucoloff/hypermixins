@@ -13,6 +13,21 @@ master is the only published surface so far.
   those ids in a small DSL. New `At.Point.EXPRESSION` routes through
   the parser + matcher. v1 scope: single-instruction expressions
   (method call or bare field reference), `?` as inert placeholder.
+- **`@Expression` DSL v3** — closes the gap with MixinExtras for the
+  three patterns mixin authors hit most:
+  - **v3-A named captures**: `id(x, y)` binds args to handler params by
+    parameter name (via `-parameters` metadata) instead of position.
+    Project-wide `-parameters` is now on by default in
+    `build.gradle.kts`. Unknown names / duplicates / missing
+    `-parameters` fail at compile with actionable messages.
+  - **v3-B chained calls**: `a.b().c()` / `this.field.method()` walk
+    arbitrary-depth receiver chains. The matcher recurses through the
+    receiver-producing instruction; captures inside non-leaf calls are
+    deferred to v4.
+  - **v3-C arithmetic**: `?+?`, `?-?`, `?*?`, `?/?` match IADD/ISUB/
+    IMUL/IDIV (and L/F/D variants) with standard precedence and left
+    associativity. Operand sub-expressions are constraints only;
+    capture-binding through arithmetic is v4.
 - **`@Expression` DSL v2** — extends the v1 grammar with the four
   pieces needed for realistic mixin authoring while keeping the
   single-instruction match model:

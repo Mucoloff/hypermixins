@@ -1,4 +1,4 @@
-hypermixins-runtime=145
+hypermixins-runtime=149
 hypermixins-processor=6
 hypermixins-example=2
 hypermixins-agent=1
