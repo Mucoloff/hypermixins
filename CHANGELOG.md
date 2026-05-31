@@ -23,6 +23,10 @@ master is the only published surface so far.
   time, so the static handler-signature comparison can't be enforced.
 
 ### Added
+- **`@Final` on `@Shadow` fields, with `@Mutable` opt-out.** Sponge-style
+  marker enforced by ShadowFieldPass: `PUTFIELD` / `PUTSTATIC` on a
+  `@Shadow @Final` mixin field throws at transform unless the same field
+  carries `@Mutable`. Reads remain unaffected.
 - **Frame-driven `@Local` at every non-HEAD `@Inject` point.** Ordinal and bare
   bindings now resolve through the target's preserved `LocalVariableTable`
   (`LocalFrameAnalyzer`), so a handler can pick mid-method locals at TAIL /

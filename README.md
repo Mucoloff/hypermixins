@@ -93,6 +93,7 @@ public static void premain(String args, Instrumentation inst) throws Exception {
 | `@Inject(method, at, cancellable)` | Side-effect hook at HEAD / RETURN / TAIL / INVOKE / FIELD / CONSTANT / JUMP.                                                                                                                                          |
 | `@Cancellable`                     | Shorthand for `@Inject(..., cancellable=true)`.                                                                                                                                                                       |
 | `@Shadow("name")`                  | Forwards a `native` mixin method to a method on the target class. Also forwards `this.field` access on an `@Shadow` instance field to the target's field. Supports `prefix = "..."` for Sponge-style name resolution. |
+| `@Final` / `@Mutable`              | On a `@Shadow` field: `@Final` rejects mixin-side writes at transform; `@Mutable` opts back in (used together when the contract says the field is final but the mixin needs to mutate it).                            |
 | `@Local(index = N, ordinal = K, argsOnly = boolean)` | On an `@Inject` handler param: bind to a specific target slot (`index`), the `K`-th live local of the parameter's type at the injection site (`ordinal`), or — bare — the unique live local of that type. Type-driven resolution at non-HEAD points walks the target's `LocalVariableTable` (`-g`). `argsOnly = true` requires the handler param to be a single-element array; the handler may mutate `arr[0]` and the value is written back into the source slot before the matched site reads it. |
 | `@ModifyReturnValue`               | Static handler `T (T)` wraps the return value of a specific INVOKE inside the target method.                                                                                                                          |
 | `@ModifyConstant`                  | Static handler `T (T)` replaces a numeric / String constant load matching the typed `@Constant` clause.                                                                                                               |
@@ -159,7 +160,7 @@ See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backl
 
 ## Status
 
-- 110 runtime tests + 6 processor tests + 2 example tests + 1 agent test green.
+- 113 runtime tests + 6 processor tests + 2 example tests + 1 agent test green.
 - Supported `@At.Point` for `@Inject`: HEAD, RETURN, TAIL, INVOKE, FIELD,
   CONSTANT (LDC values), JUMP (conditional), NEW (object allocations).
 - `@At#shift = BEFORE | AFTER` lets handlers anchor either side of the
