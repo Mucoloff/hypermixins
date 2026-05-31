@@ -72,4 +72,28 @@ public class MixinModifyArgsTest {
         // input 7 → Integer.max(7+100=107, 0+1=1) = 107
         assertEquals(107, t.getMethod("run", int.class).invoke(inst, 7));
     }
+
+    // ---- @ModifyArgs handler accepts Args wrapper ----
+
+    public static class ArgsWrapperTarget {
+        public String run(String input) {
+            return String.format("[%s]", input);
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinModifyArgsTest$ArgsWrapperTarget")
+    public static class ArgsWrapperMix {
+        @ModifyArgs(method = "run",
+            at = @At(desc = "java/lang/String.format(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;"))
+        public static void rewriteFormat(net.echo.hypermixins.annotations.Args args) {
+            args.set(0, "<%s>");
+        }
+    }
+
+    @Test
+    void argsWrapperShapeMutatesThroughSet() throws Exception {
+        Class<?> t = applyMixin(ArgsWrapperTarget.class, ArgsWrapperMix.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // Handler swaps the format spec; "hello" → "<hello>".
+        assertEquals("<hello>", t.getMethod("run", String.class).invoke(inst, "hello"));
+    }
 }

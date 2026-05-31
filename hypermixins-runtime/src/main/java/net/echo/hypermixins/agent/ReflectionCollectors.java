@@ -118,8 +118,9 @@ final class ReflectionCollectors {
             if (!Modifier.isStatic(m.getModifiers()))
                 throw new IllegalArgumentException("@ModifyArgs must be static: " + m);
             String handlerDesc = Type.getMethodDescriptor(m);
-            if (!handlerDesc.equals("([Ljava/lang/Object;)V"))
-                throw new IllegalArgumentException("@ModifyArgs handler must be (Object[]): void on " + m);
+            if (!handlerDesc.equals("([Ljava/lang/Object;)V")
+                && !handlerDesc.equals("(Lnet/echo/hypermixins/annotations/Args;)V"))
+                throw new IllegalArgumentException("@ModifyArgs handler must be (Object[]): void or (Args): void on " + m);
             out.add(new MixinDescriptor.ModifyArgsEntry(ann.method(), ann.at().desc(), m.getName(), handlerDesc));
         }
         return out;

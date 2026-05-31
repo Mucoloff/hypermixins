@@ -69,6 +69,14 @@ final class ModifyArgsPass {
                     block.add(new InsnNode(Opcodes.AASTORE));
                 }
                 block.add(new VarInsnNode(Opcodes.ALOAD, arrLocal));
+                // Args-wrapper shape: handler accepts net.echo.hypermixins.annotations.Args,
+                // not Object[]. Wrap before the call. Args.set() mutates the same backing
+                // array so the reload loop below still sees the post-handler values.
+                if (ma.handlerDesc().equals("(Lnet/echo/hypermixins/annotations/Args;)V")) {
+                    block.add(new MethodInsnNode(Opcodes.INVOKESTATIC,
+                        "net/echo/hypermixins/annotations/Args", "of",
+                        "([Ljava/lang/Object;)Lnet/echo/hypermixins/annotations/Args;", false));
+                }
                 block.add(new MethodInsnNode(Opcodes.INVOKESTATIC, mixinInternal,
                     ma.handlerName(), ma.handlerDesc(), false));
                 for (int i = 0; i < n; i++) {

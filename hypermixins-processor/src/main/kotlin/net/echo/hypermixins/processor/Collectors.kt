@@ -264,8 +264,9 @@ internal class Collectors(private val logger: KSPLogger) {
         }
         val handlerName = fn.simpleName.asString()
         val handlerDesc = descriptor(fn)
-        if (handlerDesc != "([Ljava/lang/Object;)V") {
-            logger.error("@ModifyArgs handler must be (Object[]): void on $handlerName (got $handlerDesc)", fn)
+        if (handlerDesc != "([Ljava/lang/Object;)V"
+            && handlerDesc != "(Lnet/echo/hypermixins/annotations/Args;)V") {
+            logger.error("@ModifyArgs handler must be (Object[]): void or (Args): void on $handlerName (got $handlerDesc)", fn)
             return
         }
         out += ModifyArgsEntry(method, desc, handlerName, handlerDesc)
