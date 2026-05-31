@@ -34,6 +34,10 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyReceiver ann = m.getAnnotation(ModifyReceiver.class);
             if (ann == null) continue;
+            if (ann.method().isEmpty())
+                throw new IllegalArgumentException("@ModifyReceiver#method() must not be empty on " + m);
+            if (ann.at().desc().isEmpty())
+                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyReceiver " + m);
             if (!Modifier.isStatic(m.getModifiers()))
                 throw new IllegalArgumentException("@ModifyReceiver must be static: " + m);
             out.add(new MixinDescriptor.ModifyReceiverEntry(ann.method(), ann.at().desc(), m.getName(), Type.getMethodDescriptor(m)));
@@ -46,6 +50,10 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyArgs ann = m.getAnnotation(ModifyArgs.class);
             if (ann == null) continue;
+            if (ann.method().isEmpty())
+                throw new IllegalArgumentException("@ModifyArgs#method() must not be empty on " + m);
+            if (ann.at().desc().isEmpty())
+                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyArgs " + m);
             if (!Modifier.isStatic(m.getModifiers()))
                 throw new IllegalArgumentException("@ModifyArgs must be static: " + m);
             String handlerDesc = Type.getMethodDescriptor(m);
