@@ -62,6 +62,13 @@ public @interface At {
         /** At a specific conditional jump (requires {@link #index()}). */
         JUMP,
         /** At a {@code NEW} object allocation (requires {@link #desc()} as {@code "owner/Class"}). */
-        NEW
+        NEW,
+        /**
+         * Site selected by a DSL pattern declared via {@link Expression} on the handler. The
+         * expression references {@link Definition}-aliased method / field signatures; the
+         * runtime walks every instruction and matches the expression AST against it. v1 only
+         * supports single-instruction expressions (one call or one field access).
+         */
+        EXPRESSION
     }
 }

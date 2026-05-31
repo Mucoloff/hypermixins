@@ -99,6 +99,11 @@ final class InjectPass {
                 InjectSiteMatcher::isConditionalJump);
             case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                 insn -> InjectSiteMatcher.matchesNew(insn, inject));
+            case EXPRESSION -> {
+                ExpressionMatcher matcher = ExpressionMatcher.compile(inject.handler());
+                injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
+                    matcher::matches);
+            }
             default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
         }
     }
