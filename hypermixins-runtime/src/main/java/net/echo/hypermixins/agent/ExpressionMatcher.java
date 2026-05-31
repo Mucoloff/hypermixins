@@ -342,22 +342,24 @@ final class ExpressionMatcher {
     }
 
     /**
-     * Maps a textual comparison operator to the {@code IF_ICMP*} / {@code IF_ACMP*} opcodes
-     * that may carry it. javac emits branches with the *inverse* of the source predicate
-     * ({@code if (a == b) ...} compiles as {@code IF_ICMPNE skip; ...}), so each operator
-     * matches both the literal and the inverse form — semantically both are an equality
-     * check / less-than check / etc.
+     * Maps a textual comparison operator to the {@code IF_ICMP*} / {@code IF_ACMP*} opcode that
+     * carries it under javac's if-condition convention: an {@code if (cond)} jumps when
+     * {@code cond} is FALSE, so the bytecode opcode is the NEGATION of the source operator
+     * ({@code if (a == b) ...} compiles to {@code IF_ICMPNE skip}). The mapping is 1:1 so
+     * {@code ==} / {@code !=}, {@code <} / {@code >=}, and {@code <=} / {@code >} are distinct.
+     *
+     * <p>Caveat: loop conditions / ternaries can emit the non-negated opcode at the bottom of
+     * the block; those sites won't match the intuitive operator. Full branch-target analysis
+     * is out of scope.
      */
     private static boolean comparisonOpcodeMatches(int op, String operator) {
         return switch (operator) {
-            case "==" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ICMPNE
-                || op == Opcodes.IF_ACMPEQ || op == Opcodes.IF_ACMPNE;
-            case "!=" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ICMPNE
-                || op == Opcodes.IF_ACMPEQ || op == Opcodes.IF_ACMPNE;
-            case "<"  -> op == Opcodes.IF_ICMPLT || op == Opcodes.IF_ICMPGE;
-            case "<=" -> op == Opcodes.IF_ICMPLE || op == Opcodes.IF_ICMPGT;
-            case ">"  -> op == Opcodes.IF_ICMPGT || op == Opcodes.IF_ICMPLE;
-            case ">=" -> op == Opcodes.IF_ICMPGE || op == Opcodes.IF_ICMPLT;
+            case "==" -> op == Opcodes.IF_ICMPNE || op == Opcodes.IF_ACMPNE;
+            case "!=" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ACMPEQ;
+            case "<"  -> op == Opcodes.IF_ICMPGE;
+            case "<=" -> op == Opcodes.IF_ICMPGT;
+            case ">"  -> op == Opcodes.IF_ICMPLE;
+            case ">=" -> op == Opcodes.IF_ICMPLT;
             default   -> false;
         };
     }

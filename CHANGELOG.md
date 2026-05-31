@@ -6,6 +6,17 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Changed
+- **`@Expression` comparison branch-sense** — `==` / `!=`, `<` / `>=`,
+  `<=` / `>` are now distinct. Previously each operator matched both
+  the literal and inverse opcode, conflating the pairs. The matcher now
+  maps each operator to the single `IF_ICMP*` / `IF_ACMP*` opcode javac
+  emits under the if-condition convention (`if (a == b)` →
+  `IF_ICMPNE`), so `? == ?` no longer matches a `!=` site. Caveat: loop
+  conditions / ternaries can emit the non-negated opcode and won't
+  match the intuitive operator — full branch-target analysis is
+  deferred.
+
 ### Fixed
 - **KSP inject point serialization** — `Collectors.inject` read `@At`
   via `fn.findAnnotation(AT_FQN)`, but `@At` lives inside `@Inject`'s

@@ -11,33 +11,35 @@ import net.echo.hypermixins.annotations.Mixin;
  * {@code @At} from a non-existent top-level annotation and silently defaulted every point to
  * {@code HEAD} and every shift to {@code BEFORE}.
  *
- * <p>Targets / descriptors are nominal — {@link WorldMixinDescriptorTest} asserts the descriptor
- * columns, not a runtime transform. (The opaque {@code World} target lacks matching sites for
- * some of these points; transform-level coverage lives in {@code hypermixins-runtime}'s
- * reflection-fallback tests.)
+ * <p>Targets a method ({@code tick}) that does not exist on {@code World}, so the agent never
+ * applies these injects at runtime — {@link WorldMixinDescriptorTest} asserts the descriptor
+ * columns, not a transform. (Were this aimed at a real method lacking a CONSTANT / NEW site,
+ * the agent's classpath auto-registration would abort with "found no matching site".)
+ * Transform-level coverage for these points lives in {@code hypermixins-runtime}'s
+ * reflection-fallback tests.
  */
 @Mixin("net.echo.testworld.World")
 public class WorldPointsMixin {
 
-    @Inject(method = "addPlayer", at = @At(point = At.Point.INVOKE,
+    @Inject(method = "tick", at = @At(point = At.Point.INVOKE,
         desc = "java/util/List.add(Ljava/lang/Object;)Z"))
     public void onInvoke(Object self) {}
 
-    @Inject(method = "addPlayer", at = @At(point = At.Point.FIELD,
+    @Inject(method = "tick", at = @At(point = At.Point.FIELD,
         desc = "net/echo/testworld/World.players:Ljava/util/List;"))
     public void onField(Object self) {}
 
-    @Inject(method = "addPlayer", at = @At(point = At.Point.CONSTANT, desc = "I:0"))
+    @Inject(method = "tick", at = @At(point = At.Point.CONSTANT, desc = "I:0"))
     public void onConstant(Object self) {}
 
-    @Inject(method = "addPlayer", at = @At(point = At.Point.NEW, desc = "java/util/ArrayList"))
+    @Inject(method = "tick", at = @At(point = At.Point.NEW, desc = "java/util/ArrayList"))
     public void onNew(Object self) {}
 
-    @Inject(method = "addPlayer", at = @At(point = At.Point.INVOKE,
+    @Inject(method = "tick", at = @At(point = At.Point.INVOKE,
         desc = "java/util/List.add(Ljava/lang/Object;)Z", shift = At.Shift.AFTER))
     public void onShiftAfter(Object self) {}
 
-    @Inject(method = "addPlayer", at = @At(point = At.Point.INVOKE,
+    @Inject(method = "tick", at = @At(point = At.Point.INVOKE,
         desc = "java/util/List.add(Ljava/lang/Object;)Z", shift = At.Shift.BY, by = 2))
     public void onShiftBy(Object self) {}
 }

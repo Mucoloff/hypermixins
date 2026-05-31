@@ -126,8 +126,23 @@ public void onEq(Object self) { ... }
 public void onLt(Object self) { ... }
 ```
 
-Matches both branch directions because javac emits the inverse
-predicate (`if (a == b)` compiles to `IF_ICMPNE skip`).
+Each operator maps to the single opcode javac emits under the
+if-condition convention — `if (cond)` jumps when `cond` is false, so
+the bytecode carries the negation:
+
+| operator | opcode                    |
+|----------|---------------------------|
+| `==`     | `IF_ICMPNE` / `IF_ACMPNE` |
+| `!=`     | `IF_ICMPEQ` / `IF_ACMPEQ` |
+| `<`      | `IF_ICMPGE`               |
+| `<=`     | `IF_ICMPGT`               |
+| `>`      | `IF_ICMPLE`               |
+| `>=`     | `IF_ICMPLT`               |
+
+The pairs `==`/`!=`, `<`/`>=`, `<=`/`>` are therefore distinct.
+Caveat: loop conditions and ternaries can emit the non-negated opcode
+at the bottom of the block; those sites won't match the intuitive
+operator. Full branch-target analysis is out of scope.
 
 ### v5 — instanceof + cast
 

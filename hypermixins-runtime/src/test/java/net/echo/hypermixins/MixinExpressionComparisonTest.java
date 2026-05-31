@@ -67,4 +67,20 @@ public class MixinExpressionComparisonTest {
         assertEquals(1, out);
         assertTrue(ltHits >= 1);
     }
+
+    @Mixin("net.echo.hypermixins.MixinExpressionComparisonTest$CompTarget")
+    public static class NotEqMixin {
+        @Expression("? != ?")
+        @Inject(method = "branchEq", at = @At(point = At.Point.EXPRESSION))
+        public void onNotEq(Object self) {}
+    }
+
+    @Test
+    void notEqDoesNotMatchEqSite() {
+        // branchEq's `if (a == b)` compiles to IF_ICMPNE. Under branch-sense, `!=` maps to
+        // IF_ICMPEQ only, so it must NOT match the == site — proving == / != are distinct.
+        // No match → InjectPass throws "found no matching site".
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+            () -> applyMixin(CompTarget.class, NotEqMixin.class));
+    }
 }
