@@ -6,6 +6,8 @@ master is the only published surface so far.
 
 ## Unreleased
 
+## 1.5 — 2026-05-31
+
 ### Added
 - **`@Definition` + `@Expression` DSL (v1)** — MixinExtras-style site
   selector. `@Definition` (repeatable via `@Definitions`) aliases a
