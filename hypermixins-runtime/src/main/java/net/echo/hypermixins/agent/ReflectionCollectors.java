@@ -17,7 +17,6 @@ import net.echo.hypermixins.annotations.WrapWithCondition;
 import org.objectweb.asm.Type;
 
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,10 +37,8 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             WrapMethod ann = m.getAnnotation(WrapMethod.class);
             if (ann == null) continue;
-            if (ann.value().isEmpty())
-                throw new IllegalArgumentException("@WrapMethod#value() must not be empty on " + m);
-            if (Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@WrapMethod must not be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.value(), "@WrapMethod", "value", m);
+            ReflectionCollectorChecks.requireNonStatic(m, "@WrapMethod");
             Class<?>[] params = m.getParameterTypes();
             if (params.length == 0 || params[params.length - 1] != Operation.class)
                 throw new IllegalArgumentException("@WrapMethod handler last parameter must be Operation<R>: " + m);
@@ -55,12 +52,9 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             WrapOperation ann = m.getAnnotation(WrapOperation.class);
             if (ann == null) continue;
-            if (ann.method().isEmpty())
-                throw new IllegalArgumentException("@WrapOperation#method() must not be empty on " + m);
-            if (ann.at().desc().isEmpty())
-                throw new IllegalArgumentException("@At#desc() must not be empty on @WrapOperation " + m);
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@WrapOperation must be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.method(), "@WrapOperation", "method", m);
+            ReflectionCollectorChecks.requireAtDescNonEmpty(ann.at().desc(), "@WrapOperation", m);
+            ReflectionCollectorChecks.requireStatic(m, "@WrapOperation");
             Class<?>[] params = m.getParameterTypes();
             if (params.length == 0 || params[params.length - 1] != Operation.class)
                 throw new IllegalArgumentException("@WrapOperation handler last parameter must be Operation<R>: " + m);
@@ -75,12 +69,9 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             WrapWithCondition ann = m.getAnnotation(WrapWithCondition.class);
             if (ann == null) continue;
-            if (ann.method().isEmpty())
-                throw new IllegalArgumentException("@WrapWithCondition#method() must not be empty on " + m);
-            if (ann.at().desc().isEmpty())
-                throw new IllegalArgumentException("@At#desc() must not be empty on @WrapWithCondition " + m);
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@WrapWithCondition must be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.method(), "@WrapWithCondition", "method", m);
+            ReflectionCollectorChecks.requireAtDescNonEmpty(ann.at().desc(), "@WrapWithCondition", m);
+            ReflectionCollectorChecks.requireStatic(m, "@WrapWithCondition");
             String handlerDesc = Type.getMethodDescriptor(m);
             if (!handlerDesc.endsWith(")Z"))
                 throw new IllegalArgumentException("@WrapWithCondition handler must return boolean: " + m);
@@ -95,12 +86,9 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyReceiver ann = m.getAnnotation(ModifyReceiver.class);
             if (ann == null) continue;
-            if (ann.method().isEmpty())
-                throw new IllegalArgumentException("@ModifyReceiver#method() must not be empty on " + m);
-            if (ann.at().desc().isEmpty())
-                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyReceiver " + m);
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyReceiver must be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.method(), "@ModifyReceiver", "method", m);
+            ReflectionCollectorChecks.requireAtDescNonEmpty(ann.at().desc(), "@ModifyReceiver", m);
+            ReflectionCollectorChecks.requireStatic(m, "@ModifyReceiver");
             out.add(new MixinDescriptor.ModifyReceiverEntry(ann.method(), ann.at().desc(), m.getName(), Type.getMethodDescriptor(m)));
         }
         return out;
@@ -111,12 +99,9 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyArgs ann = m.getAnnotation(ModifyArgs.class);
             if (ann == null) continue;
-            if (ann.method().isEmpty())
-                throw new IllegalArgumentException("@ModifyArgs#method() must not be empty on " + m);
-            if (ann.at().desc().isEmpty())
-                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyArgs " + m);
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyArgs must be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.method(), "@ModifyArgs", "method", m);
+            ReflectionCollectorChecks.requireAtDescNonEmpty(ann.at().desc(), "@ModifyArgs", m);
+            ReflectionCollectorChecks.requireStatic(m, "@ModifyArgs");
             String handlerDesc = Type.getMethodDescriptor(m);
             if (!handlerDesc.equals("([Ljava/lang/Object;)V")
                 && !handlerDesc.equals("(Lnet/echo/hypermixins/annotations/Args;)V"))
@@ -131,12 +116,9 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyExpressionValue ann = m.getAnnotation(ModifyExpressionValue.class);
             if (ann == null) continue;
-            if (ann.method().isEmpty())
-                throw new IllegalArgumentException("@ModifyExpressionValue#method() must not be empty on " + m);
-            if (ann.at().desc().isEmpty())
-                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyExpressionValue " + m);
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyExpressionValue must be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.method(), "@ModifyExpressionValue", "method", m);
+            ReflectionCollectorChecks.requireAtDescNonEmpty(ann.at().desc(), "@ModifyExpressionValue", m);
+            ReflectionCollectorChecks.requireStatic(m, "@ModifyExpressionValue");
             out.add(new MixinDescriptor.ModifyExpressionValueEntry(ann.method(), ann.at().point(), ann.at().desc(),
                 ann.at().index(), m.getName(), Type.getMethodDescriptor(m)));
         }
@@ -148,12 +130,9 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyArg ann = m.getAnnotation(ModifyArg.class);
             if (ann == null) continue;
-            if (ann.method().isEmpty())
-                throw new IllegalArgumentException("@ModifyArg#method() must not be empty on " + m);
-            if (ann.at().desc().isEmpty())
-                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyArg " + m);
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyArg must be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.method(), "@ModifyArg", "method", m);
+            ReflectionCollectorChecks.requireAtDescNonEmpty(ann.at().desc(), "@ModifyArg", m);
+            ReflectionCollectorChecks.requireStatic(m, "@ModifyArg");
             out.add(new MixinDescriptor.ModifyArgEntry(ann.method(), ann.at().desc(), ann.index(),
                 m.getName(), Type.getMethodDescriptor(m)));
         }
@@ -165,10 +144,8 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyConstant ann = m.getAnnotation(ModifyConstant.class);
             if (ann == null) continue;
-            if (ann.method().isEmpty())
-                throw new IllegalArgumentException("@ModifyConstant#method() must not be empty on " + m);
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyConstant must be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.method(), "@ModifyConstant", "method", m);
+            ReflectionCollectorChecks.requireStatic(m, "@ModifyConstant");
             ModifyConstant.Constant c = ann.constant();
             String type; String value;
             if (c.intValue() != Integer.MIN_VALUE) { type = "I"; value = Integer.toString(c.intValue()); }
@@ -219,12 +196,9 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyReturnValue ann = m.getAnnotation(ModifyReturnValue.class);
             if (ann == null) continue;
-            if (ann.method().isEmpty())
-                throw new IllegalArgumentException("@ModifyReturnValue#method() must not be empty on " + m);
-            if (ann.at().desc().isEmpty())
-                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyReturnValue " + m);
-            if (!Modifier.isStatic(m.getModifiers()))
-                throw new IllegalArgumentException("@ModifyReturnValue must be static: " + m);
+            ReflectionCollectorChecks.requireNonEmpty(ann.method(), "@ModifyReturnValue", "method", m);
+            ReflectionCollectorChecks.requireAtDescNonEmpty(ann.at().desc(), "@ModifyReturnValue", m);
+            ReflectionCollectorChecks.requireStatic(m, "@ModifyReturnValue");
             String desc = ann.at().desc();
             String handlerDesc = Type.getMethodDescriptor(m);
             int parenIdx = desc.indexOf('(');
