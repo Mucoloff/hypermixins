@@ -99,20 +99,53 @@ final class ExpressionMatcher {
      */
     Map<Integer, Integer> captureSlots(AbstractInsnNode insn) {
         if (captureArity == 0) return Map.of();
-        List<ExpressionNode.Arg> args = extractCallArgs(root);
-        if (args == null || args.isEmpty()) return Map.of();
-        boolean hasReceiver = receiverPresent(insn, root);
-        int totalStackInputs = args.size() + (hasReceiver ? 1 : 0);
-        Map<Integer, Integer> out = new HashMap<>();
+        CaptureContext ctx = new CaptureContext();
+        collectCaptures(root, insn, ctx);
+        return ctx.out;
+    }
+
+    private static final class CaptureContext {
+        int positional = 0;
+        final Map<Integer, Integer> out = new HashMap<>();
+    }
+
+    /**
+     * Depth-first source-order traversal that visits every {@code ?} / NamedArg leaf and
+     * binds it to a target slot via {@link ExpressionStackWalker#findLoadSlotForStackPosition}.
+     * Receivers of chained calls are visited before the outer call's args so positional
+     * indices follow source order.
+     */
+    private void collectCaptures(ExpressionNode node, AbstractInsnNode anchor, CaptureContext ctx) {
+        switch (node) {
+            case ExpressionNode.Call c -> collectCallArgs(c.args(), anchor, ctx);
+            case ExpressionNode.Chained ch -> {
+                AbstractInsnNode receiverProducer;
+                if (ch.member().isCall()) {
+                    receiverProducer = ExpressionStackWalker.findProducerAt(anchor, ch.member().args().size());
+                    if (receiverProducer != null) collectCaptures(ch.receiver(), receiverProducer, ctx);
+                    collectCallArgs(ch.member().args(), anchor, ctx);
+                } else {
+                    int recvOff = (anchor instanceof FieldInsnNode fi && fi.getOpcode() == Opcodes.PUTFIELD) ? 1 : 0;
+                    receiverProducer = ExpressionStackWalker.findProducerAt(anchor, recvOff);
+                    if (receiverProducer != null) collectCaptures(ch.receiver(), receiverProducer, ctx);
+                }
+            }
+            case ExpressionNode.Assign a -> collectCaptures(a.lhs(), anchor, ctx);
+            // FieldRef / ThisRef / literals / unsupported roots — no captures to extract.
+            default -> {}
+        }
+    }
+
+    private void collectCallArgs(List<ExpressionNode.Arg> args, AbstractInsnNode anchor, CaptureContext ctx) {
         for (int argIdx = 0; argIdx < args.size(); argIdx++) {
             ExpressionNode.Arg a = args.get(argIdx);
             int paramIdx;
             if (a instanceof ExpressionNode.Wildcard) {
-                paramIdx = 1 + argIdx;
+                ctx.positional++;
+                paramIdx = ctx.positional;
             } else if (a instanceof ExpressionNode.NamedArg na) {
                 Integer resolved = paramIndexByName.get(na.name());
                 if (resolved == null) {
-                    // Should have been caught at compile time.
                     throw new InjectSignatureMismatch(
                         "@Expression named capture '" + na.name() + "' did not resolve to a handler param on " + handler);
                 }
@@ -120,21 +153,15 @@ final class ExpressionMatcher {
             } else {
                 continue;
             }
-            // Stack offset (0 = top) for argIdx: args are pushed in declaration order,
-            // so argIdx's stack-from-top offset is (args.size() - 1 - argIdx).
             int stackOffset = args.size() - 1 - argIdx;
-            int slot = ExpressionStackWalker.findLoadSlotForStackPosition(insn, stackOffset);
+            int slot = ExpressionStackWalker.findLoadSlotForStackPosition(anchor, stackOffset);
             if (slot < 0) {
                 throw new InjectSignatureMismatch(
-                    "@Expression arg " + argIdx + " at " + insn
+                    "@Expression arg " + argIdx + " at " + anchor
                     + " is not produced by a clean *LOAD — cannot bind to a target slot");
             }
-            out.put(paramIdx, slot);
+            ctx.out.put(paramIdx, slot);
         }
-        // Suppress unused-variable warnings; totalStackInputs is retained for future receiver
-        // captures in v3.
-        if (totalStackInputs < 0) throw new AssertionError();
-        return out;
     }
 
     private boolean matchesCall(AbstractInsnNode insn, ExpressionNode.Call call, boolean requireThis) {
@@ -361,10 +388,8 @@ final class ExpressionMatcher {
                 ExpressionNode r = ch.receiver();
                 switch (r) {
                     case ExpressionNode.ThisRef ignored -> { /* leaf — always allowed in receiver position */ }
-                    case ExpressionNode.Call innerCall -> {
+                    case ExpressionNode.Call innerCall ->
                         validateMemberRef(innerCall.defId(), defs, handler, true);
-                        rejectInnerCaptures(innerCall.args(), handler);
-                    }
                     case ExpressionNode.FieldRef innerField ->
                         validateMemberRef(innerField.defId(), defs, handler, false);
                     case ExpressionNode.Chained innerCh ->
