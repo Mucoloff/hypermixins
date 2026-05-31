@@ -2,7 +2,9 @@ package net.echo.hypermixins.agent;
 
 import net.echo.hypermixins.annotations.Final;
 import net.echo.hypermixins.annotations.Mutable;
+import net.echo.hypermixins.annotations.Shadow;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
@@ -66,10 +68,10 @@ final class ShadowFieldPass {
     private static Set<String> collectFrozenShadowKeys(Class<?> mixinClass) {
         Set<String> frozen = new HashSet<>();
         for (Field f : mixinClass.getDeclaredFields()) {
-            if (f.getAnnotation(net.echo.hypermixins.annotations.Shadow.class) == null) continue;
+            if (f.getAnnotation(Shadow.class) == null) continue;
             if (f.getAnnotation(Final.class) == null) continue;
             if (f.getAnnotation(Mutable.class) != null) continue;
-            frozen.add(f.getName() + org.objectweb.asm.Type.getDescriptor(f.getType()));
+            frozen.add(f.getName() + Type.getDescriptor(f.getType()));
         }
         return frozen;
     }
