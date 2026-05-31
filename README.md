@@ -20,9 +20,9 @@ runtime ASM bytecode rewriting + atomic INVOKEDYNAMIC dispatch.
 
 ```kotlin
 dependencies {
-    implementation("net.echo:hypermixins-annotations:1.2")
-    implementation("net.echo:hypermixins-runtime:1.2")
-    ksp("net.echo:hypermixins-processor:1.2")
+    implementation("net.echo:hypermixins-annotations:1.5")
+    implementation("net.echo:hypermixins-runtime:1.5")
+    ksp("net.echo:hypermixins-processor:1.5")
 }
 ```
 

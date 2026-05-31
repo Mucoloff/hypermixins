@@ -94,9 +94,9 @@ export JAVA_HOME=/home/sweety/.local/jdks/jdk-25.0.3+9   # KSP needs the JDK tha
 Smoke (no agent):
 ```bash
 java -cp \
-  hypermixins-example/build/libs/hypermixins-example-1.2.jar:\
-hypermixins-runtime/build/libs/hypermixins-runtime-1.2.jar:\
-hypermixins-annotations/build/libs/hypermixins-annotations-1.2.jar:\
+  hypermixins-example/build/libs/hypermixins-example-1.5.jar:\
+hypermixins-runtime/build/libs/hypermixins-runtime-1.5.jar:\
+hypermixins-annotations/build/libs/hypermixins-annotations-1.5.jar:\
 hypermixins-example/run/test-world-1.0.jar \
   net.echo.tests.MixinDescriptorDemo
 ```
