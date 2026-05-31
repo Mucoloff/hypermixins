@@ -53,7 +53,7 @@ public final class MixinDescriptor {
      * rejects generated descriptors whose {@code schemaVersion()} disagrees so a stale
      * processor / runtime pairing fails loud at load instead of misdecoding silently.
      */
-    public static final int SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION = 3;
 
     public record OverwriteEntry(String targetName, String targetDesc, String handlerName, String handlerDesc) {}
     public record OriginalEntry(String handlerName, String handlerDesc, String targetName) {}
@@ -96,7 +96,11 @@ public final class MixinDescriptor {
                                      String handlerName, String handlerDesc) {}
     public record WrapMethodEntry(String targetMethod, String handlerName, String handlerDesc) {}
     /** One row per {@code @Definition} declared on a handler, joined to the matching {@link ExpressionMetadata}. */
-    public record DefinitionEntry(String id, String method, String field) {}
+    public record DefinitionEntry(String id, String method, String field, String type) {
+        public DefinitionEntry(String id, String method, String field) {
+            this(id, method, field, "");
+        }
+    }
     /** Bundled DSL state for a handler: parsed once at compile time, looked up by handler key. */
     public record ExpressionMetadata(String expression, List<DefinitionEntry> definitions) {
         public ExpressionMetadata {

@@ -561,7 +561,8 @@ internal class Collectors(private val logger: KSPLogger) {
             val id = (defAnn.arg("id") as? String).orEmpty()
             val method = (defAnn.arg("method") as? String).orEmpty()
             val field = (defAnn.arg("field") as? String).orEmpty()
-            outDef += DefinitionEntry(handlerName, handlerDesc, id, method, field)
+            val type = (defAnn.arg("type") as? String).orEmpty()
+            outDef += DefinitionEntry(handlerName, handlerDesc, id, method, field, type)
         }
 
         fn.findAnnotation(DEFINITION_FQN)?.let(::addDefinition)

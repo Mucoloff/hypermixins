@@ -47,6 +47,19 @@ sealed interface ExpressionNode {
      */
     record BinaryOp(char op, ExpressionNode lhs, ExpressionNode rhs) implements ExpressionNode {}
 
+    /**
+     * Comparison operator. {@code op} is one of {@code "=="}, {@code "!="}, {@code "<"},
+     * {@code "<="}, {@code ">"}, {@code ">="}. Matches the corresponding IF_ICMP* /
+     * IF_ACMP* instruction whose two stack inputs back to {@code lhs} / {@code rhs}.
+     */
+    record Comparison(String op, ExpressionNode lhs, ExpressionNode rhs) implements ExpressionNode {}
+
+    /** {@code expr instanceof TypeId}. Matches an {@code INSTANCEOF} insn whose operand type matches the resolved {@code @Definition.type()}. */
+    record InstanceOf(ExpressionNode operand, String typeDefId) implements ExpressionNode {}
+
+    /** {@code (TypeId) expr}. Matches a {@code CHECKCAST} insn whose operand type matches the resolved {@code @Definition.type()}. */
+    record Cast(String typeDefId, ExpressionNode operand) implements ExpressionNode {}
+
     /** Argument shape inside a {@link Call} or {@link Member}. */
     sealed interface Arg {}
 
@@ -57,4 +70,13 @@ sealed interface ExpressionNode {
 
     /** Named identifier in arg position. Resolves to a handler param by {@code -parameters} name. */
     record NamedArg(String name) implements ExpressionNode, Arg {}
+
+    /**
+     * Literal constant in arg position. Acts as a *constraint* on the matched call: the stack
+     * slot at the corresponding position must be produced by a constant load whose value
+     * equals {@link #value()}. Never binds to a handler param.
+     */
+    record LiteralArg(Kind kind, Object value) implements ExpressionNode, Arg {
+        public enum Kind { INT, STRING, BOOL, NULL }
+    }
 }

@@ -20,9 +20,9 @@ runtime ASM bytecode rewriting + atomic INVOKEDYNAMIC dispatch.
 
 ```kotlin
 dependencies {
-    implementation("net.echo:hypermixins-annotations:1.5")
-    implementation("net.echo:hypermixins-runtime:1.5")
-    ksp("net.echo:hypermixins-processor:1.5")
+    implementation("net.echo:hypermixins-annotations:1.6")
+    implementation("net.echo:hypermixins-runtime:1.6")
+    ksp("net.echo:hypermixins-processor:1.6")
 }
 ```
 
@@ -99,7 +99,7 @@ public static void premain(String args, Instrumentation inst) throws Exception {
 | `@Slice(from = @At, to = @At)`     | On an `@Inject` handler: constrains the site scan to an [from, to] instruction-index window. Either side defaults to `@At(HEAD)` for "no bound".                                                                      |
 | `@Unique`                          | Copies the helper into the target under `__unique$<mixin>$<name>$<hash>`. Static helpers keep the original descriptor; instance helpers gain an `Object self` prepended slot. Callers in mixin handler bodies (`@Overwrite` / `@Inject` / `@ModifyXxx`) automatically dispatch through the merged target copy when the receiver is `this` — no reflection needed. Instance helpers must be self-contained — references to the mixin class itself are rejected at transform. |
 | `@Surrogate` on `@Inject`          | Sibling fallback handler. The runtime tries the primary `@Inject` first; on a capture / `@Local` / slot-resolution failure it retries each `@Surrogate` in declared order. Optional `value()` narrows by primary handler name. Site-matching failures remain fatal.                                                                                  |
-| `@Definition` + `@Expression` (v3) | DSL site selector for `@At(point = EXPRESSION)`. `@Definition(id, method/field)` aliases a JVM signature; `@Expression` selects matching instructions. Grammar covers unchained `id(?, ?)` / `id`, this-qualified `this.field` / `this.method(?)`, multi-segment chains `a.b().c(?)`, assignment `this.field = ?`, named captures `id(x, y)` (binds by handler param name via `-parameters`), and arithmetic `? + ?` / `? - ?` / `? * ?` / `? / ?` (matches IADD-family opcodes). `?` placeholders bind positionally to handler params after `Object self`. Inner-chain captures and capture-through-arithmetic are reserved for v4. |
+| `@Definition` + `@Expression` (v5) | DSL site selector for `@At(point = EXPRESSION)`. `@Definition(id, method/field)` aliases a JVM signature; `@Expression` selects matching instructions. Grammar: unchained `id(?, ?)` / `id`; this-qualified `this.field` / `this.method(?)`; multi-segment chains `a.b().c(?)`; assignment `this.field = ?`; named captures `id(x, y)` (binds by handler param name via `-parameters`); arithmetic `? + ?` / `? - ?` / `? * ?` / `? / ?` (matches IADD-family); comparisons `? == ?` / `? != ?` / `? < ?` / `? <= ?` / `? > ?` / `? >= ?` (matches IF_ICMP/IF_ACMP both branch directions); literal args `accept(42)` / `accept("hi")` / `accept(true)` / `accept(null)`; type checks `? instanceof TypeId` and casts `(TypeId) ?` (via `@Definition(id, type)`). `?` placeholders bind positionally to handler params after `Object self`. Inner-chain captures, capture-through-arithmetic, boolean combinators are v6. |
 | `@WrapWithCondition`               | On a static method returning `boolean`: scans the target body for the matched INVOKE / FIELD site and skips it when the handler returns `false` (default value is pushed for the original return type).               |
 | `@WrapOperation`                   | On a static method: wraps a matched INVOKE site with an `Operation<R>` lambda; handler can call `op.call(...)` zero / one / many times.                                                                               |
 | `@WrapMethod("name")`              | On an instance method: wraps the entire target method body; handler receives the original args plus an `Operation<R>` to invoke the saved body.                                                                       |
@@ -159,6 +159,7 @@ KSP (compile time)                Runtime
 ```
 
 See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backlog.
+See [docs/expression.md](docs/expression.md) for the full `@Expression` DSL grammar with runnable examples.
 
 ## Modules
 
@@ -173,7 +174,7 @@ See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backl
 
 ## Status
 
-- 149 runtime tests + 6 processor tests + 2 example tests + 1 agent test green (1.5).
+- 157 runtime tests + 6 processor tests + 2 example tests + 1 agent test green (1.6).
 - Supported `@At.Point` for `@Inject`: HEAD, RETURN, TAIL, INVOKE, FIELD,
   CONSTANT (LDC values), JUMP (conditional), NEW (object allocations).
 - `@At#shift = BEFORE | AFTER` lets handlers anchor either side of the

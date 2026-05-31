@@ -44,14 +44,44 @@ final class ExpressionParser {
     }
 
     private ExpressionNode assignment() {
-        ExpressionNode lhs = additive();
+        ExpressionNode lhs = comparison();
         skipWhitespace();
-        if (pos < src.length() && src.charAt(pos) == '=') {
+        if (pos < src.length() && src.charAt(pos) == '='
+            && !(pos + 1 < src.length() && src.charAt(pos + 1) == '=')) {
             pos++;
             ExpressionNode.Arg rhs = parseArg();
             return new ExpressionNode.Assign(lhs, rhs);
         }
         return lhs;
+    }
+
+    private ExpressionNode comparison() {
+        ExpressionNode lhs = additive();
+        skipWhitespace();
+        if (peekKeyword("instanceof")) {
+            pos += "instanceof".length();
+            skipWhitespace();
+            String typeId = readIdent();
+            return new ExpressionNode.InstanceOf(lhs, typeId);
+        }
+        String op = peekComparisonOp();
+        if (op == null) return lhs;
+        pos += op.length();
+        ExpressionNode rhs = additive();
+        return new ExpressionNode.Comparison(op, lhs, rhs);
+    }
+
+    private String peekComparisonOp() {
+        if (pos >= src.length()) return null;
+        char c0 = src.charAt(pos);
+        char c1 = pos + 1 < src.length() ? src.charAt(pos + 1) : '\0';
+        if (c0 == '=' && c1 == '=') return "==";
+        if (c0 == '!' && c1 == '=') return "!=";
+        if (c0 == '<' && c1 == '=') return "<=";
+        if (c0 == '>' && c1 == '=') return ">=";
+        if (c0 == '<') return "<";
+        if (c0 == '>') return ">";
+        return null;
     }
 
     private ExpressionNode additive() {
@@ -83,6 +113,23 @@ final class ExpressionParser {
         if (pos < src.length() && src.charAt(pos) == '?') {
             pos++;
             return ExpressionNode.Wildcard.INSTANCE;
+        }
+        if (pos < src.length() && src.charAt(pos) == '(') {
+            int save = pos;
+            pos++;
+            skipWhitespace();
+            if (pos < src.length() && isIdentStart(src.charAt(pos))) {
+                int identStart = pos;
+                String ident = readIdent();
+                skipWhitespace();
+                if (pos < src.length() && src.charAt(pos) == ')') {
+                    pos++;
+                    ExpressionNode operand = unary();
+                    return new ExpressionNode.Cast(ident, operand);
+                }
+                pos = identStart;
+            }
+            pos = save;
         }
         return selector();
     }
@@ -147,9 +194,49 @@ final class ExpressionParser {
         char c = src.charAt(pos);
         if (c == '?') { pos++; return ExpressionNode.Wildcard.INSTANCE; }
         if (peekKeyword(THIS)) { pos += THIS.length(); return ExpressionNode.ThisRef.INSTANCE; }
+        if (peekKeyword("true"))  { pos += 4; return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.BOOL, Boolean.TRUE); }
+        if (peekKeyword("false")) { pos += 5; return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.BOOL, Boolean.FALSE); }
+        if (peekKeyword("null"))  { pos += 4; return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.NULL, null); }
+        if (c == '"') return readStringLiteral();
+        if (c == '-' || isDigit(c)) return readIntLiteral();
         if (isIdentStart(c)) return new ExpressionNode.NamedArg(readIdent());
         throw new IllegalArgumentException(
             "Unsupported argument at offset " + pos + " in expression: " + src);
+    }
+
+    private ExpressionNode.LiteralArg readIntLiteral() {
+        int start = pos;
+        if (src.charAt(pos) == '-') pos++;
+        while (pos < src.length() && isDigit(src.charAt(pos))) pos++;
+        String txt = src.substring(start, pos);
+        if (txt.equals("-") || txt.isEmpty()) {
+            throw new IllegalArgumentException(
+                "Malformed integer literal at offset " + start + " in expression: " + src);
+        }
+        try {
+            return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.INT, Integer.parseInt(txt));
+        } catch (NumberFormatException nfe) {
+            throw new IllegalArgumentException(
+                "Integer literal '" + txt + "' out of range at offset " + start + " in expression: " + src);
+        }
+    }
+
+    private ExpressionNode.LiteralArg readStringLiteral() {
+        int start = pos;
+        pos++;
+        int contentStart = pos;
+        while (pos < src.length() && src.charAt(pos) != '"') pos++;
+        if (pos >= src.length()) {
+            throw new IllegalArgumentException(
+                "Unterminated string literal at offset " + start + " in expression: " + src);
+        }
+        String value = src.substring(contentStart, pos);
+        pos++;
+        return new ExpressionNode.LiteralArg(ExpressionNode.LiteralArg.Kind.STRING, value);
+    }
+
+    private static boolean isDigit(char c) {
+        return c >= '0' && c <= '9';
     }
 
     private String readIdent() {

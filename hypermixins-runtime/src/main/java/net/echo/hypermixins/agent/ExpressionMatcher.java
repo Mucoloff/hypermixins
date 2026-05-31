@@ -57,10 +57,11 @@ final class ExpressionMatcher {
             if (d.id().isEmpty()) {
                 throw new IllegalStateException("@Definition.id() must be non-empty on " + handler);
             }
-            if (d.method().isEmpty() == d.field().isEmpty()) {
+            int nonEmpty = (d.method().isEmpty() ? 0 : 1) + (d.field().isEmpty() ? 0 : 1) + (d.type().isEmpty() ? 0 : 1);
+            if (nonEmpty != 1) {
                 throw new IllegalStateException(
                     "@Definition id='" + d.id() + "' on " + handler
-                    + " must set exactly one of method() / field()");
+                    + " must set exactly one of method() / field() / type()");
             }
             if (defs.put(d.id(), d) != null) {
                 throw new IllegalStateException(
@@ -98,20 +99,108 @@ final class ExpressionMatcher {
      */
     Map<Integer, Integer> captureSlots(AbstractInsnNode insn) {
         if (captureArity == 0) return Map.of();
-        List<ExpressionNode.Arg> args = extractCallArgs(root);
-        if (args == null || args.isEmpty()) return Map.of();
-        boolean hasReceiver = receiverPresent(insn, root);
-        int totalStackInputs = args.size() + (hasReceiver ? 1 : 0);
-        Map<Integer, Integer> out = new HashMap<>();
+        CaptureContext ctx = new CaptureContext();
+        collectCaptures(root, insn, ctx);
+        return ctx.out;
+    }
+
+    private static final class CaptureContext {
+        int positional = 0;
+        final Map<Integer, Integer> out = new HashMap<>();
+    }
+
+    /**
+     * Depth-first source-order traversal that visits every {@code ?} / NamedArg leaf and
+     * binds it to a target slot via {@link ExpressionStackWalker#findLoadSlotForStackPosition}.
+     * Receivers of chained calls are visited before the outer call's args so positional
+     * indices follow source order.
+     */
+    private void collectCaptures(ExpressionNode node, AbstractInsnNode anchor, CaptureContext ctx) {
+        switch (node) {
+            case ExpressionNode.Call c -> collectCallArgs(c.args(), anchor, ctx);
+            case ExpressionNode.Chained ch -> {
+                AbstractInsnNode receiverProducer;
+                if (ch.member().isCall()) {
+                    receiverProducer = ExpressionStackWalker.findProducerAt(anchor, ch.member().args().size());
+                    if (receiverProducer != null) collectCaptures(ch.receiver(), receiverProducer, ctx);
+                    collectCallArgs(ch.member().args(), anchor, ctx);
+                } else {
+                    int recvOff = (anchor instanceof FieldInsnNode fi && fi.getOpcode() == Opcodes.PUTFIELD) ? 1 : 0;
+                    receiverProducer = ExpressionStackWalker.findProducerAt(anchor, recvOff);
+                    if (receiverProducer != null) collectCaptures(ch.receiver(), receiverProducer, ctx);
+                }
+            }
+            case ExpressionNode.Assign a -> collectCaptures(a.lhs(), anchor, ctx);
+            case ExpressionNode.BinaryOp bo -> {
+                AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(anchor, 1);
+                AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(anchor, 0);
+                collectArithOperand(bo.lhs(), lhsProducer, ctx);
+                collectArithOperand(bo.rhs(), rhsProducer, ctx);
+            }
+            case ExpressionNode.Comparison c -> {
+                AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(anchor, 1);
+                AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(anchor, 0);
+                collectArithOperand(c.lhs(), lhsProducer, ctx);
+                collectArithOperand(c.rhs(), rhsProducer, ctx);
+            }
+            case ExpressionNode.InstanceOf io -> {
+                AbstractInsnNode producer = ExpressionStackWalker.findProducerAt(anchor, 0);
+                collectArithOperand(io.operand(), producer, ctx);
+            }
+            case ExpressionNode.Cast ct -> {
+                AbstractInsnNode producer = ExpressionStackWalker.findProducerAt(anchor, 0);
+                collectArithOperand(ct.operand(), producer, ctx);
+            }
+            // FieldRef / ThisRef / literals / unsupported roots — no captures to extract.
+            default -> {}
+        }
+    }
+
+    /**
+     * Operand-position capture binding for arithmetic / comparison / instanceof / cast.
+     * A leaf {@code ?} or NamedArg binds to the producer instruction itself (which must be a
+     * clean {@code *LOAD}); nested calls / fields recurse via {@link #collectCaptures}.
+     */
+    private void collectArithOperand(ExpressionNode operand, AbstractInsnNode producer, CaptureContext ctx) {
+        if (producer == null) return;
+        switch (operand) {
+            case ExpressionNode.Wildcard ignored -> {
+                ctx.positional++;
+                int paramIdx = ctx.positional;
+                if (!(producer instanceof org.objectweb.asm.tree.VarInsnNode v) || !isLoadOpcode(v.getOpcode())) {
+                    throw new InjectSignatureMismatch(
+                        "@Expression arithmetic operand ? at " + producer
+                        + " is not produced by a clean *LOAD — cannot bind to a target slot");
+                }
+                ctx.out.put(paramIdx, v.var);
+            }
+            case ExpressionNode.NamedArg na -> {
+                Integer resolved = paramIndexByName.get(na.name());
+                if (resolved == null) {
+                    throw new InjectSignatureMismatch(
+                        "@Expression named capture '" + na.name() + "' did not resolve to a handler param on " + handler);
+                }
+                if (!(producer instanceof org.objectweb.asm.tree.VarInsnNode v) || !isLoadOpcode(v.getOpcode())) {
+                    throw new InjectSignatureMismatch(
+                        "@Expression named operand '" + na.name() + "' at " + producer
+                        + " is not produced by a clean *LOAD");
+                }
+                ctx.out.put(resolved, v.var);
+            }
+            default -> collectCaptures(operand, producer, ctx);
+        }
+    }
+
+    private void collectCallArgs(List<ExpressionNode.Arg> args, AbstractInsnNode anchor, CaptureContext ctx) {
         for (int argIdx = 0; argIdx < args.size(); argIdx++) {
             ExpressionNode.Arg a = args.get(argIdx);
             int paramIdx;
             if (a instanceof ExpressionNode.Wildcard) {
-                paramIdx = 1 + argIdx;
+                ctx.positional++;
+                paramIdx = ctx.positional;
             } else if (a instanceof ExpressionNode.NamedArg na) {
                 Integer resolved = paramIndexByName.get(na.name());
                 if (resolved == null) {
-                    // Should have been caught at compile time.
                     throw new InjectSignatureMismatch(
                         "@Expression named capture '" + na.name() + "' did not resolve to a handler param on " + handler);
                 }
@@ -119,27 +208,22 @@ final class ExpressionMatcher {
             } else {
                 continue;
             }
-            // Stack offset (0 = top) for argIdx: args are pushed in declaration order,
-            // so argIdx's stack-from-top offset is (args.size() - 1 - argIdx).
             int stackOffset = args.size() - 1 - argIdx;
-            int slot = ExpressionStackWalker.findLoadSlotForStackPosition(insn, stackOffset);
+            int slot = ExpressionStackWalker.findLoadSlotForStackPosition(anchor, stackOffset);
             if (slot < 0) {
                 throw new InjectSignatureMismatch(
-                    "@Expression arg " + argIdx + " at " + insn
+                    "@Expression arg " + argIdx + " at " + anchor
                     + " is not produced by a clean *LOAD — cannot bind to a target slot");
             }
-            out.put(paramIdx, slot);
+            ctx.out.put(paramIdx, slot);
         }
-        // Suppress unused-variable warnings; totalStackInputs is retained for future receiver
-        // captures in v3.
-        if (totalStackInputs < 0) throw new AssertionError();
-        return out;
     }
 
     private boolean matchesCall(AbstractInsnNode insn, ExpressionNode.Call call, boolean requireThis) {
         if (!(insn instanceof MethodInsnNode mi)) return false;
         MixinDescriptor.DefinitionEntry d = Objects.requireNonNull(defsById.get(call.defId()));
         if (!DescriptorMatcher.matches(d.method(), mi.owner + "." + mi.name + mi.desc)) return false;
+        if (!literalArgsMatch(insn, call.args())) return false;
         if (countParams(mi.desc) != call.args().size()) return false;
         if (requireThis && !receiverIsThis(insn, call.args().size())) return false;
         return true;
@@ -194,10 +278,14 @@ final class ExpressionMatcher {
             case ExpressionNode.Chained ch -> matchesChained(insn, ch, /*store*/ null);
             case ExpressionNode.Assign a -> matchesAssign(insn, a);
             case ExpressionNode.BinaryOp bo -> matchesBinaryOp(insn, bo);
+            case ExpressionNode.Comparison c -> matchesComparison(insn, c);
+            case ExpressionNode.InstanceOf io -> matchesInstanceOf(insn, io);
+            case ExpressionNode.Cast ct -> matchesCast(insn, ct);
             case ExpressionNode.Wildcard ignored ->
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v && isLoadOpcode(v.getOpcode());
             case ExpressionNode.NamedArg ignored ->
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v && isLoadOpcode(v.getOpcode());
+            case ExpressionNode.LiteralArg lit -> literalMatches(insn, lit);
             case ExpressionNode.ThisRef ignored ->
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v
                     && v.getOpcode() == Opcodes.ALOAD && v.var == 0;
@@ -218,6 +306,57 @@ final class ExpressionMatcher {
             && matchesSubExpression(rhsProducer, bo.rhs());
     }
 
+    private boolean matchesInstanceOf(AbstractInsnNode insn, ExpressionNode.InstanceOf io) {
+        if (insn.getOpcode() != Opcodes.INSTANCEOF) return false;
+        if (!(insn instanceof org.objectweb.asm.tree.TypeInsnNode ti)) return false;
+        MixinDescriptor.DefinitionEntry d = Objects.requireNonNull(defsById.get(io.typeDefId()));
+        if (!DescriptorMatcher.matches(d.type(), ti.desc)) return false;
+        AbstractInsnNode operandProducer = ExpressionStackWalker.findProducerAt(insn, 0);
+        if (operandProducer == null) return false;
+        return matchesSubExpression(operandProducer, io.operand());
+    }
+
+    private boolean matchesCast(AbstractInsnNode insn, ExpressionNode.Cast ct) {
+        if (insn.getOpcode() != Opcodes.CHECKCAST) return false;
+        if (!(insn instanceof org.objectweb.asm.tree.TypeInsnNode ti)) return false;
+        MixinDescriptor.DefinitionEntry d = Objects.requireNonNull(defsById.get(ct.typeDefId()));
+        if (!DescriptorMatcher.matches(d.type(), ti.desc)) return false;
+        AbstractInsnNode operandProducer = ExpressionStackWalker.findProducerAt(insn, 0);
+        if (operandProducer == null) return false;
+        return matchesSubExpression(operandProducer, ct.operand());
+    }
+
+    private boolean matchesComparison(AbstractInsnNode insn, ExpressionNode.Comparison c) {
+        int op = insn.getOpcode();
+        if (!comparisonOpcodeMatches(op, c.op())) return false;
+        AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(insn, 0);
+        AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(insn, 1);
+        if (rhsProducer == null || lhsProducer == null) return false;
+        return matchesSubExpression(lhsProducer, c.lhs())
+            && matchesSubExpression(rhsProducer, c.rhs());
+    }
+
+    /**
+     * Maps a textual comparison operator to the {@code IF_ICMP*} / {@code IF_ACMP*} opcodes
+     * that may carry it. javac emits branches with the *inverse* of the source predicate
+     * ({@code if (a == b) ...} compiles as {@code IF_ICMPNE skip; ...}), so each operator
+     * matches both the literal and the inverse form — semantically both are an equality
+     * check / less-than check / etc.
+     */
+    private static boolean comparisonOpcodeMatches(int op, String operator) {
+        return switch (operator) {
+            case "==" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ICMPNE
+                || op == Opcodes.IF_ACMPEQ || op == Opcodes.IF_ACMPNE;
+            case "!=" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ICMPNE
+                || op == Opcodes.IF_ACMPEQ || op == Opcodes.IF_ACMPNE;
+            case "<"  -> op == Opcodes.IF_ICMPLT || op == Opcodes.IF_ICMPGE;
+            case "<=" -> op == Opcodes.IF_ICMPLE || op == Opcodes.IF_ICMPGT;
+            case ">"  -> op == Opcodes.IF_ICMPGT || op == Opcodes.IF_ICMPLE;
+            case ">=" -> op == Opcodes.IF_ICMPGE || op == Opcodes.IF_ICMPLT;
+            default   -> false;
+        };
+    }
+
     private static boolean opcodeMatchesOperator(int op, char operator) {
         return switch (operator) {
             case '+' -> op == Opcodes.IADD || op == Opcodes.LADD || op == Opcodes.FADD || op == Opcodes.DADD;
@@ -231,6 +370,41 @@ final class ExpressionMatcher {
     private static boolean isLoadOpcode(int op) {
         return op == Opcodes.ILOAD || op == Opcodes.LLOAD || op == Opcodes.FLOAD
             || op == Opcodes.DLOAD || op == Opcodes.ALOAD;
+    }
+
+    private boolean literalArgsMatch(AbstractInsnNode insn, List<ExpressionNode.Arg> args) {
+        for (int i = 0; i < args.size(); i++) {
+            if (!(args.get(i) instanceof ExpressionNode.LiteralArg lit)) continue;
+            int stackOffset = args.size() - 1 - i;
+            AbstractInsnNode producer = ExpressionStackWalker.findProducerAt(insn, stackOffset);
+            if (producer == null) return false;
+            if (!literalMatches(producer, lit)) return false;
+        }
+        return true;
+    }
+
+    private static boolean literalMatches(AbstractInsnNode producer, ExpressionNode.LiteralArg lit) {
+        return switch (lit.kind()) {
+            case INT -> matchesIntConst(producer, (Integer) lit.value());
+            case STRING -> producer instanceof org.objectweb.asm.tree.LdcInsnNode l
+                && l.cst instanceof String s && s.equals(lit.value());
+            case BOOL -> producer.getOpcode() == (Boolean.TRUE.equals(lit.value())
+                ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+            case NULL -> producer.getOpcode() == Opcodes.ACONST_NULL;
+        };
+    }
+
+    private static boolean matchesIntConst(AbstractInsnNode producer, int wanted) {
+        int op = producer.getOpcode();
+        if (op >= Opcodes.ICONST_M1 && op <= Opcodes.ICONST_5) {
+            return wanted == op - Opcodes.ICONST_0;
+        }
+        if (producer instanceof org.objectweb.asm.tree.IntInsnNode iin
+            && (op == Opcodes.BIPUSH || op == Opcodes.SIPUSH)) {
+            return wanted == iin.operand;
+        }
+        return producer instanceof org.objectweb.asm.tree.LdcInsnNode l
+            && l.cst instanceof Integer i && i == wanted;
     }
 
     private boolean matchesAssign(AbstractInsnNode insn, ExpressionNode.Assign a) {
@@ -269,10 +443,8 @@ final class ExpressionMatcher {
                 ExpressionNode r = ch.receiver();
                 switch (r) {
                     case ExpressionNode.ThisRef ignored -> { /* leaf — always allowed in receiver position */ }
-                    case ExpressionNode.Call innerCall -> {
+                    case ExpressionNode.Call innerCall ->
                         validateMemberRef(innerCall.defId(), defs, handler, true);
-                        rejectInnerCaptures(innerCall.args(), handler);
-                    }
                     case ExpressionNode.FieldRef innerField ->
                         validateMemberRef(innerField.defId(), defs, handler, false);
                     case ExpressionNode.Chained innerCh ->
@@ -298,6 +470,20 @@ final class ExpressionMatcher {
                 validateOperand(bo.lhs(), defs, handler, paramIndexByName);
                 validateOperand(bo.rhs(), defs, handler, paramIndexByName);
             }
+            case ExpressionNode.Comparison c -> {
+                validateOperand(c.lhs(), defs, handler, paramIndexByName);
+                validateOperand(c.rhs(), defs, handler, paramIndexByName);
+            }
+            case ExpressionNode.InstanceOf io -> {
+                validateTypeRef(io.typeDefId(), defs, handler);
+                validateOperand(io.operand(), defs, handler, paramIndexByName);
+            }
+            case ExpressionNode.Cast ct -> {
+                validateTypeRef(ct.typeDefId(), defs, handler);
+                validateOperand(ct.operand(), defs, handler, paramIndexByName);
+            }
+            case ExpressionNode.LiteralArg lit -> throw new IllegalStateException(
+                "@Expression cannot be a bare literal '" + lit.value() + "' on " + handler);
             case ExpressionNode.Wildcard ignored -> throw new IllegalStateException(
                 "@Expression cannot be bare `?` on " + handler);
             case ExpressionNode.NamedArg na -> throw new IllegalStateException(
@@ -320,10 +506,15 @@ final class ExpressionMatcher {
         switch (node) {
             case ExpressionNode.Wildcard ignored -> {}
             case ExpressionNode.NamedArg ignored -> {}
+            case ExpressionNode.LiteralArg ignored -> {}
             case ExpressionNode.ThisRef ignored -> {}
             case ExpressionNode.BinaryOp bo -> {
                 validateOperand(bo.lhs(), defs, handler, paramIndexByName);
                 validateOperand(bo.rhs(), defs, handler, paramIndexByName);
+            }
+            case ExpressionNode.Comparison c -> {
+                validateOperand(c.lhs(), defs, handler, paramIndexByName);
+                validateOperand(c.rhs(), defs, handler, paramIndexByName);
             }
             default -> validate(node, defs, handler, paramIndexByName);
         }
@@ -336,6 +527,18 @@ final class ExpressionMatcher {
                     "@Expression: captures inside an inner (non-leaf) chained call are not"
                     + " supported in v3 on " + handler);
             }
+        }
+    }
+
+    private static void validateTypeRef(String id, Map<String, MixinDescriptor.DefinitionEntry> defs, Method handler) {
+        MixinDescriptor.DefinitionEntry d = defs.get(id);
+        if (d == null) {
+            throw new IllegalStateException(
+                "@Expression references undefined type id '" + id + "' on " + handler);
+        }
+        if (d.type().isEmpty()) {
+            throw new IllegalStateException(
+                "@Expression uses '" + id + "' as a type but its @Definition does not set type() on " + handler);
         }
     }
 

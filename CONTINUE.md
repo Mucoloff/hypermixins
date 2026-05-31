@@ -49,7 +49,7 @@ injectEntries:     [targetMethod, point, atDesc, atIndex,
 shadowEntries:     [handlerName, handlerDesc, targetName]
 syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
 expressionEntries: [handlerName, handlerDesc, expression]
-definitionEntries: [handlerName, handlerDesc, id, method, field]
+definitionEntries: [handlerName, handlerDesc, id, method, field, type]
 ```
 
 ### `.mixins.yml` layout (sponge-style)
@@ -86,7 +86,7 @@ The legacy `hypermixins-api` module is removed — runtime is the single source 
 
 ```bash
 export JAVA_HOME=/home/sweety/.local/jdks/jdk-25.0.3+9   # KSP needs the JDK that built the processor
-./gradlew :hypermixins-runtime:test                       # ~149 tests: dispatch, inject, reload, @Local, @Final/@Mutable, @Soft, @Implements, @Slice, @Unique (static + instance), @Surrogate, @Definition/@Expression (v3 with this/chained/assign/? capture/named/arith/multi-segment), @Wrap*, @Shift.BY, @Coerce, Args, @Share, @Inject(require/allow), YAML
+./gradlew :hypermixins-runtime:test                       # ~161 tests: dispatch, inject, reload, @Local, @Final/@Mutable, @Soft, @Implements, @Slice, @Unique (static + instance), @Surrogate, @Definition/@Expression (v3 with this/chained/assign/? capture/named/arith/multi-segment), @Wrap*, @Shift.BY, @Coerce, Args, @Share, @Inject(require/allow), YAML
 ./gradlew :hypermixins-processor:test                     # 6 tests: NameMangling, JvmDescriptors, DescriptorBuilders
 ./gradlew :hypermixins-example:jar                        # KSP + descriptor + YAML
 ./gradlew :hypermixins-processor:jar                      # processor only
@@ -96,9 +96,9 @@ export JAVA_HOME=/home/sweety/.local/jdks/jdk-25.0.3+9   # KSP needs the JDK tha
 Smoke (no agent):
 ```bash
 java -cp \
-  hypermixins-example/build/libs/hypermixins-example-1.5.jar:\
-hypermixins-runtime/build/libs/hypermixins-runtime-1.5.jar:\
-hypermixins-annotations/build/libs/hypermixins-annotations-1.5.jar:\
+  hypermixins-example/build/libs/hypermixins-example-1.6.jar:\
+hypermixins-runtime/build/libs/hypermixins-runtime-1.6.jar:\
+hypermixins-annotations/build/libs/hypermixins-annotations-1.6.jar:\
 hypermixins-example/run/test-world-1.0.jar \
   net.echo.tests.MixinDescriptorDemo
 ```
@@ -130,6 +130,11 @@ hypermixins-example/run/test-world-1.0.jar \
   injection block to before the earliest preceding {@code *LOAD} of the
   source slot via {@link InjectPass#findArgsOnlyAnchor}, so the
   writeback lands before the consuming push.
+
+## Docs
+
+- [`docs/expression.md`](docs/expression.md) — full `@Expression` DSL
+  grammar reference with one runnable example per shape.
 
 ## Key files
 

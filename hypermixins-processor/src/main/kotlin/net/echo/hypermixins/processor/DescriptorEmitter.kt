@@ -134,7 +134,7 @@ internal class DescriptorEmitter(private val codeGenerator: CodeGenerator) {
             arrayOf(it.handlerName, it.handlerDesc, it.expression)
         }))
         classBuilder.addMethod(entriesMethod("definitionEntries", h.definitionEntries.map {
-            arrayOf(it.handlerName, it.handlerDesc, it.id, it.method, it.field)
+            arrayOf(it.handlerName, it.handlerDesc, it.id, it.method, it.field, it.type)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", h.staticTargets.map {
             val paren = it.indexOf('(')
@@ -180,6 +180,6 @@ internal class DescriptorEmitter(private val codeGenerator: CodeGenerator) {
          * Descriptor ABI version baked into every generated $$Descriptor. Bump in lock-step
          * with MixinDescriptor.SCHEMA_VERSION whenever any entries() column layout changes.
          */
-        const val SCHEMA_VERSION: Int = 2
+        const val SCHEMA_VERSION: Int = 3
     }
 }

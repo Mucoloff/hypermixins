@@ -6,6 +6,61 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Added
+- **`@Expression` inner-chain captures** — the v3-B restriction
+  banning `?` / named captures inside non-leaf chained calls is
+  lifted. `pick(?).emit(?)` binds the inner argument to handler param
+  1 and the outer to param 2; `captureSlots` walks the AST
+  depth-first in source order, threading the matched anchor through
+  each receiver-producer step.
+- **`@Expression` capture-through-arithmetic** — `?` / NamedArg
+  operands of `BinaryOp`, `Comparison`, `InstanceOf`, and `Cast` now
+  bind to handler params instead of being constraint-only. Each
+  operand's producer is resolved via the existing `findProducerAt`
+  walker; non-`*LOAD` producers throw `InjectSignatureMismatch` so
+  `@Surrogate` can fall back. Hybrid shapes like
+  `pick(?).emit(? + ?)` extract every leaf in source order.
+
+### Added
+- **`@Expression` DSL v5** — type aliases + structural type checks:
+  - **`@Definition.type()`** — new third field naming a JVM internal
+    type (`"java/lang/String"`). Exactly one of `method` / `field` /
+    `type` must be non-empty. Schema version bumped 2 → 3; stale
+    processor pairings fail via the existing handshake.
+  - **`instanceof`**: `expr instanceof TypeId` matches the `INSTANCEOF`
+    opcode whose type operand matches the resolved `@Definition.type()`.
+  - **Cast**: `(TypeId) expr` matches the `CHECKCAST` opcode with the
+    same type alias. Parser uses non-destructive lookahead so legacy
+    paren-less expressions stay intact.
+  - Both shapes recurse through `matchesSubExpression` for the
+    operand, so any v3 / v4 capture / literal / arithmetic pattern can
+    appear inside.
+  - Boolean combinators (`&&`, `||`, `!`) remain deferred to v6 —
+    they compile to multi-`IF*` chains and don't fit the
+    single-instruction matcher.
+
+## 1.6 — 2026-05-31
+
+### Added
+- **`@Expression` DSL v4** — adds literal constraints and comparison
+  operators while keeping the single-instruction match model:
+  - **v4-A literal args**: `accept(42)`, `accept("hello")`,
+    `accept(true)` / `accept(false)`, `accept(null)`. The matched
+    instruction's corresponding argument position must be produced by
+    a constant load whose value equals the literal — int decodes
+    `ICONST_M1..ICONST_5` / `BIPUSH` / `SIPUSH` / `LDC<Integer>`,
+    string matches `LDC<String>`, bool maps to `ICONST_0` / `ICONST_1`,
+    null maps to `ACONST_NULL`. Mixed shapes like `accept(?, 42)`
+    work — `?` binds positionally, literals constrain.
+  - **v4-B comparison ops**: `? == ?`, `? != ?`, `? < ?`, `? <= ?`,
+    `? > ?`, `? >= ?` match the corresponding `IF_ICMP*` /
+    `IF_ACMP*` instruction. Operators match both the literal and the
+    inverse opcode for each comparison because javac emits the
+    inverse branch (`if (a == b)` compiles to `IF_ICMPNE skip`); the
+    DSL operator is semantic, not syntactic. Boolean combinators
+    (`&&` / `||` / `!`) are still v5 because they expand to a
+    multi-`IF*` chain.
+
 ### Changed
 - **`@Expression` / `@Definition` baked into descriptor schema** —
   these were the last annotations the runtime read via reflection.

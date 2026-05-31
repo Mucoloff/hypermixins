@@ -10,7 +10,6 @@ import net.echo.hypermixins.annotations.Original;
 import net.echo.hypermixins.annotations.Overwrite;
 import net.echo.hypermixins.annotations.Redirect;
 import net.echo.hypermixins.annotations.Shadow;
-import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.Type;
 
 import java.lang.reflect.Field;
@@ -101,28 +100,23 @@ final class AnnotationDescriptorReader {
             net.echo.hypermixins.annotations.Expression e =
                 m.getAnnotation(net.echo.hypermixins.annotations.Expression.class);
             if (e == null) continue;
-            List<MixinDescriptor.DefinitionEntry> defs = getDefinitionEntries(m);
+            List<MixinDescriptor.DefinitionEntry> defs = new ArrayList<>();
+            net.echo.hypermixins.annotations.Definition single =
+                m.getAnnotation(net.echo.hypermixins.annotations.Definition.class);
+            if (single != null) {
+                defs.add(new MixinDescriptor.DefinitionEntry(single.id(), single.method(), single.field(), single.type()));
+            }
+            net.echo.hypermixins.annotations.Definitions group =
+                m.getAnnotation(net.echo.hypermixins.annotations.Definitions.class);
+            if (group != null) {
+                for (net.echo.hypermixins.annotations.Definition d : group.value()) {
+                    defs.add(new MixinDescriptor.DefinitionEntry(d.id(), d.method(), d.field(), d.type()));
+                }
+            }
             String key = m.getName() + Type.getMethodDescriptor(m);
             out.put(key, new MixinDescriptor.ExpressionMetadata(e.value(), defs));
         }
         return out;
-    }
-
-    private static @NotNull List<MixinDescriptor.DefinitionEntry> getDefinitionEntries(Method m) {
-        List<MixinDescriptor.DefinitionEntry> defs = new ArrayList<>();
-        net.echo.hypermixins.annotations.Definition single =
-            m.getAnnotation(net.echo.hypermixins.annotations.Definition.class);
-        if (single != null) {
-            defs.add(new MixinDescriptor.DefinitionEntry(single.id(), single.method(), single.field()));
-        }
-        net.echo.hypermixins.annotations.Definitions group =
-            m.getAnnotation(net.echo.hypermixins.annotations.Definitions.class);
-        if (group != null) {
-            for (net.echo.hypermixins.annotations.Definition d : group.value()) {
-                defs.add(new MixinDescriptor.DefinitionEntry(d.id(), d.method(), d.field()));
-            }
-        }
-        return defs;
     }
 
     private static void collectOverwrite(
@@ -211,7 +205,16 @@ final class AnnotationDescriptorReader {
         if (params.length == 0 || params[0] != Object.class)
             throw new IllegalArgumentException("@Inject first param must be Object self on " + method);
         boolean cancellable = in.cancellable() || method.isAnnotationPresent(Cancellable.class);
-        boolean returnable = isReturnable(method, cancellable, params);
+        boolean returnable = false;
+        if (cancellable) {
+            Class<?> last = params[params.length - 1];
+            String simple = last.getSimpleName();
+            if (!simple.equals("CallbackInfo") && !simple.equals("CallbackInfoReturnable")) {
+                throw new IllegalArgumentException(
+                    "@Inject cancellable=true requires CallbackInfo[Returnable] last param on " + method);
+            }
+            returnable = simple.equals("CallbackInfoReturnable");
+        }
         At at = in.at();
         At.Point point = at.point();
         if ((point == At.Point.INVOKE || point == At.Point.FIELD
@@ -231,20 +234,6 @@ final class AnnotationDescriptorReader {
                 }
             }
         }
-    }
-
-    private static boolean isReturnable(Method method, boolean cancellable, Class<?>[] params) {
-        boolean returnable = false;
-        if (cancellable) {
-            Class<?> last = params[params.length - 1];
-            String simple = last.getSimpleName();
-            if (!simple.equals("CallbackInfo") && !simple.equals("CallbackInfoReturnable")) {
-                throw new IllegalArgumentException(
-                    "@Inject cancellable=true requires CallbackInfo[Returnable] last param on " + method);
-            }
-            returnable = simple.equals("CallbackInfoReturnable");
-        }
-        return returnable;
     }
 
     private static String resolveShadowName(String simpleName, String value, String prefix) {
