@@ -84,7 +84,7 @@ The legacy `hypermixins-api` module is removed — runtime is the single source 
 
 ```bash
 export JAVA_HOME=/home/sweety/.local/jdks/jdk-25.0.3+9   # KSP needs the JDK that built the processor
-./gradlew :hypermixins-runtime:test                       # 113 tests: dispatch, inject, reload, @Local, @Final/@Mutable, YAML, helpers
+./gradlew :hypermixins-runtime:test                       # 117 tests: dispatch, inject, reload, @Local, @Final/@Mutable, @Soft, @Implements, @Slice, @Unique, YAML
 ./gradlew :hypermixins-processor:test                     # 6 tests: NameMangling, JvmDescriptors, DescriptorBuilders
 ./gradlew :hypermixins-example:jar                        # KSP + descriptor + YAML
 ./gradlew :hypermixins-processor:jar                      # processor only

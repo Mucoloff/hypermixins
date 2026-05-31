@@ -6,6 +6,22 @@ master is the only published surface so far.
 
 ## Unreleased
 
+## 1.3 — 2026-05-31
+
+### Added (Sponge-style annotation suite)
+- **`@Soft` on `@Shadow` / `@Invoker`** — optional target binding. When the
+  target method isn't on the target class at transform time the trampoline
+  body is replaced with `throw new UnsupportedOperationException(...)` so
+  the absence only surfaces at call time.
+- **`@Implements({Foo.class, ...})`** — appends the listed interfaces to
+  the target class's `interfaces` list at transform time.
+- **`@Slice(from = @At(...), to = @At(...))`** — constrains `@Inject` site
+  search to an [from, to] instruction-index window. Either side may stay at
+  the default `@At(HEAD)` for "no bound on this side".
+- **`@Unique` on static methods** — copies the static helper into the target
+  class under `__unique$<mixin-flat>$<name>$<hash>`. Restricted to static
+  for this release; instance `@Unique` deferred.
+
 ### Fixed
 - **Compile-time validation gaps** on the `@Inject` and `@Original` collectors:
   the processor now rejects non-`Object`/`Any` first parameters and static
