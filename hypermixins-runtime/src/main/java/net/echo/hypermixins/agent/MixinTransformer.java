@@ -212,6 +212,7 @@ public class MixinTransformer implements ClassFileTransformer {
         AccessorPass.apply(node, mapping);
         InvokerPass.apply(node, mapping);
         ShadowMethodPass.apply(node, mapping);
+        CallerSideUniquePass.apply(node, mapping);
 
         ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS, loader);
         node.accept(writer);
