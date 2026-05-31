@@ -157,6 +157,10 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyReturnValue ann = m.getAnnotation(ModifyReturnValue.class);
             if (ann == null) continue;
+            if (ann.method().isEmpty())
+                throw new IllegalArgumentException("@ModifyReturnValue#method() must not be empty on " + m);
+            if (ann.at().desc().isEmpty())
+                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyReturnValue " + m);
             if (!Modifier.isStatic(m.getModifiers()))
                 throw new IllegalArgumentException("@ModifyReturnValue must be static: " + m);
             String desc = ann.at().desc();
