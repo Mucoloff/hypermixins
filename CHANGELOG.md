@@ -7,6 +7,21 @@ master is the only published surface so far.
 ## Unreleased
 
 ### Added
+- **`@Inject(require, allow)`** — match-count enforcement. `require` is the
+  minimum number of matched call sites (default 0 disables); `allow` is the
+  maximum (negative default disables). Mismatches fail the transform with
+  expected vs. actual counts. Read reflectively, no descriptor change.
+- **`@Share(key)` on `@Inject` parameters** — shared mutable `Ref` cell
+  identified by `key`, served by `SharedSlots.acquire`. Lets multiple
+  handlers across mixins exchange state via the same key. CaptureEmitter
+  emits the load; no descriptor schema change.
+
+### Refactored
+- `ReflectionCollectorChecks` consolidates the eight reflection
+  collectors' duplicate validation prologue (non-empty `method()`, non-empty
+  `@At#desc()`, static/non-static enforcement) into one helper.
+
+### Added
 - **`@At.Shift.BY` + `by()`** — signed instruction-offset shift for
   `@Inject` site anchoring. Walks the matched insn ± by() positions
   before inserting the handler block. Read reflectively from the
