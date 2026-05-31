@@ -41,6 +41,24 @@ jobs:
       - name: Agent shadow jar + premain integration test
         run: ./gradlew --no-daemon :hypermixins-agent:test
 
+      - name: Assert test count >= baseline
+        run: |
+          set -e
+          baseline_file=.github/test-baseline.txt
+          fail=0
+          while IFS='=' read -r module expected; do
+            [ -z "$module" ] && continue
+            actual=$(grep -hoE 'tests="[0-9]+"' "$module"/build/test-results/test/TEST-*.xml 2>/dev/null \
+                       | grep -oE '[0-9]+' \
+                       | awk '{ s += $1 } END { print s+0 }')
+            echo "$module: actual=$actual baseline=$expected"
+            if [ "$actual" -lt "$expected" ]; then
+              echo "::error::$module test count regressed: $actual < $expected"
+              fail=1
+            fi
+          done < "$baseline_file"
+          [ "$fail" -eq 0 ]
+
       - name: Upload failing test reports
         if: failure()
         uses: actions/upload-artifact@v4
