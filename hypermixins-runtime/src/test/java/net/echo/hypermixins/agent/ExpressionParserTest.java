@@ -138,4 +138,25 @@ class ExpressionParserTest {
     void rejectsNotOverNonComparison() {
         assertThrows(IllegalArgumentException.class, () -> ExpressionParser.parse("!counter"));
     }
+
+    @Test
+    void parsesLogicalAnd() {
+        ExpressionNode node = ExpressionParser.parse("? < ? && ? > ?");
+        ExpressionNode.LogicalOp lo = assertInstanceOf(ExpressionNode.LogicalOp.class, node);
+        assertEquals("&&", lo.op());
+        assertInstanceOf(ExpressionNode.Comparison.class, lo.lhs());
+        assertInstanceOf(ExpressionNode.Comparison.class, lo.rhs());
+    }
+
+    @Test
+    void parsesLogicalOr() {
+        ExpressionNode node = ExpressionParser.parse("? == ? || ? != ?");
+        ExpressionNode.LogicalOp lo = assertInstanceOf(ExpressionNode.LogicalOp.class, node);
+        assertEquals("||", lo.op());
+    }
+
+    @Test
+    void rejectsLoneAmpersand() {
+        assertThrows(IllegalArgumentException.class, () -> ExpressionParser.parse("? < ? & ? > ?"));
+    }
 }

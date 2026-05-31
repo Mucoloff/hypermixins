@@ -44,7 +44,7 @@ final class ExpressionParser {
     }
 
     private ExpressionNode assignment() {
-        ExpressionNode lhs = comparison();
+        ExpressionNode lhs = logicalOr();
         skipWhitespace();
         if (pos < src.length() && src.charAt(pos) == '='
             && !(pos + 1 < src.length() && src.charAt(pos + 1) == '=')) {
@@ -53,6 +53,34 @@ final class ExpressionParser {
             return new ExpressionNode.Assign(lhs, rhs);
         }
         return lhs;
+    }
+
+    private ExpressionNode logicalOr() {
+        ExpressionNode left = logicalAnd();
+        skipWhitespace();
+        while (peekTwo('|', '|')) {
+            pos += 2;
+            ExpressionNode right = logicalAnd();
+            left = new ExpressionNode.LogicalOp("||", left, right);
+            skipWhitespace();
+        }
+        return left;
+    }
+
+    private ExpressionNode logicalAnd() {
+        ExpressionNode left = comparison();
+        skipWhitespace();
+        while (peekTwo('&', '&')) {
+            pos += 2;
+            ExpressionNode right = comparison();
+            left = new ExpressionNode.LogicalOp("&&", left, right);
+            skipWhitespace();
+        }
+        return left;
+    }
+
+    private boolean peekTwo(char a, char b) {
+        return pos + 1 < src.length() && src.charAt(pos) == a && src.charAt(pos + 1) == b;
     }
 
     private ExpressionNode comparison() {

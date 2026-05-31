@@ -157,6 +157,12 @@ final class ExpressionMatcher {
                 AbstractInsnNode producer = ExpressionStackWalker.findProducerAt(anchor, 0);
                 collectArithOperand(ct.operand(), producer, ctx);
             }
+            case ExpressionNode.LogicalOp lo -> {
+                // anchor is the first comparison's jump; the second's is the next conditional jump.
+                collectCaptures(lo.lhs(), anchor, ctx);
+                AbstractInsnNode secondJump = nextConditionalJump(anchor.getNext());
+                if (secondJump != null) collectCaptures(lo.rhs(), secondJump, ctx);
+            }
             // FieldRef / ThisRef / literals / unsupported roots — no captures to extract.
             default -> {}
         }
@@ -284,6 +290,7 @@ final class ExpressionMatcher {
             case ExpressionNode.Assign a -> matchesAssign(insn, a);
             case ExpressionNode.BinaryOp bo -> matchesBinaryOp(insn, bo);
             case ExpressionNode.Comparison c -> matchesComparison(insn, c);
+            case ExpressionNode.LogicalOp lo -> matchesLogicalOp(insn, lo);
             case ExpressionNode.InstanceOf io -> matchesInstanceOf(insn, io);
             case ExpressionNode.Cast ct -> matchesCast(insn, ct);
             case ExpressionNode.Wildcard ignored ->
@@ -341,6 +348,57 @@ final class ExpressionMatcher {
         if (rhsProducer == null || lhsProducer == null) return false;
         return matchesSubExpression(lhsProducer, c.lhs())
             && matchesSubExpression(rhsProducer, c.rhs());
+    }
+
+    /**
+     * Matches a {@code &&} / {@code ||} region of two comparison operands, anchored on the first
+     * comparison's conditional jump. {@code &&}: both operands negate (forward) to the SAME
+     * false-label. {@code ||}: the first operand uses the DIRECT opcode (forward, jump-to-true),
+     * the second negates to a DIFFERENT false-label. Operand sub-expressions are matched against
+     * each jump's stack producers.
+     */
+    private boolean matchesLogicalOp(AbstractInsnNode insn, ExpressionNode.LogicalOp lo) {
+        if (!(insn instanceof org.objectweb.asm.tree.JumpInsnNode firstJump)) return false;
+        if (!(lo.lhs() instanceof ExpressionNode.Comparison lc)
+            || !(lo.rhs() instanceof ExpressionNode.Comparison rc)) return false;
+        AbstractInsnNode next = nextConditionalJump(firstJump.getNext());
+        if (!(next instanceof org.objectweb.asm.tree.JumpInsnNode secondJump)) return false;
+
+        int firstOp = firstJump.getOpcode();
+        int secondOp = secondJump.getOpcode();
+        boolean structure;
+        if ("&&".equals(lo.op())) {
+            structure = forwardOpcodeMatches(firstOp, lc.op())
+                && forwardOpcodeMatches(secondOp, rc.op())
+                && firstJump.label == secondJump.label;
+        } else { // "||"
+            structure = backwardOpcodeMatches(firstOp, lc.op())   // direct opcode, jump-to-true
+                && forwardOpcodeMatches(secondOp, rc.op())        // negated, jump-to-false
+                && firstJump.label != secondJump.label;
+        }
+        if (!structure) return false;
+
+        return comparisonOperandsMatch(firstJump, lc) && comparisonOperandsMatch(secondJump, rc);
+    }
+
+    private boolean comparisonOperandsMatch(AbstractInsnNode jump, ExpressionNode.Comparison c) {
+        AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(jump, 0);
+        AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(jump, 1);
+        if (rhsProducer == null || lhsProducer == null) return false;
+        return matchesSubExpression(lhsProducer, c.lhs())
+            && matchesSubExpression(rhsProducer, c.rhs());
+    }
+
+    /** First conditional {@code IF_ICMP*} / {@code IF_ACMP*} jump at or after {@code start}, else null. */
+    private static AbstractInsnNode nextConditionalJump(AbstractInsnNode start) {
+        for (AbstractInsnNode n = start; n != null; n = n.getNext()) {
+            if (n instanceof org.objectweb.asm.tree.JumpInsnNode j) {
+                int op = j.getOpcode();
+                boolean conditional = (op >= Opcodes.IF_ICMPEQ && op <= Opcodes.IF_ACMPNE);
+                if (conditional) return n;
+            }
+        }
+        return null;
     }
 
     /**
@@ -498,6 +556,16 @@ final class ExpressionMatcher {
             case ExpressionNode.Comparison c -> {
                 validateOperand(c.lhs(), defs, handler, paramIndexByName);
                 validateOperand(c.rhs(), defs, handler, paramIndexByName);
+            }
+            case ExpressionNode.LogicalOp lo -> {
+                if (!(lo.lhs() instanceof ExpressionNode.Comparison)
+                    || !(lo.rhs() instanceof ExpressionNode.Comparison)) {
+                    throw new IllegalStateException(
+                        "@Expression `&&` / `||` requires comparison operands (v7 supports a single "
+                        + "logical of two comparisons; nesting / non-comparison operands are deferred) on " + handler);
+                }
+                validate(lo.lhs(), defs, handler, paramIndexByName);
+                validate(lo.rhs(), defs, handler, paramIndexByName);
             }
             case ExpressionNode.InstanceOf io -> {
                 validateTypeRef(io.typeDefId(), defs, handler);

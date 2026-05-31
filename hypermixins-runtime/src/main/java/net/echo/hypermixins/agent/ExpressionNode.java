@@ -54,6 +54,12 @@ sealed interface ExpressionNode {
      */
     record Comparison(String op, ExpressionNode lhs, ExpressionNode rhs) implements ExpressionNode {}
 
+    /**
+     * Short-circuit logical operator. {@code op} is {@code "&&"} or {@code "||"}. v7 supports a
+     * single operator over two {@link Comparison} operands, matched as a two-jump region.
+     */
+    record LogicalOp(String op, ExpressionNode lhs, ExpressionNode rhs) implements ExpressionNode {}
+
     /** {@code expr instanceof TypeId}. Matches an {@code INSTANCEOF} insn whose operand type matches the resolved {@code @Definition.type()}. */
     record InstanceOf(ExpressionNode operand, String typeDefId) implements ExpressionNode {}
 
