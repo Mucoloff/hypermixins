@@ -18,7 +18,20 @@ public final class MixinDescriptorDemo {
     private MixinDescriptorDemo() {}
 
     public static void main(String[] args) throws Exception {
-        MixinDescriptor descriptor = MixinDescriptor.load(WorldMixin.class);
+        dump(MixinDescriptor.load(WorldMixin.class));
+        System.out.println();
+        dump(MixinDescriptor.load(WorldExtrasMixin.class));
+
+        System.out.println();
+        System.out.println("Discovered YAMLs on classpath:");
+        List<MixinsConfig> configs = MixinsConfig.discoverAll(
+            MixinDescriptorDemo.class.getClassLoader());
+        for (MixinsConfig c : configs) {
+            System.out.println("  package=" + c.packageName() + " mixins=" + c.mixinClassNames());
+        }
+    }
+
+    private static void dump(MixinDescriptor descriptor) {
         System.out.println("mixinClass:  " + descriptor.mixinClass().getName());
         System.out.println("targetClass: " + descriptor.targetClass());
 
@@ -41,13 +54,5 @@ public final class MixinDescriptorDemo {
         System.out.println("synthetics:");
         descriptor.synthetics().forEach((k, v) ->
             System.out.println("  " + k + " -> " + v[0] + " / " + v[1]));
-
-        System.out.println();
-        System.out.println("Discovered YAMLs on classpath:");
-        List<MixinsConfig> configs = MixinsConfig.discoverAll(
-            MixinDescriptorDemo.class.getClassLoader());
-        for (MixinsConfig c : configs) {
-            System.out.println("  package=" + c.packageName() + " mixins=" + c.mixinClassNames());
-        }
     }
 }
