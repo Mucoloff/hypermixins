@@ -415,7 +415,8 @@ internal class Collectors(private val logger: KSPLogger) {
             val lastParam = fn.parameters.lastOrNull()
             val lastFqn = lastParam?.type?.resolve()?.declaration?.qualifiedName?.asString() ?: ""
             if (!lastFqn.endsWith("CallbackInfo") && !lastFqn.endsWith("CallbackInfoReturnable")) {
-                logger.error("@Inject with cancellable=true requires CallbackInfo or CallbackInfoReturnable as last parameter: ${fn.simpleName.asString()}", fn)
+                logger.error("@Inject(cancellable=true) or @Cancellable requires CallbackInfo or CallbackInfoReturnable as last parameter: ${fn.simpleName.asString()}", fn)
+                return
             }
             returnable = lastFqn.endsWith("CallbackInfoReturnable")
         }
