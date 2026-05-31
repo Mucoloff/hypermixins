@@ -56,20 +56,24 @@ final class ExpressionParser {
 
     private ExpressionNode selector() {
         skipWhitespace();
+        ExpressionNode head;
         if (peekKeyword(THIS)) {
             pos += THIS.length();
-            skipWhitespace();
-            if (pos < src.length() && src.charAt(pos) == '.') {
-                pos++;
-                ExpressionNode.Member m = member();
-                return new ExpressionNode.Chained(ExpressionNode.ThisRef.INSTANCE, m);
-            }
-            return ExpressionNode.ThisRef.INSTANCE;
+            head = ExpressionNode.ThisRef.INSTANCE;
+        } else {
+            ExpressionNode.Member m = member();
+            head = m.isCall()
+                ? new ExpressionNode.Call(m.defId(), m.args())
+                : new ExpressionNode.FieldRef(m.defId());
         }
-        ExpressionNode.Member m = member();
-        // Bare member: surface as v1 Call or FieldRef for matcher-shape stability.
-        if (m.isCall()) return new ExpressionNode.Call(m.defId(), m.args());
-        return new ExpressionNode.FieldRef(m.defId());
+        skipWhitespace();
+        while (pos < src.length() && src.charAt(pos) == '.') {
+            pos++;
+            ExpressionNode.Member m = member();
+            head = new ExpressionNode.Chained(head, m);
+            skipWhitespace();
+        }
+        return head;
     }
 
     private ExpressionNode.Member member() {

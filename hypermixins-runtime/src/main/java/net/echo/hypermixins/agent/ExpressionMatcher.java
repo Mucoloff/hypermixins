@@ -173,12 +173,37 @@ final class ExpressionMatcher {
     }
 
     private boolean matchesChained(AbstractInsnNode insn, ExpressionNode.Chained ch, Boolean wantStore) {
-        if (!(ch.receiver() instanceof ExpressionNode.ThisRef)) return false;
         ExpressionNode.Member m = ch.member();
+        ExpressionNode receiver = ch.receiver();
+        boolean memberMatched;
+        int argCount;
         if (m.isCall()) {
-            return matchesCall(insn, new ExpressionNode.Call(m.defId(), m.args()), /*requireThis*/ true);
+            memberMatched = matchesCall(insn, new ExpressionNode.Call(m.defId(), m.args()), /*requireThis*/ false);
+            argCount = m.args().size();
+        } else {
+            memberMatched = matchesFieldRef(insn, new ExpressionNode.FieldRef(m.defId()), /*requireThis*/ false, wantStore);
+            FieldInsnNode fi = insn instanceof FieldInsnNode ? (FieldInsnNode) insn : null;
+            argCount = fi != null && fi.getOpcode() == Opcodes.PUTFIELD ? 1 : 0;
         }
-        return matchesFieldRef(insn, new ExpressionNode.FieldRef(m.defId()), /*requireThis*/ true, wantStore);
+        if (!memberMatched) return false;
+        if (receiver instanceof ExpressionNode.ThisRef) {
+            return ExpressionStackWalker.producerIsAload0(insn, argCount);
+        }
+        AbstractInsnNode producer = ExpressionStackWalker.findProducerAt(insn, argCount);
+        if (producer == null) return false;
+        return matchesSubExpression(producer, receiver);
+    }
+
+    private boolean matchesSubExpression(AbstractInsnNode insn, ExpressionNode node) {
+        return switch (node) {
+            case ExpressionNode.Call c -> matchesCall(insn, c, /*requireThis*/ false);
+            case ExpressionNode.FieldRef f -> matchesFieldRef(insn, f, /*requireThis*/ false, /*store*/ null);
+            case ExpressionNode.Chained ch -> matchesChained(insn, ch, /*store*/ null);
+            case ExpressionNode.ThisRef ignored ->
+                insn instanceof org.objectweb.asm.tree.VarInsnNode v
+                    && v.getOpcode() == Opcodes.ALOAD && v.var == 0;
+            default -> false;
+        };
     }
 
     private boolean matchesAssign(AbstractInsnNode insn, ExpressionNode.Assign a) {
@@ -213,11 +238,21 @@ final class ExpressionMatcher {
             case ExpressionNode.Call c -> validateMemberRef(c.defId(), defs, handler, /*isCall*/ true);
             case ExpressionNode.FieldRef f -> validateMemberRef(f.defId(), defs, handler, /*isCall*/ false);
             case ExpressionNode.Chained ch -> {
-                if (!(ch.receiver() instanceof ExpressionNode.ThisRef)) {
-                    throw new IllegalStateException(
-                        "@Expression chained receiver must be `this` on " + handler);
-                }
                 validateMemberRef(ch.member().defId(), defs, handler, ch.member().isCall());
+                ExpressionNode r = ch.receiver();
+                switch (r) {
+                    case ExpressionNode.ThisRef ignored -> { /* leaf — always allowed in receiver position */ }
+                    case ExpressionNode.Call innerCall -> {
+                        validateMemberRef(innerCall.defId(), defs, handler, true);
+                        rejectInnerCaptures(innerCall.args(), handler);
+                    }
+                    case ExpressionNode.FieldRef innerField ->
+                        validateMemberRef(innerField.defId(), defs, handler, false);
+                    case ExpressionNode.Chained innerCh ->
+                        validate(innerCh, defs, handler, paramIndexByName);
+                    default -> throw new IllegalStateException(
+                        "@Expression chained receiver must be `this`, a call, or another chain on " + handler);
+                }
             }
             case ExpressionNode.Assign a -> {
                 if (!(a.rhs() instanceof ExpressionNode.Wildcard)) {
@@ -238,6 +273,16 @@ final class ExpressionMatcher {
                 "Internal: bare Member should have been wrapped as Call or FieldRef on " + handler);
         }
         validateArgNames(root, handler, paramIndexByName);
+    }
+
+    private static void rejectInnerCaptures(List<ExpressionNode.Arg> args, Method handler) {
+        for (ExpressionNode.Arg a : args) {
+            if (a instanceof ExpressionNode.Wildcard || a instanceof ExpressionNode.NamedArg) {
+                throw new IllegalStateException(
+                    "@Expression: captures inside an inner (non-leaf) chained call are not"
+                    + " supported in v3 on " + handler);
+            }
+        }
     }
 
     private static void validateMemberRef(String id, Map<String, Definition> defs, Method handler, boolean isCall) {

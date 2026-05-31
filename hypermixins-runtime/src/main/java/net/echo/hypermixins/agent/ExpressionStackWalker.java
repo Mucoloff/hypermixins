@@ -43,6 +43,22 @@ final class ExpressionStackWalker {
     }
 
     /**
+     * Returns the producer instruction at stack position {@code stackOffset} just before
+     * {@code site}. Each step assumes a single-instruction producer (a clean {@code *LOAD},
+     * a sub-{@code INVOKE} return value, a field access, etc.). Returns {@code null} when the
+     * walk runs off the beginning of the method body.
+     */
+    static AbstractInsnNode findProducerAt(AbstractInsnNode site, int stackOffset) {
+        AbstractInsnNode cursor = site.getPrevious();
+        for (int i = 0; i < stackOffset; i++) {
+            cursor = skipToProducer(cursor);
+            if (cursor == null) return null;
+            cursor = cursor.getPrevious();
+        }
+        return skipToProducer(cursor);
+    }
+
+    /**
      * Returns {@code true} when the producer of stack position {@code stackOffset} just
      * before {@code site} is {@code ALOAD 0}. Used to enforce {@code this} receiver semantics
      * on {@code Chained(ThisRef, ...)} matches.
