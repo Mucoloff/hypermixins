@@ -1,14 +1,18 @@
 package net.echo.hypermixins.agent;
 
+import net.echo.hypermixins.annotations.Share;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
+import org.objectweb.asm.tree.LdcInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
@@ -43,10 +47,22 @@ final class CaptureEmitter {
         Type[] targetArgs = Type.getArgumentTypes(target.desc);
         int positionalSlot = 1;
         int positionalIdx = 0;
+        Annotation[][] paramAnns = handler.getParameterAnnotations();
         for (int i = 0; i < captureCount; i++) {
             Type expected = handlerArgs[1 + i];
             boolean argsOnly = argsOnlyParams.contains(1 + i);
             Integer forcedSlot = slotMap.get(1 + i);
+            Share share = findShare(paramAnns, 1 + i);
+            if (share != null) {
+                if (share.value().isEmpty())
+                    throw new IllegalStateException(
+                        "@Share requires a non-empty key on handler " + handler + " param " + i);
+                out.add(new LdcInsnNode(share.value()));
+                out.add(new MethodInsnNode(Opcodes.INVOKESTATIC,
+                    "net/echo/hypermixins/agent/SharedSlots", "acquire",
+                    "(Ljava/lang/String;)Lnet/echo/hypermixins/annotations/Ref;", false));
+                continue;
+            }
             if (argsOnly) {
                 if (forcedSlot == null) {
                     throw new IllegalStateException(
@@ -100,6 +116,14 @@ final class CaptureEmitter {
             positionalIdx++;
         }
         return r;
+    }
+
+    private static Share findShare(Annotation[][] paramAnns, int paramIndex) {
+        if (paramIndex < 0 || paramIndex >= paramAnns.length) return null;
+        for (Annotation a : paramAnns[paramIndex]) {
+            if (a instanceof Share s) return s;
+        }
+        return null;
     }
 
     /** Loads {@code array[0]} from each argsOnly capture back into its source local slot. */
