@@ -47,6 +47,13 @@ sealed interface ExpressionNode {
      */
     record BinaryOp(char op, ExpressionNode lhs, ExpressionNode rhs) implements ExpressionNode {}
 
+    /**
+     * Comparison operator. {@code op} is one of {@code "=="}, {@code "!="}, {@code "<"},
+     * {@code "<="}, {@code ">"}, {@code ">="}. Matches the corresponding IF_ICMP* /
+     * IF_ACMP* instruction whose two stack inputs back to {@code lhs} / {@code rhs}.
+     */
+    record Comparison(String op, ExpressionNode lhs, ExpressionNode rhs) implements ExpressionNode {}
+
     /** Argument shape inside a {@link Call} or {@link Member}. */
     sealed interface Arg {}
 

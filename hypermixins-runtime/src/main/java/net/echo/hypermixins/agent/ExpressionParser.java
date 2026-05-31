@@ -44,14 +44,38 @@ final class ExpressionParser {
     }
 
     private ExpressionNode assignment() {
-        ExpressionNode lhs = additive();
+        ExpressionNode lhs = comparison();
         skipWhitespace();
-        if (pos < src.length() && src.charAt(pos) == '=') {
+        if (pos < src.length() && src.charAt(pos) == '='
+            && !(pos + 1 < src.length() && src.charAt(pos + 1) == '=')) {
             pos++;
             ExpressionNode.Arg rhs = parseArg();
             return new ExpressionNode.Assign(lhs, rhs);
         }
         return lhs;
+    }
+
+    private ExpressionNode comparison() {
+        ExpressionNode lhs = additive();
+        skipWhitespace();
+        String op = peekComparisonOp();
+        if (op == null) return lhs;
+        pos += op.length();
+        ExpressionNode rhs = additive();
+        return new ExpressionNode.Comparison(op, lhs, rhs);
+    }
+
+    private String peekComparisonOp() {
+        if (pos >= src.length()) return null;
+        char c0 = src.charAt(pos);
+        char c1 = pos + 1 < src.length() ? src.charAt(pos + 1) : '\0';
+        if (c0 == '=' && c1 == '=') return "==";
+        if (c0 == '!' && c1 == '=') return "!=";
+        if (c0 == '<' && c1 == '=') return "<=";
+        if (c0 == '>' && c1 == '=') return ">=";
+        if (c0 == '<') return "<";
+        if (c0 == '>') return ">";
+        return null;
     }
 
     private ExpressionNode additive() {

@@ -195,6 +195,7 @@ final class ExpressionMatcher {
             case ExpressionNode.Chained ch -> matchesChained(insn, ch, /*store*/ null);
             case ExpressionNode.Assign a -> matchesAssign(insn, a);
             case ExpressionNode.BinaryOp bo -> matchesBinaryOp(insn, bo);
+            case ExpressionNode.Comparison c -> matchesComparison(insn, c);
             case ExpressionNode.Wildcard ignored ->
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v && isLoadOpcode(v.getOpcode());
             case ExpressionNode.NamedArg ignored ->
@@ -218,6 +219,37 @@ final class ExpressionMatcher {
         if (rhsProducer == null || lhsProducer == null) return false;
         return matchesSubExpression(lhsProducer, bo.lhs())
             && matchesSubExpression(rhsProducer, bo.rhs());
+    }
+
+    private boolean matchesComparison(AbstractInsnNode insn, ExpressionNode.Comparison c) {
+        int op = insn.getOpcode();
+        if (!comparisonOpcodeMatches(op, c.op())) return false;
+        AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(insn, 0);
+        AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(insn, 1);
+        if (rhsProducer == null || lhsProducer == null) return false;
+        return matchesSubExpression(lhsProducer, c.lhs())
+            && matchesSubExpression(rhsProducer, c.rhs());
+    }
+
+    /**
+     * Maps a textual comparison operator to the {@code IF_ICMP*} / {@code IF_ACMP*} opcodes
+     * that may carry it. javac emits branches with the *inverse* of the source predicate
+     * ({@code if (a == b) ...} compiles as {@code IF_ICMPNE skip; ...}), so each operator
+     * matches both the literal and the inverse form — semantically both are an equality
+     * check / less-than check / etc.
+     */
+    private static boolean comparisonOpcodeMatches(int op, String operator) {
+        return switch (operator) {
+            case "==" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ICMPNE
+                || op == Opcodes.IF_ACMPEQ || op == Opcodes.IF_ACMPNE;
+            case "!=" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ICMPNE
+                || op == Opcodes.IF_ACMPEQ || op == Opcodes.IF_ACMPNE;
+            case "<"  -> op == Opcodes.IF_ICMPLT || op == Opcodes.IF_ICMPGE;
+            case "<=" -> op == Opcodes.IF_ICMPLE || op == Opcodes.IF_ICMPGT;
+            case ">"  -> op == Opcodes.IF_ICMPGT || op == Opcodes.IF_ICMPLE;
+            case ">=" -> op == Opcodes.IF_ICMPGE || op == Opcodes.IF_ICMPLT;
+            default   -> false;
+        };
     }
 
     private static boolean opcodeMatchesOperator(int op, char operator) {
@@ -335,6 +367,10 @@ final class ExpressionMatcher {
                 validateOperand(bo.lhs(), defs, handler, paramIndexByName);
                 validateOperand(bo.rhs(), defs, handler, paramIndexByName);
             }
+            case ExpressionNode.Comparison c -> {
+                validateOperand(c.lhs(), defs, handler, paramIndexByName);
+                validateOperand(c.rhs(), defs, handler, paramIndexByName);
+            }
             case ExpressionNode.LiteralArg lit -> throw new IllegalStateException(
                 "@Expression cannot be a bare literal '" + lit.value() + "' on " + handler);
             case ExpressionNode.Wildcard ignored -> throw new IllegalStateException(
@@ -364,6 +400,10 @@ final class ExpressionMatcher {
             case ExpressionNode.BinaryOp bo -> {
                 validateOperand(bo.lhs(), defs, handler, paramIndexByName);
                 validateOperand(bo.rhs(), defs, handler, paramIndexByName);
+            }
+            case ExpressionNode.Comparison c -> {
+                validateOperand(c.lhs(), defs, handler, paramIndexByName);
+                validateOperand(c.rhs(), defs, handler, paramIndexByName);
             }
             default -> validate(node, defs, handler, paramIndexByName);
         }
