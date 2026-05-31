@@ -69,6 +69,10 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyExpressionValue ann = m.getAnnotation(ModifyExpressionValue.class);
             if (ann == null) continue;
+            if (ann.method().isEmpty())
+                throw new IllegalArgumentException("@ModifyExpressionValue#method() must not be empty on " + m);
+            if (ann.at().desc().isEmpty())
+                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyExpressionValue " + m);
             if (!Modifier.isStatic(m.getModifiers()))
                 throw new IllegalArgumentException("@ModifyExpressionValue must be static: " + m);
             out.add(new MixinDescriptor.ModifyExpressionValueEntry(ann.method(), ann.at().point(), ann.at().desc(),
@@ -82,6 +86,10 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyArg ann = m.getAnnotation(ModifyArg.class);
             if (ann == null) continue;
+            if (ann.method().isEmpty())
+                throw new IllegalArgumentException("@ModifyArg#method() must not be empty on " + m);
+            if (ann.at().desc().isEmpty())
+                throw new IllegalArgumentException("@At#desc() must not be empty on @ModifyArg " + m);
             if (!Modifier.isStatic(m.getModifiers()))
                 throw new IllegalArgumentException("@ModifyArg must be static: " + m);
             out.add(new MixinDescriptor.ModifyArgEntry(ann.method(), ann.at().desc(), ann.index(),
@@ -95,6 +103,8 @@ final class ReflectionCollectors {
         for (Method m : mixinClass.getDeclaredMethods()) {
             ModifyConstant ann = m.getAnnotation(ModifyConstant.class);
             if (ann == null) continue;
+            if (ann.method().isEmpty())
+                throw new IllegalArgumentException("@ModifyConstant#method() must not be empty on " + m);
             if (!Modifier.isStatic(m.getModifiers()))
                 throw new IllegalArgumentException("@ModifyConstant must be static: " + m);
             ModifyConstant.Constant c = ann.constant();
