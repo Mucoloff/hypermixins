@@ -6,6 +6,18 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Added
+- **Caller-side instance `@Unique` dispatch** — `CallerSideUniquePass`
+  rewrites `INVOKEVIRTUAL <mixin>.<helper>` in mixin handler bodies to
+  `INVOKESTATIC <target>.__unique$<mangled>` with the target instance
+  loaded as `self`. Closes phase B4's loop: instance helpers merged
+  onto the target are now reachable from `@Overwrite` / `@Inject` /
+  `@ModifyXxx` handlers without explicit reflection. Scope: caller
+  must have `Object self` addressable (handler shape) and the call's
+  receiver must be a clean `ALOAD 0`; non-trivial receivers are left
+  as-is. The original mixin-side helper stays on the mixin class for
+  this iteration.
+
 ## 1.5 — 2026-05-31
 
 ### Added
