@@ -6,6 +6,17 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Added
+- **`@Expression` DSL v7 — `&&` / `||`** — short-circuit logical
+  operators match as a two-jump region anchored on the first
+  comparison's conditional jump. `&&` requires both operands to negate
+  (forward) to the same false-label; `||` requires the first operand's
+  direct jump-to-true plus the second's negated jump-to-false on a
+  distinct label. Operands must both be comparisons and captures bind
+  across both (`? < ? && ? > ?` → four operands). Nested / N-ary
+  logical, boolean-materialisation context (`boolean r = a && b;`), and
+  non-comparison operands are rejected / deferred to v8.
+
 ## 1.7 — 2026-06-01
 
 ### Added

@@ -16,7 +16,9 @@ sequences.
 
 ```
 expression  := assignment
-assignment  := comparison ("=" arg)?
+assignment  := logicalOr ("=" arg)?
+logicalOr   := logicalAnd ("||" logicalAnd)*
+logicalAnd  := comparison ("&&" comparison)*
 comparison  := relational | relational "instanceof" IDENT
 relational  := additive (relop additive)?
 relop       := "==" | "!=" | "<" | "<=" | ">" | ">="
@@ -152,6 +154,22 @@ opcode set, so `? < ?` matches both an `if (a < b)` and a
 covered; any exotic shape that emits neither a clean forward nor
 backward conditional jump is not.
 
+### v7 — `&&` / `||`
+
+```java
+@Expression("? < ? && ? > ?")
+public void onAnd(Object self, int a, int b, int c, int d) { ... }
+
+@Expression("? == ? || ? != ?")
+public void onOr(Object self) { ... }
+```
+
+A single `&&` / `||` of two comparisons, matched as a two-jump region
+anchored on the first comparison. Captures bind across both operands in
+source order. The handler fires before the first comparison's branch.
+Nested logical (`a && b && c`), boolean-materialisation context
+(`boolean r = a && b;`), and non-comparison operands are not supported.
+
 ### v6 — logical not
 
 ```java
@@ -160,8 +178,9 @@ public void onNotLess(Object self) { ... }
 ```
 
 `!` folds into the negated operator at parse time — `!(? < ?)` is
-exactly `? >= ?`. Valid only over a comparison; `&&` / `||` are not
-supported (multi-instruction short-circuit chains).
+exactly `? >= ?`. Valid only over a single comparison; to combine
+comparisons use the v7 `&&` / `||` region match (it does not compose
+with `!` over a logical group).
 
 ### v5 — instanceof + cast
 
@@ -209,9 +228,11 @@ When the handler has no capture params (only `Object self`), every
 | `@Expression("instanceof Foo")`    | `@Expression("? instanceof Foo")` (with @Definition.type) |
 | `@Expression("(Foo) ?")`           | Same                                                    |
 
-## Out of scope (v6)
+## Out of scope (v8)
 
-- Boolean combinators `&&` / `||` / `!` — multi-`IF*` chain matching.
+- Nested / N-ary logical (`a && b && c`, mixed `&&` / `||`).
+- Boolean-materialisation context (`boolean r = a && b;`).
+- Logical operands that aren't comparisons (`call() && ? < ?`).
 - Backslash escapes in string literals.
 - Multi-instruction sequence patterns (`a.b(); c.d()`).
 - Long / float / double literals beyond `int`.
