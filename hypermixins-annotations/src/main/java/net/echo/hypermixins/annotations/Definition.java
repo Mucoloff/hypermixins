@@ -26,4 +26,10 @@ public @interface Definition {
     String id();
     String method() default "";
     String field() default "";
+    /**
+     * Internal JVM name (e.g. {@code "java/lang/String"}) — referenced by {@code @Expression}
+     * {@code instanceof} / cast forms. Exactly one of {@code method} / {@code field} /
+     * {@code type} must be non-empty.
+     */
+    String type() default "";
 }

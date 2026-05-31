@@ -57,10 +57,11 @@ final class ExpressionMatcher {
             if (d.id().isEmpty()) {
                 throw new IllegalStateException("@Definition.id() must be non-empty on " + handler);
             }
-            if (d.method().isEmpty() == d.field().isEmpty()) {
+            int nonEmpty = (d.method().isEmpty() ? 0 : 1) + (d.field().isEmpty() ? 0 : 1) + (d.type().isEmpty() ? 0 : 1);
+            if (nonEmpty != 1) {
                 throw new IllegalStateException(
                     "@Definition id='" + d.id() + "' on " + handler
-                    + " must set exactly one of method() / field()");
+                    + " must set exactly one of method() / field() / type()");
             }
             if (defs.put(d.id(), d) != null) {
                 throw new IllegalStateException(

@@ -104,13 +104,13 @@ final class AnnotationDescriptorReader {
             net.echo.hypermixins.annotations.Definition single =
                 m.getAnnotation(net.echo.hypermixins.annotations.Definition.class);
             if (single != null) {
-                defs.add(new MixinDescriptor.DefinitionEntry(single.id(), single.method(), single.field()));
+                defs.add(new MixinDescriptor.DefinitionEntry(single.id(), single.method(), single.field(), single.type()));
             }
             net.echo.hypermixins.annotations.Definitions group =
                 m.getAnnotation(net.echo.hypermixins.annotations.Definitions.class);
             if (group != null) {
                 for (net.echo.hypermixins.annotations.Definition d : group.value()) {
-                    defs.add(new MixinDescriptor.DefinitionEntry(d.id(), d.method(), d.field()));
+                    defs.add(new MixinDescriptor.DefinitionEntry(d.id(), d.method(), d.field(), d.type()));
                 }
             }
             String key = m.getName() + Type.getMethodDescriptor(m);
