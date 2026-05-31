@@ -151,4 +151,65 @@ public class MixinShadowTest {
         t.getMethod("write", int.class).invoke(inst, 50);
         assertEquals(100, t.getField("health").getInt(inst));
     }
+
+    // ---- @Final / @Mutable on @Shadow field ----
+
+    public static class FinalFieldTarget {
+        public int health = 7;
+        public int read() { return health; }
+        public void write(int v) { health = v; }
+    }
+    @Mixin("net.echo.hypermixins.MixinShadowTest$FinalFieldTarget")
+    public static class FinalReadOnlyMixin {
+        @net.echo.hypermixins.annotations.Shadow
+        @net.echo.hypermixins.annotations.Final
+        public int health;
+
+        @net.echo.hypermixins.annotations.Overwrite("read")
+        public int read(Object self) { return health + 100; }
+    }
+    @Mixin("net.echo.hypermixins.MixinShadowTest$FinalFieldTarget")
+    public static class FinalWriteMixin {
+        @net.echo.hypermixins.annotations.Shadow
+        @net.echo.hypermixins.annotations.Final
+        public int health;
+
+        @net.echo.hypermixins.annotations.Overwrite("write")
+        public void write(Object self, int v) { health = v; }
+    }
+    @Mixin("net.echo.hypermixins.MixinShadowTest$FinalFieldTarget")
+    public static class FinalMutableWriteMixin {
+        @net.echo.hypermixins.annotations.Shadow
+        @net.echo.hypermixins.annotations.Final
+        @net.echo.hypermixins.annotations.Mutable
+        public int health;
+
+        @net.echo.hypermixins.annotations.Overwrite("write")
+        public void write(Object self, int v) { health = v + 1; }
+    }
+
+    @Test
+    void finalShadowFieldReadStillWorks() throws Exception {
+        Class<?> t = applyMixin(FinalFieldTarget.class, FinalReadOnlyMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(107, t.getMethod("read").invoke(inst));
+    }
+
+    @Test
+    void writingToFinalShadowFieldFailsTransform() {
+        IllegalStateException ex = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> applyMixin(FinalFieldTarget.class, FinalWriteMixin.class));
+        org.junit.jupiter.api.Assertions.assertTrue(
+            ex.getMessage().contains("@Mutable"),
+            () -> "expected message to mention @Mutable, got: " + ex.getMessage());
+    }
+
+    @Test
+    void mutableOverrideAllowsFinalShadowWrite() throws Exception {
+        Class<?> t = applyMixin(FinalFieldTarget.class, FinalMutableWriteMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        t.getMethod("write", int.class).invoke(inst, 41);
+        assertEquals(42, t.getField("health").getInt(inst));
+    }
 }
