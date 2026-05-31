@@ -131,6 +131,11 @@ hypermixins-example/run/test-world-1.0.jar \
   source slot via {@link InjectPass#findArgsOnlyAnchor}, so the
   writeback lands before the consuming push.
 
+## Docs
+
+- [`docs/expression.md`](docs/expression.md) — full `@Expression` DSL
+  grammar reference with one runnable example per shape.
+
 ## Key files
 
 - Processor orchestrator: `hypermixins-processor/src/main/kotlin/.../MixinSymbolProcessor.kt` (183 LOC)

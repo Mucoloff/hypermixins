@@ -159,6 +159,7 @@ KSP (compile time)                Runtime
 ```
 
 See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backlog.
+See [docs/expression.md](docs/expression.md) for the full `@Expression` DSL grammar with runnable examples.
 
 ## Modules
 
