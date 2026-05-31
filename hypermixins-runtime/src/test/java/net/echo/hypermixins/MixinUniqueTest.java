@@ -45,4 +45,37 @@ public class MixinUniqueTest {
         assertTrue(java.lang.reflect.Modifier.isStatic(merged.getModifiers()));
         assertEquals(21, merged.invoke(null, 7));
     }
+
+    public static class InstanceUniqueTarget {
+        public int base() { return 10; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinUniqueTest$InstanceUniqueTarget")
+    public static class InstanceUniqueMixin {
+        // Self-contained instance helper: no this.<mixin field>, no this.<mixin method>.
+        // After merge the body lives on the target as a public static synthetic with
+        // (Object self, int x) — slot 0 = self (target instance), slot 1 = x (shifted from 0 → 1).
+        @Unique
+        public int doubled(int x) { return x * 2; }
+    }
+
+    @Test
+    void instanceUniqueClonesWithSelfPrepended() throws Exception {
+        Class<?> t = applyMixin(InstanceUniqueTarget.class, InstanceUniqueMixin.class);
+        Method merged = null;
+        for (Method m : t.getDeclaredMethods()) {
+            if (m.getName().startsWith("__unique$") && m.getName().contains("doubled")) {
+                merged = m;
+                break;
+            }
+        }
+        assertNotNull(merged, "instance @Unique helper not merged into target");
+        assertTrue(java.lang.reflect.Modifier.isStatic(merged.getModifiers()));
+        // Descriptor has Object self prepended: (Object, int) → int.
+        assertEquals(2, merged.getParameterCount());
+        assertEquals(Object.class, merged.getParameterTypes()[0]);
+        assertEquals(int.class, merged.getParameterTypes()[1]);
+        Object instance = t.getDeclaredConstructor().newInstance();
+        assertEquals(14, merged.invoke(null, instance, 7));
+    }
 }

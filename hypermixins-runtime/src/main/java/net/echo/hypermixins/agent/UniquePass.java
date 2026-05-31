@@ -4,9 +4,14 @@ import net.echo.hypermixins.annotations.Unique;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.TypeInsnNode;
+import org.objectweb.asm.tree.VarInsnNode;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -16,13 +21,21 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Copies every static {@code @Unique} method declared on the mixin class into the target
- * class under a mangled name (
- * {@code __unique$<mixin-class-flattened>$<methodName>$<descriptor-hash>}). Lets a mixin's
- * {@code @Overwrite} body call helper methods declared on the same mixin without leaking the
- * mixin class itself onto every transformed target — the helpers travel with the target.
+ * Copies every {@code @Unique} method declared on the mixin class into the target class.
  *
- * <p>Restricted to static methods so the {@code this} slot does not need rewriting.
+ * <p><b>Static</b> {@code @Unique}: copied as-is under the mangled name
+ * {@code __unique$<mixin-flat>$<name>$<hash>}.
+ *
+ * <p><b>Instance</b> {@code @Unique}: copied as a public static synthetic with
+ * {@code Object self} prepended (mirroring the {@code @Overwrite} dispatch convention). All
+ * non-zero local slot references are shifted by {@code +1} to account for the prepended self
+ * slot; {@code ALOAD 0} stays as is and now loads the target instance. The body must not
+ * reference the mixin class itself (no {@code GETFIELD}/{@code PUTFIELD} on the mixin owner,
+ * no {@code INVOKE} on the mixin owner): instance helpers are expected to be self-contained
+ * (parameters, locals, target {@code self}). References that would break on the target class
+ * are rejected with a clear error at transform time. Direct invocation from other mixin bodies
+ * is out of scope this iteration — callers must INVOKESTATIC the mangled synthetic with the
+ * target instance as the first argument.
  */
 final class UniquePass {
 
@@ -35,20 +48,26 @@ final class UniquePass {
         if (!hasAnyUnique(mixinClass)) return;
         ClassNode mixinNode = loadMixinNode(mixinClass);
         if (mixinNode == null) return;
+        String mixinInternal = mixinNode.name;
         Set<String> existingKeys = new HashSet<>();
         for (MethodNode m : node.methods) existingKeys.add(m.name + m.desc);
 
         for (MethodNode m : mixinNode.methods) {
             if (!isAnnotatedUnique(m)) continue;
-            if ((m.access & Opcodes.ACC_STATIC) == 0) {
-                throw new IllegalStateException(
-                    "@Unique requires the method to be static for now: "
-                    + mixinClass.getName() + "." + m.name + m.desc);
+            if ((m.access & Opcodes.ACC_STATIC) != 0) {
+                String mangled = mangledUniqueName(mixinClass, m.name, m.desc);
+                String key = mangled + m.desc;
+                if (!existingKeys.add(key)) continue;
+                MethodNode copy = cloneAsPublicStaticSynthetic(m, mangled, m.desc);
+                node.methods.add(copy);
+                continue;
             }
-            String mangled = mangledUniqueName(mixinClass, m.name, m.desc);
-            String key = mangled + m.desc;
+            String newDesc = prependObjectSelf(m.desc);
+            String mangled = mangledUniqueName(mixinClass, m.name, newDesc);
+            String key = mangled + newDesc;
             if (!existingKeys.add(key)) continue;
-            MethodNode copy = cloneAsPublicStaticSynthetic(m, mangled);
+            MethodNode copy = cloneAsPublicStaticSynthetic(m, mangled, newDesc);
+            rewriteInstanceUniqueBody(copy, mixinInternal, mixinClass);
             node.methods.add(copy);
         }
     }
@@ -88,16 +107,51 @@ final class UniquePass {
         }
     }
 
-    private static MethodNode cloneAsPublicStaticSynthetic(MethodNode original, String newName) {
+    private static MethodNode cloneAsPublicStaticSynthetic(MethodNode original, String newName, String newDesc) {
         int access = (original.access & ~Modifier.PRIVATE & ~Modifier.PROTECTED)
             | Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC;
-        MethodNode copy = new MethodNode(access, newName, original.desc, original.signature,
+        MethodNode copy = new MethodNode(access, newName, newDesc, original.signature,
             original.exceptions == null ? null : original.exceptions.toArray(new String[0]));
         original.accept(copy);
-        // The cloned node carries the original method's name in its `name` field after accept();
-        // reset to the mangled name so the call site can resolve it.
+        // The cloned node carries the original method's name/desc in its fields after accept();
+        // reset them so the call site can resolve the mangled signature.
         copy.name = newName;
+        copy.desc = newDesc;
         copy.access = access;
         return copy;
+    }
+
+    private static String prependObjectSelf(String originalDesc) {
+        return "(Ljava/lang/Object;" + originalDesc.substring(1);
+    }
+
+    /**
+     * Walks the cloned body of an instance @Unique method and rejects every reference to the
+     * mixin class itself (GETFIELD/PUTFIELD/INVOKE/CHECKCAST). The instance method's implicit
+     * {@code this} already occupied slot 0; converting to a static method with {@code Object
+     * self} prepended keeps slot 0 as the receiver and leaves every other slot in place — no
+     * shift required. {@code maxLocals} is unchanged for the same reason.
+     */
+    private static void rewriteInstanceUniqueBody(MethodNode copy, String mixinInternal, Class<?> mixinClass) {
+        for (AbstractInsnNode insn = copy.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn instanceof FieldInsnNode f && mixinInternal.equals(f.owner)) {
+                throw new IllegalStateException(
+                    "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
+                    + " accesses mixin field " + f.name + " — only self-contained instance helpers are"
+                    + " supported. Move state to a @Shadow field on the target or pass it as a parameter.");
+            }
+            if (insn instanceof MethodInsnNode mi && mixinInternal.equals(mi.owner)) {
+                throw new IllegalStateException(
+                    "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
+                    + " calls mixin method " + mi.name + mi.desc
+                    + " — only self-contained instance helpers are supported.");
+            }
+            if (insn instanceof TypeInsnNode ti && mixinInternal.equals(ti.desc)) {
+                throw new IllegalStateException(
+                    "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
+                    + " references mixin type via " + Integer.toHexString(ti.getOpcode())
+                    + " — only self-contained instance helpers are supported.");
+            }
+        }
     }
 }
