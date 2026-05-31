@@ -58,6 +58,26 @@ class WorldMixinDescriptorTest {
     }
 
     @Test
+    void expressionInjectPointSurvivesKspRoundTrip() {
+        // Guards a processor bug: @At lives inside @Inject's `at` member, so the inject
+        // collector must read the nested annotation. Reading a (non-existent) top-level @At
+        // silently defaulted every point to HEAD, breaking EXPRESSION / INVOKE / FIELD via KSP.
+        MixinDescriptor d = MixinDescriptor.load(WorldExtrasMixin.class);
+        long expressionInjects = d.injects().stream()
+            .filter(e -> e.point() == net.echo.hypermixins.annotations.At.Point.EXPRESSION)
+            .count();
+        assertEquals(2, expressionInjects,
+            "expected onListAdd + onPlayersAccess to serialize as EXPRESSION, not HEAD");
+
+        // The DSL state must round-trip through the descriptor too (schema v3 tables).
+        var onListAdd = d.expressions().get("onListAdd(Ljava/lang/Object;Ljava/lang/Object;)V");
+        assertNotNull(onListAdd, "onListAdd expression metadata missing from descriptor");
+        assertEquals("listAdd(?)", onListAdd.expression());
+        assertEquals(1, onListAdd.definitions().size());
+        assertEquals("java/util/List.add(Ljava/lang/Object;)Z", onListAdd.definitions().getFirst().method());
+    }
+
+    @Test
     void yamlDiscoveredOnClasspath() throws IOException {
         List<MixinsConfig> configs = MixinsConfig.discoverAll(getClass().getClassLoader());
         boolean found = configs.stream()

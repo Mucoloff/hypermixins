@@ -6,6 +6,22 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Fixed
+- **KSP inject point serialization** — `Collectors.inject` read `@At`
+  via `fn.findAnnotation(AT_FQN)`, but `@At` lives inside `@Inject`'s
+  `at` member, so the lookup always returned null and every inject
+  point defaulted to `HEAD` in the generated `$$Descriptor`. Non-HEAD
+  points (`INVOKE` / `FIELD` / `CONSTANT` / `NEW` / `EXPRESSION`) and
+  `@At.Shift.BY` were silently broken through the KSP path — the
+  reflection fallback masked it in tests. Now reads the nested
+  `ann.arg("at")`. Surfaced by the new example `@Expression` handlers.
+
+### Added
+- **`@Expression` example coverage** — `WorldExtrasMixin` gains a
+  call-shape (`listAdd(?)`) and field-shape (`playersField`)
+  `@Expression`, exercising the @Expression → descriptor (schema v3)
+  → matcher pipeline end-to-end through KSP in the example module.
+
 ### Added
 - **`@Expression` inner-chain captures** — the v3-B restriction
   banning `?` / named captures inside non-leaf chained calls is

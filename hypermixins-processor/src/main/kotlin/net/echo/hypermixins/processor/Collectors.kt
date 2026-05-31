@@ -504,7 +504,9 @@ internal class Collectors(private val logger: KSPLogger) {
             }
             returnable = lastFqn.endsWith("CallbackInfoReturnable")
         }
-        val atAnn = fn.findAnnotation(AT_FQN)
+        // @At lives inside @Inject's `at` member — read the nested annotation, not a
+        // (non-existent) top-level @At on the handler.
+        val atAnn = ann.arg("at") as? KSAnnotation
         val point = readEnumArg(atAnn?.arg("point"), "HEAD")
         val atDesc = (atAnn?.arg("desc") as? String) ?: ""
         val atIndex = (atAnn?.arg("index") as? Int) ?: 0
