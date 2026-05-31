@@ -125,6 +125,7 @@ internal class Collectors(private val logger: KSPLogger) {
                 logger.error(
                     "@Redirect field handler signature mismatch on ${fn.simpleName.asString()}: expected $expected found $handlerDesc", fn
                 )
+                return
             }
         } else {
             val isPattern = desc.contains('*') || desc.startsWith("regex:")
@@ -139,6 +140,7 @@ internal class Collectors(private val logger: KSPLogger) {
                     logger.error(
                         "@Redirect handler signature mismatch on ${fn.simpleName.asString()}: expected $invokeSignature found $handlerDesc", fn
                     )
+                    return
                 }
             }
         }
