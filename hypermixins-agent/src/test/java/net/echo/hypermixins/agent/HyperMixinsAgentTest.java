@@ -16,6 +16,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Spawns a child JVM with the real {@code -javaagent:hypermixins-agent.jar} pointing at the
  * shadow jar produced by Gradle, with the example + test-world jars on the classpath, and
  * checks that the agent auto-registers the mixin and the host class behaviour shifts.
+ *
+ * <p>Covers the {@code premain} path only. The {@code agentmain} dynamic-attach path
+ * ({@code VirtualMachine.attach} into a running JVM + retransform of already-loaded classes)
+ * is not exercised here — it needs a second live JVM and the attach API, which is flaky under
+ * the test harness. Registry-level reload semantics (disable/enable/uninstall/reinstall) are
+ * covered by {@code MixinReloadTest} in the runtime module.
  */
 class HyperMixinsAgentTest {
 
