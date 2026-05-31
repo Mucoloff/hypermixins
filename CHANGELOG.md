@@ -11,11 +11,20 @@ master is the only published surface so far.
   selector. `@Definition` (repeatable via `@Definitions`) aliases a
   method or field signature behind an `id`; `@Expression` references
   those ids in a small DSL. New `At.Point.EXPRESSION` routes through
-  the parser + matcher. Scope this iteration is single-instruction
-  expressions: a method call `id(?, ?, ...)` or a bare field reference
-  `id`. `?` is an unbound placeholder; capture-binding to `@Local` is
-  deferred. Chained expressions, `this` keyword, arithmetic, and
-  assignment are also deferred.
+  the parser + matcher. v1 scope: single-instruction expressions
+  (method call or bare field reference), `?` as inert placeholder.
+- **`@Expression` DSL v2** — extends the v1 grammar with the four
+  pieces needed for realistic mixin authoring while keeping the
+  single-instruction match model:
+  - `this` keyword (receiver or call argument).
+  - Chained access: `this.field`, `this.method(args)`. Receiver must
+    be `ALOAD 0` for the match to succeed.
+  - Assignment: `this.field = ?` / `field = ?` matches PUTFIELD only.
+  - `?` placeholders bind positionally to handler params after
+    `Object self`, mirroring `@Local`. Each `?` backwalks to a clean
+    `*LOAD` predecessor — non-load producers throw
+    `InjectSignatureMismatch` so `@Surrogate` can retry. When the
+    handler has no capture params, `?` stays inert (v1 semantics).
 - **`@Surrogate`** — fallback handler chain for `@Inject`. A sibling
   `@Inject`-annotated method also marked `@Surrogate` is collected at
   `MixinMapping` build time and attached to every primary on the same
