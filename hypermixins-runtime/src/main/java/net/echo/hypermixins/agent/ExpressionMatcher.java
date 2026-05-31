@@ -333,7 +333,9 @@ final class ExpressionMatcher {
 
     private boolean matchesComparison(AbstractInsnNode insn, ExpressionNode.Comparison c) {
         int op = insn.getOpcode();
-        if (!comparisonOpcodeMatches(op, c.op())) return false;
+        boolean forward = insn instanceof org.objectweb.asm.tree.JumpInsnNode jump
+            && ExpressionStackWalker.isForwardJump(jump);
+        if (!comparisonOpcodeMatches(op, c.op(), forward)) return false;
         AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(insn, 0);
         AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(insn, 1);
         if (rhsProducer == null || lhsProducer == null) return false;
@@ -343,16 +345,20 @@ final class ExpressionMatcher {
 
     /**
      * Maps a textual comparison operator to the {@code IF_ICMP*} / {@code IF_ACMP*} opcode that
-     * carries it under javac's if-condition convention: an {@code if (cond)} jumps when
-     * {@code cond} is FALSE, so the bytecode opcode is the NEGATION of the source operator
-     * ({@code if (a == b) ...} compiles to {@code IF_ICMPNE skip}). The mapping is 1:1 so
-     * {@code ==} / {@code !=}, {@code <} / {@code >=}, and {@code <=} / {@code >} are distinct.
+     * carries it, disambiguated by jump direction.
      *
-     * <p>Caveat: loop conditions / ternaries can emit the non-negated opcode at the bottom of
-     * the block; those sites won't match the intuitive operator. Full branch-target analysis
-     * is out of scope.
+     * <p>javac compiles {@code if (cond)} as a jump-when-false, so a FORWARD (skip) jump uses
+     * the NEGATION of the source operator ({@code if (a == b)} → {@code IF_ICMPNE}). A loop
+     * bottom-test jumps BACKWARD to the body when the condition holds, so it uses the DIRECT
+     * operator ({@code while (a < b)} → {@code IF_ICMPLT}). Selecting the opcode set by
+     * direction makes each operator match in both shapes while keeping {@code ==}/{@code !=},
+     * {@code <}/{@code >=}, {@code <=}/{@code >} distinct within a direction.
      */
-    private static boolean comparisonOpcodeMatches(int op, String operator) {
+    private static boolean comparisonOpcodeMatches(int op, String operator, boolean forward) {
+        return forward ? forwardOpcodeMatches(op, operator) : backwardOpcodeMatches(op, operator);
+    }
+
+    private static boolean forwardOpcodeMatches(int op, String operator) {
         return switch (operator) {
             case "==" -> op == Opcodes.IF_ICMPNE || op == Opcodes.IF_ACMPNE;
             case "!=" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ACMPEQ;
@@ -360,6 +366,18 @@ final class ExpressionMatcher {
             case "<=" -> op == Opcodes.IF_ICMPGT;
             case ">"  -> op == Opcodes.IF_ICMPLE;
             case ">=" -> op == Opcodes.IF_ICMPLT;
+            default   -> false;
+        };
+    }
+
+    private static boolean backwardOpcodeMatches(int op, String operator) {
+        return switch (operator) {
+            case "==" -> op == Opcodes.IF_ICMPEQ || op == Opcodes.IF_ACMPEQ;
+            case "!=" -> op == Opcodes.IF_ICMPNE || op == Opcodes.IF_ACMPNE;
+            case "<"  -> op == Opcodes.IF_ICMPLT;
+            case "<=" -> op == Opcodes.IF_ICMPLE;
+            case ">"  -> op == Opcodes.IF_ICMPGT;
+            case ">=" -> op == Opcodes.IF_ICMPGE;
             default   -> false;
         };
     }

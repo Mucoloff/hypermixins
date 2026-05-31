@@ -88,6 +88,20 @@ final class ExpressionStackWalker {
             || t == AbstractInsnNode.FRAME;
     }
 
+    /**
+     * Whether {@code jump}'s target label lies after it in the instruction stream. Forward
+     * jumps are {@code if}-style skip branches (the opcode is the negation of the source
+     * predicate); backward jumps are loop bottom-tests (the opcode is the direct predicate).
+     * Scans forward from the jump; if the label is not found ahead it must be behind.
+     */
+    static boolean isForwardJump(org.objectweb.asm.tree.JumpInsnNode jump) {
+        org.objectweb.asm.tree.LabelNode target = jump.label;
+        for (AbstractInsnNode n = jump.getNext(); n != null; n = n.getNext()) {
+            if (n == target) return true;
+        }
+        return false;
+    }
+
     private static boolean isLoadOpcode(int op) {
         return op == Opcodes.ILOAD || op == Opcodes.LLOAD || op == Opcodes.FLOAD
             || op == Opcodes.DLOAD || op == Opcodes.ALOAD;

@@ -140,9 +140,15 @@ the bytecode carries the negation:
 | `>=`     | `IF_ICMPLT`               |
 
 The pairs `==`/`!=`, `<`/`>=`, `<=`/`>` are therefore distinct.
-Caveat: loop conditions and ternaries can emit the non-negated opcode
-at the bottom of the block; those sites won't match the intuitive
-operator. Full branch-target analysis is out of scope.
+
+Jump direction disambiguates the convention: a FORWARD (skip) jump is
+an `if`-style negated branch (table above); a BACKWARD jump is a loop
+bottom-test using the DIRECT opcode (`while (a < b)` → `IF_ICMPLT`).
+The matcher checks the jump's target position and selects the matching
+opcode set, so `? < ?` matches both an `if (a < b)` and a
+`while (a < b)` site. Ternaries that emit a forward negated jump are
+covered; any exotic shape that emits neither a clean forward nor
+backward conditional jump is not.
 
 ### v5 — instanceof + cast
 

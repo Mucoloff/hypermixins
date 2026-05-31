@@ -12,10 +12,13 @@ master is the only published surface so far.
   the literal and inverse opcode, conflating the pairs. The matcher now
   maps each operator to the single `IF_ICMP*` / `IF_ACMP*` opcode javac
   emits under the if-condition convention (`if (a == b)` →
-  `IF_ICMPNE`), so `? == ?` no longer matches a `!=` site. Caveat: loop
-  conditions / ternaries can emit the non-negated opcode and won't
-  match the intuitive operator — full branch-target analysis is
-  deferred.
+  `IF_ICMPNE`), so `? == ?` no longer matches a `!=` site.
+- **`@Expression` comparison branch-direction** — resolves the prior
+  loop caveat. The matcher inspects the conditional jump's target
+  position: a forward (skip) jump is `if`-style (negated opcode), a
+  backward jump is a loop bottom-test (direct opcode). `? < ?` now
+  matches both an `if (a < b)` and a `while (a < b)` site while staying
+  distinct from `>=`.
 
 ### Fixed
 - **KSP inject point serialization** — `Collectors.inject` read `@At`
