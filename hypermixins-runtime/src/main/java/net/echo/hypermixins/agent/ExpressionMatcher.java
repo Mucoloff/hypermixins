@@ -33,11 +33,18 @@ final class ExpressionMatcher {
     private final Map<String, Definition> defsById;
     /** Number of handler params after {@code Object self}. When 0, {@code ?} placeholders are inert. */
     private final int captureArity;
+    /** Handler param name → param index (1 = first capture, 2 = second, ...). Empty when -parameters absent. */
+    private final Map<String, Integer> paramIndexByName;
+    /** Handler declaring class (for diagnostic messages). */
+    private final Method handler;
 
-    private ExpressionMatcher(ExpressionNode root, Map<String, Definition> defsById, int captureArity) {
+    private ExpressionMatcher(ExpressionNode root, Map<String, Definition> defsById,
+                              int captureArity, Map<String, Integer> paramIndexByName, Method handler) {
         this.root = root;
         this.defsById = defsById;
         this.captureArity = captureArity;
+        this.paramIndexByName = paramIndexByName;
+        this.handler = handler;
     }
 
     static ExpressionMatcher compile(Method handler) {
@@ -62,10 +69,21 @@ final class ExpressionMatcher {
             }
         }
         ExpressionNode root = ExpressionParser.parse(expr.value());
-        validate(root, defs, handler);
         int handlerParams = handler.getParameterCount();
         int captureArity = Math.max(0, handlerParams - 1);
-        return new ExpressionMatcher(root, defs, captureArity);
+        Map<String, Integer> paramIndexByName = indexParamsByName(handler);
+        validate(root, defs, handler, paramIndexByName);
+        return new ExpressionMatcher(root, defs, captureArity, paramIndexByName, handler);
+    }
+
+    private static Map<String, Integer> indexParamsByName(Method handler) {
+        java.lang.reflect.Parameter[] ps = handler.getParameters();
+        Map<String, Integer> out = new HashMap<>();
+        for (int i = 1; i < ps.length; i++) {
+            if (!ps[i].isNamePresent()) return Map.of();
+            out.put(ps[i].getName(), i);
+        }
+        return out;
     }
 
     boolean matches(AbstractInsnNode insn) {
@@ -93,17 +111,31 @@ final class ExpressionMatcher {
         int totalStackInputs = args.size() + (hasReceiver ? 1 : 0);
         Map<Integer, Integer> out = new HashMap<>();
         for (int argIdx = 0; argIdx < args.size(); argIdx++) {
-            if (!(args.get(argIdx) instanceof ExpressionNode.Wildcard)) continue;
+            ExpressionNode.Arg a = args.get(argIdx);
+            int paramIdx;
+            if (a instanceof ExpressionNode.Wildcard) {
+                paramIdx = 1 + argIdx;
+            } else if (a instanceof ExpressionNode.NamedArg na) {
+                Integer resolved = paramIndexByName.get(na.name());
+                if (resolved == null) {
+                    // Should have been caught at compile time.
+                    throw new InjectSignatureMismatch(
+                        "@Expression named capture '" + na.name() + "' did not resolve to a handler param on " + handler);
+                }
+                paramIdx = resolved;
+            } else {
+                continue;
+            }
             // Stack offset (0 = top) for argIdx: args are pushed in declaration order,
             // so argIdx's stack-from-top offset is (args.size() - 1 - argIdx).
             int stackOffset = args.size() - 1 - argIdx;
             int slot = ExpressionStackWalker.findLoadSlotForStackPosition(insn, stackOffset);
             if (slot < 0) {
                 throw new InjectSignatureMismatch(
-                    "@Expression ? arg " + argIdx + " at " + insn
+                    "@Expression arg " + argIdx + " at " + insn
                     + " is not produced by a clean *LOAD — cannot bind to a target slot");
             }
-            out.put(1 + argIdx, slot);
+            out.put(paramIdx, slot);
         }
         // Suppress unused-variable warnings; totalStackInputs is retained for future receiver
         // captures in v3.
@@ -175,7 +207,8 @@ final class ExpressionMatcher {
         return mi.getOpcode() != Opcodes.INVOKESTATIC;
     }
 
-    private static void validate(ExpressionNode root, Map<String, Definition> defs, Method handler) {
+    private static void validate(ExpressionNode root, Map<String, Definition> defs, Method handler,
+                                 Map<String, Integer> paramIndexByName) {
         switch (root) {
             case ExpressionNode.Call c -> validateMemberRef(c.defId(), defs, handler, /*isCall*/ true);
             case ExpressionNode.FieldRef f -> validateMemberRef(f.defId(), defs, handler, /*isCall*/ false);
@@ -191,7 +224,7 @@ final class ExpressionMatcher {
                     throw new IllegalStateException(
                         "@Expression assignment rhs must be `?` on " + handler);
                 }
-                validate(a.lhs(), defs, handler);
+                validate(a.lhs(), defs, handler, paramIndexByName);
                 // lhs cannot be a Call.
                 if (a.lhs() instanceof ExpressionNode.Call
                     || (a.lhs() instanceof ExpressionNode.Chained ch && ch.member().isCall())) {
@@ -204,8 +237,7 @@ final class ExpressionMatcher {
             case ExpressionNode.Member ignored -> throw new IllegalStateException(
                 "Internal: bare Member should have been wrapped as Call or FieldRef on " + handler);
         }
-        // Reject NamedArg uses anywhere (v3 reservation).
-        rejectNamedArgs(root, handler);
+        validateArgNames(root, handler, paramIndexByName);
     }
 
     private static void validateMemberRef(String id, Map<String, Definition> defs, Method handler, boolean isCall) {
@@ -224,17 +256,33 @@ final class ExpressionMatcher {
         }
     }
 
-    private static void rejectNamedArgs(ExpressionNode node, Method handler) {
+    private static void validateArgNames(ExpressionNode node, Method handler,
+                                         Map<String, Integer> paramIndexByName) {
         List<ExpressionNode.Arg> args = switch (node) {
             case ExpressionNode.Call c -> c.args();
             case ExpressionNode.Chained ch when ch.member().isCall() -> ch.member().args();
             default -> null;
         };
         if (args == null) return;
+        java.util.Set<String> seen = new java.util.HashSet<>();
         for (ExpressionNode.Arg a : args) {
-            if (a instanceof ExpressionNode.NamedArg na) {
+            if (!(a instanceof ExpressionNode.NamedArg na)) continue;
+            if (paramIndexByName.isEmpty()) {
                 throw new IllegalStateException(
-                    "@Expression named arg '" + na.name() + "' is reserved for v3 on " + handler);
+                    "@Expression named capture '" + na.name() + "' on " + handler
+                    + " requires the handler to be compiled with -parameters."
+                    + " Add `tasks.withType<JavaCompile> { options.compilerArgs.add(\"-parameters\") }`"
+                    + " (or the Kotlin equivalent) or use `?` positional captures.");
+            }
+            if (!paramIndexByName.containsKey(na.name())) {
+                throw new IllegalStateException(
+                    "@Expression named capture '" + na.name() + "' on " + handler
+                    + " does not match any handler param. Available: " + paramIndexByName.keySet());
+            }
+            if (!seen.add(na.name())) {
+                throw new IllegalStateException(
+                    "@Expression on " + handler + " binds the same name '" + na.name()
+                    + "' more than once");
             }
         }
     }

@@ -46,6 +46,9 @@ subprojects {
 
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
+        // Preserve method parameter names so @Expression named captures + reflective
+        // introspection work without ad-hoc per-module configuration.
+        options.compilerArgs.add("-parameters")
     }
 
     tasks.withType<Test>().configureEach {
