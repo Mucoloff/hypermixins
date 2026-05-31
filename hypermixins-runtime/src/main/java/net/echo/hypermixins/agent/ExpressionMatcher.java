@@ -1,5 +1,6 @@
 package net.echo.hypermixins.agent;
 
+import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -52,6 +53,16 @@ final class ExpressionMatcher {
             throw new IllegalStateException(
                 "@At(point = EXPRESSION) requires @Expression on " + handler);
         }
+        Map<String, MixinDescriptor.DefinitionEntry> defs = getStringDefinitionEntryMap(handler, meta);
+        ExpressionNode root = ExpressionParser.parse(meta.expression());
+        int handlerParams = handler.getParameterCount();
+        int captureArity = Math.max(0, handlerParams - 1);
+        Map<String, Integer> paramIndexByName = indexParamsByName(handler);
+        validate(root, defs, handler, paramIndexByName);
+        return new ExpressionMatcher(root, defs, captureArity, paramIndexByName, handler);
+    }
+
+    private static @NotNull Map<String, MixinDescriptor.DefinitionEntry> getStringDefinitionEntryMap(Method handler, MixinDescriptor.ExpressionMetadata meta) {
         Map<String, MixinDescriptor.DefinitionEntry> defs = new HashMap<>();
         for (MixinDescriptor.DefinitionEntry d : meta.definitions()) {
             if (d.id().isEmpty()) {
@@ -68,12 +79,7 @@ final class ExpressionMatcher {
                     "Duplicate @Definition id='" + d.id() + "' on " + handler);
             }
         }
-        ExpressionNode root = ExpressionParser.parse(meta.expression());
-        int handlerParams = handler.getParameterCount();
-        int captureArity = Math.max(0, handlerParams - 1);
-        Map<String, Integer> paramIndexByName = indexParamsByName(handler);
-        validate(root, defs, handler, paramIndexByName);
-        return new ExpressionMatcher(root, defs, captureArity, paramIndexByName, handler);
+        return defs;
     }
 
 
@@ -198,11 +204,11 @@ final class ExpressionMatcher {
             if (a instanceof ExpressionNode.Wildcard) {
                 ctx.positional++;
                 paramIdx = ctx.positional;
-            } else if (a instanceof ExpressionNode.NamedArg na) {
-                Integer resolved = paramIndexByName.get(na.name());
+            } else if (a instanceof ExpressionNode.NamedArg(String name)) {
+                Integer resolved = paramIndexByName.get(name);
                 if (resolved == null) {
                     throw new InjectSignatureMismatch(
-                        "@Expression named capture '" + na.name() + "' did not resolve to a handler param on " + handler);
+                        "@Expression named capture '" + name + "' did not resolve to a handler param on " + handler);
                 }
                 paramIdx = resolved;
             } else {
@@ -225,8 +231,7 @@ final class ExpressionMatcher {
         if (!DescriptorMatcher.matches(d.method(), mi.owner + "." + mi.name + mi.desc)) return false;
         if (!literalArgsMatch(insn, call.args())) return false;
         if (countParams(mi.desc) != call.args().size()) return false;
-        if (requireThis && !receiverIsThis(insn, call.args().size())) return false;
-        return true;
+        return !requireThis || receiverIsThis(insn, call.args().size());
     }
 
     private boolean matchesFieldRef(
@@ -244,7 +249,7 @@ final class ExpressionMatcher {
             if (isStatic == 1) return false;
             boolean store = fi.getOpcode() == Opcodes.PUTFIELD;
             int receiverStackOffset = store ? 1 : 0;
-            if (!ExpressionStackWalker.producerIsAload0(insn, receiverStackOffset)) return false;
+            return ExpressionStackWalker.producerIsAload0(insn, receiverStackOffset);
         }
         return true;
     }
@@ -568,22 +573,22 @@ final class ExpressionMatcher {
         if (args == null) return;
         java.util.Set<String> seen = new java.util.HashSet<>();
         for (ExpressionNode.Arg a : args) {
-            if (!(a instanceof ExpressionNode.NamedArg na)) continue;
+            if (!(a instanceof ExpressionNode.NamedArg(String name))) continue;
             if (paramIndexByName.isEmpty()) {
                 throw new IllegalStateException(
-                    "@Expression named capture '" + na.name() + "' on " + handler
+                    "@Expression named capture '" + name + "' on " + handler
                     + " requires the handler to be compiled with -parameters."
                     + " Add `tasks.withType<JavaCompile> { options.compilerArgs.add(\"-parameters\") }`"
                     + " (or the Kotlin equivalent) or use `?` positional captures.");
             }
-            if (!paramIndexByName.containsKey(na.name())) {
+            if (!paramIndexByName.containsKey(name)) {
                 throw new IllegalStateException(
-                    "@Expression named capture '" + na.name() + "' on " + handler
+                    "@Expression named capture '" + name + "' on " + handler
                     + " does not match any handler param. Available: " + paramIndexByName.keySet());
             }
-            if (!seen.add(na.name())) {
+            if (!seen.add(name)) {
                 throw new IllegalStateException(
-                    "@Expression on " + handler + " binds the same name '" + na.name()
+                    "@Expression on " + handler + " binds the same name '" + name
                     + "' more than once");
             }
         }
