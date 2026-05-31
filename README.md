@@ -101,6 +101,8 @@ public static void premain(String args, Instrumentation inst) throws Exception {
 | `@WrapWithCondition`               | On a static method returning `boolean`: scans the target body for the matched INVOKE / FIELD site and skips it when the handler returns `false` (default value is pushed for the original return type).               |
 | `@WrapOperation`                   | On a static method: wraps a matched INVOKE site with an `Operation<R>` lambda; handler can call `op.call(...)` zero / one / many times.                                                                               |
 | `@WrapMethod("name")`              | On an instance method: wraps the entire target method body; handler receives the original args plus an `Operation<R>` to invoke the saved body.                                                                       |
+| `@At(shift = Shift.BY, by = N)`    | Signed offset shift for `@Inject` anchoring: walks `by` instructions forward (positive) / backward (negative) from the matched site before inserting the handler block.                                               |
+| `@Coerce` on a handler parameter   | Paired with `@Local`: relaxes the type-equality match to `assignableFrom` so a handler can bind a concrete target local through a wider reference.                                                                    |
 | `@Local(index = N, ordinal = K, argsOnly = boolean)` | On an `@Inject` handler param: bind to a specific target slot (`index`), the `K`-th live local of the parameter's type at the injection site (`ordinal`), or — bare — the unique live local of that type. Type-driven resolution at non-HEAD points walks the target's `LocalVariableTable` (`-g`). `argsOnly = true` requires the handler param to be a single-element array; the handler may mutate `arr[0]` and the value is written back into the source slot before the matched site reads it. |
 | `@ModifyReturnValue`               | Static handler `T (T)` wraps the return value of a specific INVOKE inside the target method.                                                                                                                          |
 | `@ModifyConstant`                  | Static handler `T (T)` replaces a numeric / String constant load matching the typed `@Constant` clause.                                                                                                               |
@@ -167,7 +169,7 @@ See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backl
 
 ## Status
 
-- 120 runtime tests + 6 processor tests + 2 example tests + 1 agent test green.
+- 123 runtime tests + 6 processor tests + 2 example tests + 1 agent test green.
 - Supported `@At.Point` for `@Inject`: HEAD, RETURN, TAIL, INVOKE, FIELD,
   CONSTANT (LDC values), JUMP (conditional), NEW (object allocations).
 - `@At#shift = BEFORE | AFTER` lets handlers anchor either side of the

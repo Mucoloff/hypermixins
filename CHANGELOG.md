@@ -6,6 +6,20 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Added
+- **`@At.Shift.BY` + `by()`** — signed instruction-offset shift for
+  `@Inject` site anchoring. Walks the matched insn ± by() positions
+  before inserting the handler block. Read reflectively from the
+  handler Method; no descriptor schema change.
+- **`@Coerce` on handler params** — paired with `@Local`, relaxes
+  `InjectLocalResolver`'s strict type-equality check to an
+  `assignableFrom` check when both types are references. Primitives
+  ignore the marker. Read reflectively from the handler Method.
+- **`Args` wrapper as a second `@ModifyArgs` handler shape** —
+  `static void handler(Args args)` is now legal alongside the existing
+  raw `Object[]` form. `Args.set(int, Object)` mutates the same backing
+  array so the post-handler reload still observes the change.
+
 ## 1.4 — 2026-05-31
 
 ### Added
