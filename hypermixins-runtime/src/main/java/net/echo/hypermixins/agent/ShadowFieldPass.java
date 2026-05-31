@@ -1,5 +1,7 @@
 package net.echo.hypermixins.agent;
 
+import net.echo.hypermixins.annotations.Final;
+import net.echo.hypermixins.annotations.Mutable;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
@@ -8,6 +10,7 @@ import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,6 +38,10 @@ final class ShadowFieldPass {
         }
         if (shadowFieldsByKey.isEmpty() && shadowStaticFieldsByKey.isEmpty()) return;
 
+        // Probe mixin class for @Final + @Mutable markers on shadow fields. @Final without @Mutable
+        // bans PUTFIELD/PUTSTATIC rewrites — the target field is contractually frozen.
+        Set<String> frozenKeys = collectFrozenShadowKeys(mapping.getMixinClass());
+
         String mixinInternal = node.name;
         String targetInternal = mapping.descriptor().targetClass();
         Set<String> handlerKeys = new HashSet<>();
@@ -47,12 +54,24 @@ final class ShadowFieldPass {
             if (method.name.equals("<init>") || method.name.equals("<clinit>")) continue;
             if (!handlerKeys.contains(method.name + method.desc)) continue;
             if (!shadowFieldsByKey.isEmpty()) {
-                rewriteInstance(method, mixinInternal, targetInternal, shadowFieldsByKey);
+                rewriteInstance(method, mixinInternal, targetInternal, shadowFieldsByKey, frozenKeys);
             }
             if (!shadowStaticFieldsByKey.isEmpty()) {
-                rewriteStatic(method, mixinInternal, targetInternal, shadowStaticFieldsByKey);
+                rewriteStatic(method, mixinInternal, targetInternal, shadowStaticFieldsByKey, frozenKeys);
             }
         }
+    }
+
+    /** Returns mixinFieldName+fieldDesc keys for every @Shadow @Final field without @Mutable. */
+    private static Set<String> collectFrozenShadowKeys(Class<?> mixinClass) {
+        Set<String> frozen = new HashSet<>();
+        for (Field f : mixinClass.getDeclaredFields()) {
+            if (f.getAnnotation(net.echo.hypermixins.annotations.Shadow.class) == null) continue;
+            if (f.getAnnotation(Final.class) == null) continue;
+            if (f.getAnnotation(Mutable.class) != null) continue;
+            frozen.add(f.getName() + org.objectweb.asm.Type.getDescriptor(f.getType()));
+        }
+        return frozen;
     }
 
     /**
@@ -61,7 +80,8 @@ final class ShadowFieldPass {
      */
     private static void rewriteInstance(
         MethodNode method, String mixinInternal, String targetInternal,
-        Map<String, MixinDescriptor.ShadowFieldEntry> shadowFieldsByKey
+        Map<String, MixinDescriptor.ShadowFieldEntry> shadowFieldsByKey,
+        Set<String> frozenKeys
     ) {
         if (method.instructions == null) return;
         List<AbstractInsnNode> snapshot = new ArrayList<>();
@@ -75,6 +95,11 @@ final class ShadowFieldPass {
             if (op != Opcodes.GETFIELD && op != Opcodes.PUTFIELD) continue;
             MixinDescriptor.ShadowFieldEntry shadow = shadowFieldsByKey.get(fi.name + fi.desc);
             if (shadow == null) continue;
+            if (op == Opcodes.PUTFIELD && frozenKeys.contains(fi.name + fi.desc)) {
+                throw new IllegalStateException(
+                    "Cannot write to @Final @Shadow field " + mixinInternal + "." + fi.name
+                    + " — add @Mutable to acknowledge mutability");
+            }
 
             AbstractInsnNode ownerLoad = (op == Opcodes.GETFIELD)
                 ? skipMeta(fi.getPrevious())
@@ -92,7 +117,8 @@ final class ShadowFieldPass {
     /** Rewrites GETSTATIC/PUTSTATIC mixin.foo → GETSTATIC/PUTSTATIC target.foo. */
     private static void rewriteStatic(
         MethodNode method, String mixinInternal, String targetInternal,
-        Map<String, MixinDescriptor.ShadowFieldEntry> shadowFieldsByKey
+        Map<String, MixinDescriptor.ShadowFieldEntry> shadowFieldsByKey,
+        Set<String> frozenKeys
     ) {
         if (method.instructions == null) return;
         List<AbstractInsnNode> snapshot = new ArrayList<>();
@@ -106,6 +132,11 @@ final class ShadowFieldPass {
             if (op != Opcodes.GETSTATIC && op != Opcodes.PUTSTATIC) continue;
             MixinDescriptor.ShadowFieldEntry shadow = shadowFieldsByKey.get(fi.name + fi.desc);
             if (shadow == null) continue;
+            if (op == Opcodes.PUTSTATIC && frozenKeys.contains(fi.name + fi.desc)) {
+                throw new IllegalStateException(
+                    "Cannot write to @Final @Shadow static field " + mixinInternal + "." + fi.name
+                    + " — add @Mutable to acknowledge mutability");
+            }
             method.instructions.set(fi, new FieldInsnNode(op, targetInternal, shadow.targetFieldName(), shadow.fieldDesc()));
         }
     }
