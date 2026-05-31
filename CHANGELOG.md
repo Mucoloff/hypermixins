@@ -10,6 +10,17 @@ master is the only published surface so far.
 - **Compile-time validation gaps** on the `@Inject` and `@Original` collectors:
   the processor now rejects non-`Object`/`Any` first parameters and static
   `@Inject` declarations, matching the runtime reflection-fallback checks.
+- **Reflection-fallback empty-string checks** on `@ModifyReceiver`,
+  `@ModifyArgs`, `@ModifyExpressionValue`, `@ModifyArg`, `@ModifyConstant`,
+  and `@ModifyReturnValue`. Empty `#method()` / `@At#desc()` now fail at
+  descriptor load instead of producing entries that crashed at transform.
+- **Processor bail-out** after `@Inject` cancellable-mismatch and
+  `@Redirect` signature-mismatch errors so the malformed descriptor entry
+  is no longer emitted alongside the diagnostic.
+- **Wildcard / regex `@At#desc` exemption** on the `@Redirect` and
+  `@ModifyReturnValue` signature checks (both processor and reflection
+  paths) — DescriptorMatcher resolves the concrete shape at transform
+  time, so the static handler-signature comparison can't be enforced.
 
 ### Added
 - **Frame-driven `@Local` at every non-HEAD `@Inject` point.** Ordinal and bare
