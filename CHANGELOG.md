@@ -7,6 +7,15 @@ master is the only published surface so far.
 ## Unreleased
 
 ### Added
+- **`@Definition` + `@Expression` DSL (v1)** — MixinExtras-style site
+  selector. `@Definition` (repeatable via `@Definitions`) aliases a
+  method or field signature behind an `id`; `@Expression` references
+  those ids in a small DSL. New `At.Point.EXPRESSION` routes through
+  the parser + matcher. Scope this iteration is single-instruction
+  expressions: a method call `id(?, ?, ...)` or a bare field reference
+  `id`. `?` is an unbound placeholder; capture-binding to `@Local` is
+  deferred. Chained expressions, `this` keyword, arithmetic, and
+  assignment are also deferred.
 - **`@Surrogate`** — fallback handler chain for `@Inject`. A sibling
   `@Inject`-annotated method also marked `@Surrogate` is collected at
   `MixinMapping` build time and attached to every primary on the same
