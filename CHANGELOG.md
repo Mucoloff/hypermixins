@@ -6,6 +6,15 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Added
+- **`@WrapWithCondition`** — conditional suppression of an `@At`-matched
+  INVOKE / FIELD call site. Handler returns `boolean`; `true` lets the
+  original site fire, `false` skips it and pushes the default value for
+  the original return type. `index <= 0` wraps every match; `index > 0`
+  selects the 1-based occurrence. `@WrapOperation` / `@WrapMethod`
+  remain on the backlog — they need LambdaMetafactory + per-site
+  synthetic methods and are a separate planning iteration.
+
 ## 1.3 — 2026-05-31
 
 ### Added (Sponge-style annotation suite)
