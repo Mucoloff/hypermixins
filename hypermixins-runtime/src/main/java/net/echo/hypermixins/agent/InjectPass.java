@@ -42,39 +42,64 @@ final class InjectPass {
             InjectLocalResolver.byHandler(descriptor);
 
         for (InjectMapping inject : injects) {
-            String handlerKey = inject.handler().getName() + Type.getMethodDescriptor(inject.handler());
-            Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
-                localEntryByHandler.getOrDefault(handlerKey, Map.of());
-            Set<Integer> argsOnlyParams = InjectLocalResolver.argsOnlyParams(entryMap);
-            At.Shift shift = descriptor.injectShifts().getOrDefault(handlerKey, At.Shift.BEFORE);
-            boolean useAnalyzer = requiresFrameAnalysis(inject.point()) && hasUnresolvedLocal(entryMap);
-            LocalFrameAnalyzer analyzer = useAnalyzer ? new LocalFrameAnalyzer(target) : null;
-            // The static slot map fits HEAD / TAIL / RETURN (incoming target params); for
-            // non-HEAD points with bare @Local the analyzer handles every entry, so the static
-            // map would error out on type lookups that only exist mid-method — skip it.
-            Map<Integer, Integer> staticSlotMap = useAnalyzer
-                ? Map.of()
-                : InjectLocalResolver.slotMap(target, inject.handler(), entryMap);
-            switch (inject.point()) {
-                case HEAD -> {
-                    AbstractInsnNode first = target.instructions.getFirst();
-                    InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams);
-                    if (first == null) target.instructions.add(block);
-                    else target.instructions.insertBefore(first, block);
+            try {
+                applyOne(owner, target, inject, mixinField, descriptor, targetReturn, localEntryByHandler);
+            } catch (InjectSignatureMismatch primaryFail) {
+                if (inject.surrogates().isEmpty()) throw primaryFail;
+                boolean handled = false;
+                for (java.lang.reflect.Method sg : inject.surrogates()) {
+                    InjectMapping retry = new InjectMapping(inject.targetMethod(), inject.point(),
+                        inject.index(), inject.atDesc(), inject.cancellable(), inject.returnable(), sg, List.of());
+                    try {
+                        applyOne(owner, target, retry, mixinField, descriptor, targetReturn, localEntryByHandler);
+                        handled = true;
+                        break;
+                    } catch (InjectSignatureMismatch surrogateFail) {
+                        primaryFail.addSuppressed(surrogateFail);
+                    }
                 }
-                case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, analyzer, entryMap);
-                case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
-                    insn -> InjectSiteMatcher.matchesInvoke(insn, inject));
-                case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
-                    insn -> InjectSiteMatcher.matchesField(insn, inject));
-                case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
-                    insn -> InjectSiteMatcher.matchesConstant(insn, inject));
-                case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
-                    InjectSiteMatcher::isConditionalJump);
-                case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
-                    insn -> InjectSiteMatcher.matchesNew(insn, inject));
-                default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
+                if (!handled) throw primaryFail;
             }
+        }
+    }
+
+    private static void applyOne(
+        ClassNode owner, MethodNode target, InjectMapping inject, String mixinField,
+        MixinDescriptor descriptor, Type targetReturn,
+        Map<String, Map<Integer, MixinDescriptor.InjectLocalEntry>> localEntryByHandler
+    ) {
+        String handlerKey = inject.handler().getName() + Type.getMethodDescriptor(inject.handler());
+        Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap =
+            localEntryByHandler.getOrDefault(handlerKey, Map.of());
+        Set<Integer> argsOnlyParams = InjectLocalResolver.argsOnlyParams(entryMap);
+        At.Shift shift = descriptor.injectShifts().getOrDefault(handlerKey, At.Shift.BEFORE);
+        boolean useAnalyzer = requiresFrameAnalysis(inject.point()) && hasUnresolvedLocal(entryMap);
+        LocalFrameAnalyzer analyzer = useAnalyzer ? new LocalFrameAnalyzer(target) : null;
+        // The static slot map fits HEAD / TAIL / RETURN (incoming target params); for
+        // non-HEAD points with bare @Local the analyzer handles every entry, so the static
+        // map would error out on type lookups that only exist mid-method — skip it.
+        Map<Integer, Integer> staticSlotMap = useAnalyzer
+            ? Map.of()
+            : InjectLocalResolver.slotMap(target, inject.handler(), entryMap);
+        switch (inject.point()) {
+            case HEAD -> {
+                AbstractInsnNode first = target.instructions.getFirst();
+                InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams);
+                if (first == null) target.instructions.add(block);
+                else target.instructions.insertBefore(first, block);
+            }
+            case TAIL, RETURN -> injectBeforeReturns(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, analyzer, entryMap);
+            case INVOKE -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
+                insn -> InjectSiteMatcher.matchesInvoke(insn, inject));
+            case FIELD -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
+                insn -> InjectSiteMatcher.matchesField(insn, inject));
+            case CONSTANT -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
+                insn -> InjectSiteMatcher.matchesConstant(insn, inject));
+            case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
+                InjectSiteMatcher::isConditionalJump);
+            case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
+                insn -> InjectSiteMatcher.matchesNew(insn, inject));
+            default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
         }
     }
 

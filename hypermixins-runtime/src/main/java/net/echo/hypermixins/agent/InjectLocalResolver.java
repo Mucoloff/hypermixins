@@ -81,12 +81,12 @@ final class InjectLocalResolver {
                 slotCursor += t.getSize();
             }
             if (resolved < 0) {
-                throw new IllegalStateException(
+                throw new InjectSignatureMismatch(
                     "@Local of type " + wanted + " not found in target "
                         + target.name + target.desc);
             }
             if (le.ordinal() < 0 && resolvedCount > 1) {
-                throw new IllegalStateException(
+                throw new InjectSignatureMismatch(
                     "@Local of type " + wanted + " is ambiguous (matches " + resolvedCount
                         + " target params) — set index or ordinal on "
                         + handler.getName());
@@ -111,7 +111,7 @@ final class InjectLocalResolver {
         if (entryMap.isEmpty()) return out;
         Map<Integer, Type> slotTypes = analyzer.liveLocalsAt(site);
         if (slotTypes.isEmpty()) {
-            throw new IllegalStateException(
+            throw new InjectSignatureMismatch(
                 "@Local site-frame analysis found no debug locals on " + target.name + target.desc
                 + " — compile with -g or annotate every handler param with @Local(index = <slot>)");
         }
@@ -143,12 +143,12 @@ final class InjectLocalResolver {
                 }
             }
             if (resolved < 0) {
-                throw new IllegalStateException(
+                throw new InjectSignatureMismatch(
                     "@Local of type " + wanted + " not live at injection site in "
                         + target.name + target.desc);
             }
             if (le.ordinal() < 0 && resolvedCount > 1) {
-                throw new IllegalStateException(
+                throw new InjectSignatureMismatch(
                     "@Local of type " + wanted + " is ambiguous (matches " + resolvedCount
                         + " live locals at injection site) — set index or ordinal on "
                         + handler.getName());

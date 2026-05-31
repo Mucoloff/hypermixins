@@ -55,7 +55,7 @@ final class CaptureEmitter {
             Share share = findShare(paramAnns, 1 + i);
             if (share != null) {
                 if (share.value().isEmpty())
-                    throw new IllegalStateException(
+                    throw new InjectSignatureMismatch(
                         "@Share requires a non-empty key on handler " + handler + " param " + i);
                 out.add(new LdcInsnNode(share.value()));
                 out.add(new MethodInsnNode(Opcodes.INVOKESTATIC,
@@ -65,12 +65,12 @@ final class CaptureEmitter {
             }
             if (argsOnly) {
                 if (forcedSlot == null) {
-                    throw new IllegalStateException(
+                    throw new InjectSignatureMismatch(
                         "@Local(argsOnly = true) requires a resolvable source slot for handler "
                             + handler + " param " + i);
                 }
                 if (expected.getSort() != Type.ARRAY) {
-                    throw new IllegalStateException(
+                    throw new InjectSignatureMismatch(
                         "@Local(argsOnly = true) handler param must be a single-element array — got "
                             + expected + " on " + handler);
                 }
@@ -99,14 +99,14 @@ final class CaptureEmitter {
                 continue;
             }
             if (positionalIdx >= targetArgs.length) {
-                throw new IllegalStateException(
+                throw new InjectSignatureMismatch(
                     "@Inject handler " + handler
                     + " declares positional capture beyond target arity for "
                     + target.name + target.desc);
             }
             Type actual = targetArgs[positionalIdx];
             if (!expected.equals(actual)) {
-                throw new IllegalStateException(
+                throw new InjectSignatureMismatch(
                     "@Inject handler " + handler + " param " + i
                     + " type " + expected + " does not match target " + target.name + target.desc
                     + " param " + positionalIdx + " type " + actual);
