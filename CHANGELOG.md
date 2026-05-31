@@ -6,6 +6,8 @@ master is the only published surface so far.
 
 ## Unreleased
 
+## 1.6 — 2026-05-31
+
 ### Added
 - **`@Expression` DSL v4** — adds literal constraints and comparison
   operators while keeping the single-instruction match model:

@@ -20,9 +20,9 @@ runtime ASM bytecode rewriting + atomic INVOKEDYNAMIC dispatch.
 
 ```kotlin
 dependencies {
-    implementation("net.echo:hypermixins-annotations:1.5")
-    implementation("net.echo:hypermixins-runtime:1.5")
-    ksp("net.echo:hypermixins-processor:1.5")
+    implementation("net.echo:hypermixins-annotations:1.6")
+    implementation("net.echo:hypermixins-runtime:1.6")
+    ksp("net.echo:hypermixins-processor:1.6")
 }
 ```
 
@@ -173,7 +173,7 @@ See [CONTINUE.md](CONTINUE.md) for the descriptor ABI, build commands, and backl
 
 ## Status
 
-- 149 runtime tests + 6 processor tests + 2 example tests + 1 agent test green (1.5).
+- 157 runtime tests + 6 processor tests + 2 example tests + 1 agent test green (1.6).
 - Supported `@At.Point` for `@Inject`: HEAD, RETURN, TAIL, INVOKE, FIELD,
   CONSTANT (LDC values), JUMP (conditional), NEW (object allocations).
 - `@At#shift = BEFORE | AFTER` lets handlers anchor either side of the
