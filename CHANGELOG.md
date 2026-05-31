@@ -6,6 +6,8 @@ master is the only published surface so far.
 
 ## Unreleased
 
+## 1.4 — 2026-05-31
+
 ### Added
 - **`@WrapWithCondition`** — conditional suppression of an `@At`-matched
   INVOKE / FIELD call site. Handler returns `boolean`; `true` lets the
