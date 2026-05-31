@@ -24,3 +24,5 @@ internal data class ModifyReceiverEntry(val targetMethod: String, val invokeDesc
 internal data class WrapConditionEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
 internal data class WrapOperationEntry(val targetMethod: String, val invokeDesc: String, val index: Int, val handlerName: String, val handlerDesc: String)
 internal data class WrapMethodEntry(val targetMethod: String, val handlerName: String, val handlerDesc: String)
+internal data class ExpressionEntry(val handlerName: String, val handlerDesc: String, val expression: String)
+internal data class DefinitionEntry(val handlerName: String, val handlerDesc: String, val id: String, val method: String, val field: String)

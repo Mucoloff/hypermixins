@@ -127,8 +127,11 @@ class MixinSymbolProcessor(
         val wrapConditions = mutableListOf<WrapConditionEntry>()
         val wrapOperations = mutableListOf<WrapOperationEntry>()
         val wrapMethods = mutableListOf<WrapMethodEntry>()
+        val expressionEntries = mutableListOf<ExpressionEntry>()
+        val definitionEntries = mutableListOf<DefinitionEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
+            collectors.expressionAndDefinitions(fn, expressionEntries, definitionEntries)
             when {
                 fn.hasAnnotation(OVERWRITE_FQN)  -> collectors.overwrite(fn, targetClass, overwrites)
                 fn.hasAnnotation(ORIGINAL_FQN)   -> collectors.original(fn, originals)
@@ -178,6 +181,7 @@ class MixinSymbolProcessor(
             cls, targetClass, overwrites, originals, redirects, injects, injectLocals,
             shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs,
             modifyExprs, modifyArgsList, modifyReceivers, wrapConditions, wrapOperations, wrapMethods, accessors, invokers,
+            expressionEntries, definitionEntries,
             staticTargets, privateShadowTargets,
         )
         val result = emitter.emit(harvest) ?: return

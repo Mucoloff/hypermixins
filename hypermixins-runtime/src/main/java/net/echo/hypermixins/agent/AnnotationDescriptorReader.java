@@ -86,10 +86,37 @@ final class AnnotationDescriptorReader {
         List<MixinDescriptor.WrapOperationEntry> wops = ReflectionCollectors.wrapOperations(mixinClass);
         List<MixinDescriptor.WrapMethodEntry> wms = ReflectionCollectors.wrapMethods(mixinClass);
         Set<String> privateShadowMap = ReflectionProbes.privateShadowTargets(mixinClass, targetInternal, shadows, invs);
-        return MixinDescriptor.buildWithMaps(mixinClass, targetInternal,
+        Map<String, MixinDescriptor.ExpressionMetadata> expressions = collectExpressions(mixinClass);
+        MixinDescriptor base = MixinDescriptor.buildWithMaps(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals, injectShifts,
             shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, wcs, wops, wms,
             synths, staticMap, privateShadowMap);
+        return MixinDescriptor.withExpressions(base, expressions);
+    }
+
+    private static Map<String, MixinDescriptor.ExpressionMetadata> collectExpressions(Class<?> mixinClass) {
+        Map<String, MixinDescriptor.ExpressionMetadata> out = new LinkedHashMap<>();
+        for (Method m : mixinClass.getDeclaredMethods()) {
+            net.echo.hypermixins.annotations.Expression e =
+                m.getAnnotation(net.echo.hypermixins.annotations.Expression.class);
+            if (e == null) continue;
+            List<MixinDescriptor.DefinitionEntry> defs = new ArrayList<>();
+            net.echo.hypermixins.annotations.Definition single =
+                m.getAnnotation(net.echo.hypermixins.annotations.Definition.class);
+            if (single != null) {
+                defs.add(new MixinDescriptor.DefinitionEntry(single.id(), single.method(), single.field()));
+            }
+            net.echo.hypermixins.annotations.Definitions group =
+                m.getAnnotation(net.echo.hypermixins.annotations.Definitions.class);
+            if (group != null) {
+                for (net.echo.hypermixins.annotations.Definition d : group.value()) {
+                    defs.add(new MixinDescriptor.DefinitionEntry(d.id(), d.method(), d.field()));
+                }
+            }
+            String key = m.getName() + Type.getMethodDescriptor(m);
+            out.put(key, new MixinDescriptor.ExpressionMetadata(e.value(), defs));
+        }
+        return out;
     }
 
     private static void collectOverwrite(

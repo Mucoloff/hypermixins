@@ -1,9 +1,7 @@
 package net.echo.hypermixins.agent;
 
-import net.echo.hypermixins.annotations.Definition;
-import net.echo.hypermixins.annotations.Definitions;
-import net.echo.hypermixins.annotations.Expression;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
@@ -30,7 +28,7 @@ import java.util.Objects;
 final class ExpressionMatcher {
 
     private final ExpressionNode root;
-    private final Map<String, Definition> defsById;
+    private final Map<String, MixinDescriptor.DefinitionEntry> defsById;
     /** Number of handler params after {@code Object self}. When 0, {@code ?} placeholders are inert. */
     private final int captureArity;
     /** Handler param name → param index (1 = first capture, 2 = second, ...). Empty when -parameters absent. */
@@ -38,7 +36,7 @@ final class ExpressionMatcher {
     /** Handler declaring class (for diagnostic messages). */
     private final Method handler;
 
-    private ExpressionMatcher(ExpressionNode root, Map<String, Definition> defsById,
+    private ExpressionMatcher(ExpressionNode root, Map<String, MixinDescriptor.DefinitionEntry> defsById,
                               int captureArity, Map<String, Integer> paramIndexByName, Method handler) {
         this.root = root;
         this.defsById = defsById;
@@ -47,14 +45,15 @@ final class ExpressionMatcher {
         this.handler = handler;
     }
 
-    static ExpressionMatcher compile(Method handler) {
-        Expression expr = handler.getAnnotation(Expression.class);
-        if (expr == null) {
+    static ExpressionMatcher compile(Method handler, MixinDescriptor descriptor) {
+        String handlerKey = handler.getName() + Type.getMethodDescriptor(handler);
+        MixinDescriptor.ExpressionMetadata meta = descriptor.expressions().get(handlerKey);
+        if (meta == null) {
             throw new IllegalStateException(
                 "@At(point = EXPRESSION) requires @Expression on " + handler);
         }
-        Map<String, Definition> defs = new HashMap<>();
-        for (Definition d : collectDefinitions(handler)) {
+        Map<String, MixinDescriptor.DefinitionEntry> defs = new HashMap<>();
+        for (MixinDescriptor.DefinitionEntry d : meta.definitions()) {
             if (d.id().isEmpty()) {
                 throw new IllegalStateException("@Definition.id() must be non-empty on " + handler);
             }
@@ -68,13 +67,14 @@ final class ExpressionMatcher {
                     "Duplicate @Definition id='" + d.id() + "' on " + handler);
             }
         }
-        ExpressionNode root = ExpressionParser.parse(expr.value());
+        ExpressionNode root = ExpressionParser.parse(meta.expression());
         int handlerParams = handler.getParameterCount();
         int captureArity = Math.max(0, handlerParams - 1);
         Map<String, Integer> paramIndexByName = indexParamsByName(handler);
         validate(root, defs, handler, paramIndexByName);
         return new ExpressionMatcher(root, defs, captureArity, paramIndexByName, handler);
     }
+
 
     private static Map<String, Integer> indexParamsByName(Method handler) {
         java.lang.reflect.Parameter[] ps = handler.getParameters();
@@ -138,7 +138,7 @@ final class ExpressionMatcher {
 
     private boolean matchesCall(AbstractInsnNode insn, ExpressionNode.Call call, boolean requireThis) {
         if (!(insn instanceof MethodInsnNode mi)) return false;
-        Definition d = Objects.requireNonNull(defsById.get(call.defId()));
+        MixinDescriptor.DefinitionEntry d = Objects.requireNonNull(defsById.get(call.defId()));
         if (!DescriptorMatcher.matches(d.method(), mi.owner + "." + mi.name + mi.desc)) return false;
         if (countParams(mi.desc) != call.args().size()) return false;
         if (requireThis && !receiverIsThis(insn, call.args().size())) return false;
@@ -153,7 +153,7 @@ final class ExpressionMatcher {
             boolean isStore = fi.getOpcode() == Opcodes.PUTFIELD || fi.getOpcode() == Opcodes.PUTSTATIC;
             if (isStore != wantStore) return false;
         }
-        Definition d = Objects.requireNonNull(defsById.get(ref.defId()));
+        MixinDescriptor.DefinitionEntry d = Objects.requireNonNull(defsById.get(ref.defId()));
         if (!DescriptorMatcher.matches(d.field(), fi.owner + "." + fi.name + ":" + fi.desc)) return false;
         if (requireThis) {
             int isStatic = (fi.getOpcode() == Opcodes.GETSTATIC || fi.getOpcode() == Opcodes.PUTSTATIC) ? 1 : 0;
@@ -259,7 +259,7 @@ final class ExpressionMatcher {
         return mi.getOpcode() != Opcodes.INVOKESTATIC;
     }
 
-    private static void validate(ExpressionNode root, Map<String, Definition> defs, Method handler,
+    private static void validate(ExpressionNode root, Map<String, MixinDescriptor.DefinitionEntry> defs, Method handler,
                                  Map<String, Integer> paramIndexByName) {
         switch (root) {
             case ExpressionNode.Call c -> validateMemberRef(c.defId(), defs, handler, /*isCall*/ true);
@@ -315,7 +315,7 @@ final class ExpressionMatcher {
      * shape constraints); calls / fields / chains delegate to the root validator; nested
      * BinaryOps recurse.
      */
-    private static void validateOperand(ExpressionNode node, Map<String, Definition> defs,
+    private static void validateOperand(ExpressionNode node, Map<String, MixinDescriptor.DefinitionEntry> defs,
                                         Method handler, Map<String, Integer> paramIndexByName) {
         switch (node) {
             case ExpressionNode.Wildcard ignored -> {}
@@ -339,8 +339,8 @@ final class ExpressionMatcher {
         }
     }
 
-    private static void validateMemberRef(String id, Map<String, Definition> defs, Method handler, boolean isCall) {
-        Definition d = defs.get(id);
+    private static void validateMemberRef(String id, Map<String, MixinDescriptor.DefinitionEntry> defs, Method handler, boolean isCall) {
+        MixinDescriptor.DefinitionEntry d = defs.get(id);
         if (d == null) {
             throw new IllegalStateException(
                 "@Expression references undefined id '" + id + "' on " + handler);
@@ -386,13 +386,6 @@ final class ExpressionMatcher {
         }
     }
 
-    private static Definition[] collectDefinitions(Method handler) {
-        Definition single = handler.getAnnotation(Definition.class);
-        if (single != null) return new Definition[] { single };
-        Definitions group = handler.getAnnotation(Definitions.class);
-        if (group != null) return group.value();
-        return new Definition[0];
-    }
 
     private static int countParams(String methodDesc) {
         int open = methodDesc.indexOf('(');

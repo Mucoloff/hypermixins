@@ -27,6 +27,9 @@ internal const val WRAP_OP_FQN      = "net.echo.hypermixins.annotations.WrapOper
 internal const val WRAP_METH_FQN    = "net.echo.hypermixins.annotations.WrapMethod"
 internal const val AT_FQN           = "net.echo.hypermixins.annotations.At"
 internal const val LOCAL_FQN        = "net.echo.hypermixins.annotations.Local"
+internal const val EXPRESSION_FQN   = "net.echo.hypermixins.annotations.Expression"
+internal const val DEFINITION_FQN   = "net.echo.hypermixins.annotations.Definition"
+internal const val DEFINITIONS_FQN  = "net.echo.hypermixins.annotations.Definitions"
 
 /**
  * Per-annotation validators. One method per annotation, same shape: validate the handler
@@ -536,6 +539,42 @@ internal class Collectors(private val logger: KSPLogger) {
             }
         }
         return method
+    }
+
+    /**
+     * Collects {@code @Expression} + companion {@code @Definition}s on a handler. Emits one row
+     * per annotation into {@code outExpr} and {@code outDef} so the runtime can rebuild the
+     * full {@code ExpressionMetadata} via a per-handler-key join.
+     */
+    fun expressionAndDefinitions(
+        fn: KSFunctionDeclaration,
+        outExpr: MutableList<ExpressionEntry>,
+        outDef: MutableList<DefinitionEntry>,
+    ) {
+        val exprAnn = fn.findAnnotation(EXPRESSION_FQN) ?: return
+        val value = (exprAnn.arg("value") as? String).orEmpty()
+        val handlerName = fn.simpleName.asString()
+        val handlerDesc = descriptor(fn)
+        outExpr += ExpressionEntry(handlerName, handlerDesc, value)
+
+        fun addDefinition(defAnn: KSAnnotation) {
+            val id = (defAnn.arg("id") as? String).orEmpty()
+            val method = (defAnn.arg("method") as? String).orEmpty()
+            val field = (defAnn.arg("field") as? String).orEmpty()
+            outDef += DefinitionEntry(handlerName, handlerDesc, id, method, field)
+        }
+
+        fn.findAnnotation(DEFINITION_FQN)?.let(::addDefinition)
+
+        val defsAnn = fn.findAnnotation(DEFINITIONS_FQN)
+        if (defsAnn != null) {
+            val arr = defsAnn.arg("value")
+            if (arr is List<*>) {
+                for (entry in arr) {
+                    if (entry is KSAnnotation) addDefinition(entry)
+                }
+            }
+        }
     }
 
     private fun deriveAccessorField(method: String): String {

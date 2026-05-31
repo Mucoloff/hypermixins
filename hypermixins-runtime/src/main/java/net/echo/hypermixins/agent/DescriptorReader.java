@@ -61,6 +61,8 @@ final class DescriptorReader {
             List<String[]> wrapCondRows = invokeStringListOrEmpty(lookup, desc, "wrapConditionEntries");
             List<String[]> wrapOpRows = invokeStringListOrEmpty(lookup, desc, "wrapOperationEntries");
             List<String[]> wrapMethRows = invokeStringListOrEmpty(lookup, desc, "wrapMethodEntries");
+            List<String[]> expressionRows = invokeStringListOrEmpty(lookup, desc, "expressionEntries");
+            List<String[]> definitionRows = invokeStringListOrEmpty(lookup, desc, "definitionEntries");
             List<String[]> staticTargetRows = invokeStringListOrEmpty(lookup, desc, "staticTargetMethods");
             List<String[]> privateShadowRows = invokeStringListOrEmpty(lookup, desc, "privateShadowTargetMethods");
             List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
@@ -143,10 +145,37 @@ final class DescriptorReader {
 
             MixinDescriptor base = MixinDescriptor.build(
                 mixinClass, targetInternal, ows, orig, reds, injs, injLocals, injShifts, shads, shadFields, shadStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, wcs, wops, wms, synths);
-            return MixinDescriptor.withTargetMaps(base, staticTargetRows, privateShadowRows);
+            MixinDescriptor withTargets = MixinDescriptor.withTargetMaps(base, staticTargetRows, privateShadowRows);
+            Map<String, MixinDescriptor.ExpressionMetadata> expressions =
+                buildExpressionMap(expressionRows, definitionRows);
+            return MixinDescriptor.withExpressions(withTargets, expressions);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);
         }
+    }
+
+    /**
+     * Joins {@code expressionEntries} and {@code definitionEntries} on the handler key
+     * ({@code handlerName + handlerDesc}) and returns a flat map. Each row in
+     * {@code expressionEntries} is {@code [handlerName, handlerDesc, expression]}; each row in
+     * {@code definitionEntries} is {@code [handlerName, handlerDesc, id, method, field]}.
+     */
+    private static Map<String, MixinDescriptor.ExpressionMetadata> buildExpressionMap(
+        List<String[]> expressionRows, List<String[]> definitionRows
+    ) {
+        if (expressionRows.isEmpty()) return Map.of();
+        Map<String, List<MixinDescriptor.DefinitionEntry>> defsByKey = new HashMap<>();
+        for (String[] r : definitionRows) {
+            defsByKey.computeIfAbsent(r[0] + r[1], k -> new ArrayList<>())
+                .add(new MixinDescriptor.DefinitionEntry(r[2], r[3], r[4]));
+        }
+        Map<String, MixinDescriptor.ExpressionMetadata> out = new LinkedHashMap<>();
+        for (String[] r : expressionRows) {
+            String key = r[0] + r[1];
+            List<MixinDescriptor.DefinitionEntry> defs = defsByKey.getOrDefault(key, List.of());
+            out.put(key, new MixinDescriptor.ExpressionMetadata(r[2], defs));
+        }
+        return out;
     }
 
     @SuppressWarnings("unchecked")

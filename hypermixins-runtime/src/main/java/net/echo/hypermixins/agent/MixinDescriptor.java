@@ -55,7 +55,7 @@ public final class MixinDescriptor {
      * rejects generated descriptors whose {@code schemaVersion()} disagrees so a stale
      * processor / runtime pairing fails loud at load instead of misdecoding silently.
      */
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     public record OverwriteEntry(String targetName, String targetDesc, String handlerName, String handlerDesc) {}
     public record OriginalEntry(String handlerName, String handlerDesc, String targetName) {}
@@ -97,6 +97,14 @@ public final class MixinDescriptor {
     public record WrapOperationEntry(String targetMethod, String invokeDesc, int index,
                                      String handlerName, String handlerDesc) {}
     public record WrapMethodEntry(String targetMethod, String handlerName, String handlerDesc) {}
+    /** One row per {@code @Definition} declared on a handler, joined to the matching {@link ExpressionMetadata}. */
+    public record DefinitionEntry(String id, String method, String field) {}
+    /** Bundled DSL state for a handler: parsed once at compile time, looked up by handler key. */
+    public record ExpressionMetadata(String expression, List<DefinitionEntry> definitions) {
+        public ExpressionMetadata {
+            definitions = List.copyOf(definitions);
+        }
+    }
 
     private static final ConcurrentHashMap<Class<?>, MixinDescriptor> CACHE = new ConcurrentHashMap<>();
 
@@ -123,6 +131,8 @@ public final class MixinDescriptor {
     private final List<WrapOperationEntry> wrapOperations;
     private final List<WrapMethodEntry> wrapMethods;
     private final Map<String, String[]> synthetics;
+    /** Handler-key ({@code name + desc}) → DSL state for the @Expression handler. Empty when no DSL is used. */
+    private final Map<String, ExpressionMetadata> expressions;
     /** Target-method-key → true when the method is static. Populated best-effort at build time. */
     private final Set<String> staticTargetMethods;
     /** Target-method-key (name+desc) for every target method seen as private. */
@@ -203,8 +213,39 @@ public final class MixinDescriptor {
         this.wrapOperations = List.copyOf(wrapOperations);
         this.wrapMethods = List.copyOf(wrapMethods);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
+        this.expressions = Map.of();
         this.staticTargetMethods = Set.copyOf(staticTargetMethods);
         this.privateShadowTargets = Set.copyOf(privateShadowTargets);
+    }
+
+    /** Internal copy-ctor: spawns a new instance with every field cloned plus a fresh {@code expressions} map. */
+    private MixinDescriptor(MixinDescriptor base, Map<String, ExpressionMetadata> expressions) {
+        this.mixinClass = base.mixinClass;
+        this.targetClass = base.targetClass;
+        this.overwrites = base.overwrites;
+        this.originals = base.originals;
+        this.redirects = base.redirects;
+        this.injects = base.injects;
+        this.injectLocals = base.injectLocals;
+        this.injectShifts = base.injectShifts;
+        this.shadows = base.shadows;
+        this.shadowFields = base.shadowFields;
+        this.shadowStaticFields = base.shadowStaticFields;
+        this.modifyReturnValues = base.modifyReturnValues;
+        this.accessors = base.accessors;
+        this.invokers = base.invokers;
+        this.modifyConstants = base.modifyConstants;
+        this.modifyArgs = base.modifyArgs;
+        this.modifyExpressionValues = base.modifyExpressionValues;
+        this.modifyArgsAll = base.modifyArgsAll;
+        this.modifyReceivers = base.modifyReceivers;
+        this.wrapConditions = base.wrapConditions;
+        this.wrapOperations = base.wrapOperations;
+        this.wrapMethods = base.wrapMethods;
+        this.synthetics = base.synthetics;
+        this.expressions = Collections.unmodifiableMap(new HashMap<>(expressions));
+        this.staticTargetMethods = base.staticTargetMethods;
+        this.privateShadowTargets = base.privateShadowTargets;
     }
 
     public Class<?> mixinClass() { return mixinClass; }
@@ -232,6 +273,14 @@ public final class MixinDescriptor {
     public List<WrapMethodEntry> wrapMethods() { return wrapMethods; }
     /** Map {@code targetName+targetDesc → [mangledOriginalName, dispatchName]}. */
     public Map<String, String[]> synthetics() { return synthetics; }
+    /** Handler-key ({@code name + desc}) → DSL state. Empty when the handler has no {@code @Expression}. */
+    public Map<String, ExpressionMetadata> expressions() { return expressions; }
+
+    /** Returns a copy of {@code base} with {@code expressions} replaced — used by the readers. */
+    static MixinDescriptor withExpressions(MixinDescriptor base, Map<String, ExpressionMetadata> expressions) {
+        if (expressions.isEmpty()) return base;
+        return new MixinDescriptor(base, expressions);
+    }
 
     /**
      * Whether the target method {@code name + desc} is static. Best-effort: returns

@@ -37,6 +37,8 @@ internal data class MixinHarvest(
     val wrapMethods: List<WrapMethodEntry>,
     val accessors: List<AccessorEntry>,
     val invokers: List<InvokerEntry>,
+    val expressionEntries: List<ExpressionEntry>,
+    val definitionEntries: List<DefinitionEntry>,
     val staticTargets: Set<String>,
     val privateShadowTargets: Set<String>,
 )
@@ -128,6 +130,12 @@ internal class DescriptorEmitter(private val codeGenerator: CodeGenerator) {
         classBuilder.addMethod(entriesMethod("wrapMethodEntries", h.wrapMethods.map {
             arrayOf(it.targetMethod, it.handlerName, it.handlerDesc)
         }))
+        classBuilder.addMethod(entriesMethod("expressionEntries", h.expressionEntries.map {
+            arrayOf(it.handlerName, it.handlerDesc, it.expression)
+        }))
+        classBuilder.addMethod(entriesMethod("definitionEntries", h.definitionEntries.map {
+            arrayOf(it.handlerName, it.handlerDesc, it.id, it.method, it.field)
+        }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", h.staticTargets.map {
             val paren = it.indexOf('(')
             arrayOf(it.substring(0, paren), it.substring(paren))
@@ -172,6 +180,6 @@ internal class DescriptorEmitter(private val codeGenerator: CodeGenerator) {
          * Descriptor ABI version baked into every generated $$Descriptor. Bump in lock-step
          * with MixinDescriptor.SCHEMA_VERSION whenever any entries() column layout changes.
          */
-        const val SCHEMA_VERSION: Int = 1
+        const val SCHEMA_VERSION: Int = 2
     }
 }

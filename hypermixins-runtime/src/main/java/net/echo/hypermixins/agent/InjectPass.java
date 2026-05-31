@@ -100,7 +100,7 @@ final class InjectPass {
             case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                 insn -> InjectSiteMatcher.matchesNew(insn, inject), null);
             case EXPRESSION -> {
-                ExpressionMatcher matcher = ExpressionMatcher.compile(inject.handler());
+                ExpressionMatcher matcher = ExpressionMatcher.compile(inject.handler(), descriptor);
                 injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                     matcher::matches, matcher::captureSlots);
             }
