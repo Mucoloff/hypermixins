@@ -37,6 +37,7 @@ final class DescriptorReader {
         }
         try {
             MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+            validateSchemaVersion(lookup, desc, mixinClass);
             String targetInternal = (String) lookup.findStatic(desc, "targetClass",
                 MethodType.methodType(String.class)).invoke();
 
@@ -157,5 +158,30 @@ final class DescriptorReader {
     private static List<String[]> invokeStringListOrEmpty(MethodHandles.Lookup lookup, Class<?> desc, String name) {
         try { return invokeStringList(lookup, desc, name); }
         catch (Throwable t) { return List.of(); }
+    }
+
+    /**
+     * Reads {@code schemaVersion()} off the generated descriptor and rejects mismatches.
+     * Descriptors emitted by a {@code hypermixins-processor} version older than the runtime
+     * lack the method entirely — those go through the same error path with a clear "rebuild
+     * against matching processor" message.
+     */
+    private static void validateSchemaVersion(MethodHandles.Lookup lookup, Class<?> desc, Class<?> mixinClass) {
+        int generated;
+        try {
+            generated = (int) lookup.findStatic(desc, "schemaVersion",
+                MethodType.methodType(int.class)).invoke();
+        } catch (Throwable t) {
+            throw new IllegalStateException(
+                "Descriptor for " + mixinClass.getName() + " was emitted by an older processor"
+                + " without a schemaVersion() field — rebuild against a hypermixins-processor"
+                + " matching hypermixins-runtime (expected SCHEMA_VERSION=" + MixinDescriptor.SCHEMA_VERSION + ")", t);
+        }
+        if (generated != MixinDescriptor.SCHEMA_VERSION) {
+            throw new IllegalStateException(
+                "Descriptor for " + mixinClass.getName() + " was generated with schema version "
+                + generated + " but this runtime expects " + MixinDescriptor.SCHEMA_VERSION
+                + " — rebuild your mixin module against a hypermixins-processor matching hypermixins-runtime.");
+        }
     }
 }

@@ -49,6 +49,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class MixinDescriptor {
 
+    /**
+     * ABI version pinned between the KSP processor and this loader. Bump in lock-step on both
+     * sides whenever any {@code entries()} column layout changes; {@link DescriptorReader}
+     * rejects generated descriptors whose {@code schemaVersion()} disagrees so a stale
+     * processor / runtime pairing fails loud at load instead of misdecoding silently.
+     */
+    public static final int SCHEMA_VERSION = 1;
+
     public record OverwriteEntry(String targetName, String targetDesc, String handlerName, String handlerDesc) {}
     public record OriginalEntry(String handlerName, String handlerDesc, String targetName) {}
     public record RedirectEntry(String targetMethod, String invokeDesc, int index, Call call,
