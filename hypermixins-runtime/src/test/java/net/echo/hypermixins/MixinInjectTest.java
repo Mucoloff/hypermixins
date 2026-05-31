@@ -379,6 +379,38 @@ public class MixinInjectTest {
         assertEquals(2, wildcardCalls);
     }
 
+    // ---- @Slice on @Inject ----
+
+    public static volatile int sliceCalls;
+
+    public static class SliceTarget {
+        public String run() {
+            String a = String.valueOf(1);   // first valueOf
+            int marker = System.identityHashCode(a);
+            String b = String.valueOf(2);   // second valueOf
+            return a + b + marker;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$SliceTarget")
+    public static class SliceMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/lang/String.valueOf*"))
+        @net.echo.hypermixins.annotations.Slice(
+            from = @At(point = At.Point.INVOKE, desc = "java/lang/System.identityHashCode(Ljava/lang/Object;)I"))
+        public void onSecondOnly(Object self) { sliceCalls++; }
+    }
+
+    @Test
+    void sliceConstrainsInjectSiteToWindow() throws Exception {
+        sliceCalls = 0;
+        Class<?> t = applyMixin(SliceTarget.class, SliceMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        t.getMethod("run").invoke(inst);
+        // Without @Slice the wildcard matches both valueOf calls (2). With @Slice
+        // from = identityHashCode, only the second valueOf is in the window.
+        assertEquals(1, sliceCalls);
+    }
+
     // ---- @At#desc regex ----
 
     public static volatile int regexCalls;

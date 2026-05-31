@@ -1,6 +1,7 @@
 package net.echo.hypermixins.agent;
 
 import net.echo.hypermixins.annotations.At;
+import net.echo.hypermixins.annotations.Slice;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -98,9 +99,13 @@ final class InjectPass {
         Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap,
         Predicate<AbstractInsnNode> predicate
     ) {
+        Slice slice = inject.handler().getAnnotation(Slice.class);
+        int[] window = slice != null ? SliceWindow.resolve(target, slice.from(), slice.to()) : null;
         List<AbstractInsnNode> sites = new ArrayList<>();
         int matchCount = 0;
-        for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+        int insnIdx = 0;
+        for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null; insn = insn.getNext(), insnIdx++) {
+            if (window != null && (insnIdx < window[0] || insnIdx > window[1])) continue;
             if (!predicate.test(insn)) continue;
             if (inject.index() <= 0 || matchCount == inject.index()) sites.add(insn);
             matchCount++;
