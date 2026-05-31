@@ -152,6 +152,41 @@ public class MixinShadowTest {
         assertEquals(100, t.getField("health").getInt(inst));
     }
 
+    // ---- @Soft @Shadow ----
+
+    public static class SoftTarget {
+        public int existing() { return 7; }
+        public int caller() { return 0; }
+    }
+    @Mixin("net.echo.hypermixins.MixinShadowTest$SoftTarget")
+    public static class SoftMixin {
+        @net.echo.hypermixins.annotations.Soft
+        @net.echo.hypermixins.annotations.Shadow("noSuchMethod")
+        public native int absent(Object self);
+
+        @net.echo.hypermixins.annotations.Soft
+        @net.echo.hypermixins.annotations.Shadow("existing")
+        public native int present(Object self);
+
+        @net.echo.hypermixins.annotations.Overwrite("caller")
+        public int caller(Object self) {
+            try {
+                return absent(self);
+            } catch (UnsupportedOperationException uoe) {
+                // Soft absent: fall back to the present shadow + a sentinel.
+                return present(self) + 100;
+            }
+        }
+    }
+
+    @Test
+    void softShadowAbsentTargetThrowsUOEReplacedAtCallTime() throws Exception {
+        Class<?> t = applyMixin(SoftTarget.class, SoftMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        // caller() invokes absent() (UOE), catches, falls back to present() → 7 + 100 = 107.
+        assertEquals(107, t.getMethod("caller").invoke(inst));
+    }
+
     // ---- @Final / @Mutable on @Shadow field ----
 
     public static class FinalFieldTarget {

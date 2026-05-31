@@ -13,6 +13,7 @@ import org.objectweb.asm.tree.VarInsnNode;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Rewrites @Shadow-annotated mixin methods into trampolines that INVOKEVIRTUAL the target
@@ -30,6 +31,8 @@ final class ShadowMethodPass {
         }
         if (shadowsByHandlerKey.isEmpty()) return;
         String mappedTarget = mapping.getTargetClass().replace('.', '/');
+        Set<String> softHandlerKeys = SoftBinding.collectSoftShadowMethodKeys(mapping.getMixinClass());
+        Class<?> targetCls = softHandlerKeys.isEmpty() ? null : SoftBinding.tryLoadTarget(mapping);
         for (MethodNode method : node.methods) {
             String key = method.name + method.desc;
             String targetName = shadowsByHandlerKey.get(key);
@@ -48,6 +51,14 @@ final class ShadowMethodPass {
             method.instructions.clear();
             method.tryCatchBlocks.clear();
             method.localVariables = null;
+
+            boolean soft = softHandlerKeys.contains(key);
+            if (soft && !SoftBinding.targetMethodExists(targetCls, targetName, targetDesc)) {
+                method.instructions.add(SoftBinding.uoeBody(
+                    "soft @Shadow target absent: " + mappedTarget + "." + targetName + targetDesc,
+                    returnType));
+                continue;
+            }
 
             InsnList insns = new InsnList();
             insns.add(new VarInsnNode(Opcodes.ALOAD, 1));

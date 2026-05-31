@@ -13,6 +13,7 @@ import org.objectweb.asm.tree.VarInsnNode;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Rewrites every {@code native} {@code @Invoker} method on the mixin into a direct
@@ -30,6 +31,8 @@ final class InvokerPass {
         for (MixinDescriptor.InvokerEntry iv : mapping.descriptor().invokers()) {
             invokersByKey.put(iv.handlerName() + iv.handlerDesc(), iv);
         }
+        Set<String> softHandlerKeys = SoftBinding.collectSoftInvokerMethodKeys(mapping.getMixinClass());
+        Class<?> targetCls = softHandlerKeys.isEmpty() ? null : SoftBinding.tryLoadTarget(mapping);
         for (MethodNode method : node.methods) {
             MixinDescriptor.InvokerEntry iv = invokersByKey.get(method.name + method.desc);
             if (iv == null) continue;
@@ -42,6 +45,15 @@ final class InvokerPass {
             method.instructions.clear();
             method.tryCatchBlocks.clear();
             method.localVariables = null;
+
+            String handlerKey = method.name + method.desc;
+            if (softHandlerKeys.contains(handlerKey)
+                && !SoftBinding.targetMethodExists(targetCls, iv.targetName(), targetDesc)) {
+                method.instructions.add(SoftBinding.uoeBody(
+                    "soft @Invoker target absent: " + mappedTarget + "." + iv.targetName() + targetDesc,
+                    returnType));
+                continue;
+            }
 
             InsnList ins = new InsnList();
             ins.add(new VarInsnNode(Opcodes.ALOAD, 1));
