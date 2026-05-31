@@ -114,6 +114,23 @@ final class ExpressionParser {
             pos++;
             return ExpressionNode.Wildcard.INSTANCE;
         }
+        if (pos < src.length() && src.charAt(pos) == '(') {
+            int save = pos;
+            pos++;
+            skipWhitespace();
+            if (pos < src.length() && isIdentStart(src.charAt(pos))) {
+                int identStart = pos;
+                String ident = readIdent();
+                skipWhitespace();
+                if (pos < src.length() && src.charAt(pos) == ')') {
+                    pos++;
+                    ExpressionNode operand = unary();
+                    return new ExpressionNode.Cast(ident, operand);
+                }
+                pos = identStart;
+            }
+            pos = save;
+        }
         return selector();
     }
 
