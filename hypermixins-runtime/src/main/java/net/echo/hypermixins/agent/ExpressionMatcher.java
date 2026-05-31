@@ -131,8 +131,63 @@ final class ExpressionMatcher {
                 }
             }
             case ExpressionNode.Assign a -> collectCaptures(a.lhs(), anchor, ctx);
+            case ExpressionNode.BinaryOp bo -> {
+                AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(anchor, 1);
+                AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(anchor, 0);
+                collectArithOperand(bo.lhs(), lhsProducer, ctx);
+                collectArithOperand(bo.rhs(), rhsProducer, ctx);
+            }
+            case ExpressionNode.Comparison c -> {
+                AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(anchor, 1);
+                AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(anchor, 0);
+                collectArithOperand(c.lhs(), lhsProducer, ctx);
+                collectArithOperand(c.rhs(), rhsProducer, ctx);
+            }
+            case ExpressionNode.InstanceOf io -> {
+                AbstractInsnNode producer = ExpressionStackWalker.findProducerAt(anchor, 0);
+                collectArithOperand(io.operand(), producer, ctx);
+            }
+            case ExpressionNode.Cast ct -> {
+                AbstractInsnNode producer = ExpressionStackWalker.findProducerAt(anchor, 0);
+                collectArithOperand(ct.operand(), producer, ctx);
+            }
             // FieldRef / ThisRef / literals / unsupported roots — no captures to extract.
             default -> {}
+        }
+    }
+
+    /**
+     * Operand-position capture binding for arithmetic / comparison / instanceof / cast.
+     * A leaf {@code ?} or NamedArg binds to the producer instruction itself (which must be a
+     * clean {@code *LOAD}); nested calls / fields recurse via {@link #collectCaptures}.
+     */
+    private void collectArithOperand(ExpressionNode operand, AbstractInsnNode producer, CaptureContext ctx) {
+        if (producer == null) return;
+        switch (operand) {
+            case ExpressionNode.Wildcard ignored -> {
+                ctx.positional++;
+                int paramIdx = ctx.positional;
+                if (!(producer instanceof org.objectweb.asm.tree.VarInsnNode v) || !isLoadOpcode(v.getOpcode())) {
+                    throw new InjectSignatureMismatch(
+                        "@Expression arithmetic operand ? at " + producer
+                        + " is not produced by a clean *LOAD — cannot bind to a target slot");
+                }
+                ctx.out.put(paramIdx, v.var);
+            }
+            case ExpressionNode.NamedArg na -> {
+                Integer resolved = paramIndexByName.get(na.name());
+                if (resolved == null) {
+                    throw new InjectSignatureMismatch(
+                        "@Expression named capture '" + na.name() + "' did not resolve to a handler param on " + handler);
+                }
+                if (!(producer instanceof org.objectweb.asm.tree.VarInsnNode v) || !isLoadOpcode(v.getOpcode())) {
+                    throw new InjectSignatureMismatch(
+                        "@Expression named operand '" + na.name() + "' at " + producer
+                        + " is not produced by a clean *LOAD");
+                }
+                ctx.out.put(resolved, v.var);
+            }
+            default -> collectCaptures(operand, producer, ctx);
         }
     }
 
