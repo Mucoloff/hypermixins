@@ -4,9 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ExpressionParserTest {
 
@@ -40,7 +38,7 @@ class ExpressionParserTest {
     void rejectsTrailingGarbage() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
             () -> ExpressionParser.parse("tick() extra"));
-        assertEquals(true, ex.getMessage().contains("Unexpected trailing"));
+        assertTrue(ex.getMessage().contains("Unexpected trailing"));
     }
 
     @Test
@@ -67,7 +65,7 @@ class ExpressionParserTest {
         ExpressionNode.Chained c = assertInstanceOf(ExpressionNode.Chained.class, node);
         assertInstanceOf(ExpressionNode.ThisRef.class, c.receiver());
         assertEquals("counter", c.member().defId());
-        assertEquals(false, c.member().isCall());
+        assertFalse(c.member().isCall());
     }
 
     @Test
@@ -76,7 +74,7 @@ class ExpressionParserTest {
         ExpressionNode.Chained c = assertInstanceOf(ExpressionNode.Chained.class, node);
         assertInstanceOf(ExpressionNode.ThisRef.class, c.receiver());
         assertEquals("tick", c.member().defId());
-        assertEquals(true, c.member().isCall());
+        assertTrue(c.member().isCall());
         assertEquals(0, c.member().args().size());
     }
 

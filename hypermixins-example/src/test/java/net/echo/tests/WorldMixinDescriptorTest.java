@@ -27,24 +27,24 @@ class WorldMixinDescriptorTest {
         assertEquals("net/echo/testworld/World", d.targetClass());
 
         assertEquals(1, d.overwrites().size());
-        MixinDescriptor.OverwriteEntry ow = d.overwrites().get(0);
+        MixinDescriptor.OverwriteEntry ow = d.overwrites().getFirst();
         assertEquals("getPlayers", ow.targetName());
         assertEquals("()Ljava/util/List;", ow.targetDesc());
         assertEquals("getPlayers", ow.handlerName());
         assertEquals("(Ljava/lang/Object;)Ljava/util/List;", ow.handlerDesc());
 
         assertEquals(1, d.originals().size());
-        assertEquals("getPlayers", d.originals().get(0).targetName());
+        assertEquals("getPlayers", d.originals().getFirst().targetName());
 
         assertEquals(1, d.redirects().size());
-        MixinDescriptor.RedirectEntry r = d.redirects().get(0);
+        MixinDescriptor.RedirectEntry r = d.redirects().getFirst();
         assertEquals("run", r.targetMethod());
         assertEquals("java/lang/Thread.sleep(J)V", r.invokeDesc());
         assertEquals(1, r.index());
         assertEquals(net.echo.hypermixins.annotations.Call.INVOKESTATIC, r.call());
 
         assertEquals(1, d.injects().size());
-        MixinDescriptor.InjectEntry inj = d.injects().get(0);
+        MixinDescriptor.InjectEntry inj = d.injects().getFirst();
         assertEquals("addPlayer", inj.targetMethod());
         assertEquals(net.echo.hypermixins.annotations.At.Point.HEAD, inj.point());
         assertFalse(inj.cancellable());

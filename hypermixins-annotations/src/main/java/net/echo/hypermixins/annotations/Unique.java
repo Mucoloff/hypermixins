@@ -10,7 +10,7 @@ import java.lang.annotation.Target;
  * method bytecode is duplicated into the target class under a mangled name
  * ({@code __unique$<mixin-flat>$<name>$<hash>}) so calls to it from other rewritten mixin
  * bodies resolve against the merged copy. Restricted to static methods for now — instance
- * @Unique merging interacts with the dispatch invariant and is deferred.
+ * {@code @Unique} merging interacts with the dispatch invariant and is deferred.
  *
  * @author xEcho1337
  */

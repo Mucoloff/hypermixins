@@ -22,7 +22,7 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 /**
- * @Inject: rewrites each handler call site for a target method. Handles HEAD / RETURN / TAIL /
+ * {@code @Inject:} rewrites each handler call site for a target method. Handles HEAD / RETURN / TAIL /
  * INVOKE / FIELD / CONSTANT / JUMP / NEW points, resolves @Local captures (by slot or by
  * ordinal type-match), emits the CallbackInfo[Returnable] allocation when cancellable, and
  * performs argsOnly readback after the handler returns.
@@ -221,7 +221,7 @@ final class InjectPass {
     }
 
     /**
-     * @Local(argsOnly = true) writes back into the source slot only after the handler returns,
+     * {@code @Local(argsOnly} = true) writes back into the source slot only after the handler returns,
      * but the matched site's preceding ILOAD has already pushed the pre-mutation value onto the
      * stack. Scan backward from the site for the earliest *LOAD of any argsOnly source slot and
      * relocate the insertion point there so the writeback lands before the consuming push.

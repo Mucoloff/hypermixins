@@ -63,7 +63,7 @@ public class MixinMapping {
             Method handler = findMethodByDescriptor(mixinClass, e.handlerName(), e.handlerDesc());
             if (handler.isAnnotationPresent(Surrogate.class)) continue;
             List<Method> sgs = resolveSurrogatesFor(handler, e.targetMethod(), surrogatesByPrimary);
-            inj.computeIfAbsent(e.targetMethod(), k -> new ArrayList<>()).add(
+            inj.computeIfAbsent(e.targetMethod(), _ -> new ArrayList<>()).add(
                 new InjectMapping(e.targetMethod(), e.point(), e.atIndex(), e.atDesc(),
                     e.cancellable(), e.returnable(), handler, sgs));
         }
@@ -96,7 +96,7 @@ public class MixinMapping {
                 throw new IllegalArgumentException("@Surrogate handler must also declare @Inject: "
                     + mixinClass.getName() + "." + m.getName());
             }
-            byTarget.computeIfAbsent(in.method(), k -> new ArrayList<>()).add(m);
+            byTarget.computeIfAbsent(in.method(), _ -> new ArrayList<>()).add(m);
         }
         return byTarget;
     }

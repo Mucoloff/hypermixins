@@ -18,7 +18,7 @@ public final class SharedSlots {
 
     /** Returns the (lazily allocated) shared {@link Ref} bound to {@code key}. */
     public static Ref<Object> acquire(String key) {
-        return SHARED.computeIfAbsent(key, k -> Ref.empty());
+        return SHARED.computeIfAbsent(key, _ -> Ref.empty());
     }
 
     /** Clears every shared slot. Tests only. */

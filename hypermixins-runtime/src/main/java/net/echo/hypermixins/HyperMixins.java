@@ -129,10 +129,6 @@ public final class HyperMixins {
         }
     }
 
-    /**
-     * Discovers every {@code mixins.yml} / {@code .mixins.yml} on the classpath of {@code loader}
-     * and registers all listed mixin classes. Returns the list of handles, one per discovered config.
-     */
     /** Overload: scans the system ClassLoader. */
     public static List<MixinHandle> registerFromClasspath(Instrumentation inst)
         throws MixinRegistrationException {

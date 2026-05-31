@@ -29,7 +29,7 @@ public class MixinTransformer implements ClassFileTransformer {
 
     public MixinTransformer(List<MixinMapping> mappings) {
         for (MixinMapping m : mappings) {
-            targets.computeIfAbsent(m.getTargetClass().replace('.', '/'), k -> new ArrayList<>()).add(m);
+            targets.computeIfAbsent(m.getTargetClass().replace('.', '/'), _ -> new ArrayList<>()).add(m);
             mixins.put(Type.getInternalName(m.getMixinClass()), m);
         }
     }
@@ -103,7 +103,7 @@ public class MixinTransformer implements ClassFileTransformer {
 
             Map<String, List<RedirectMapping>> redirectByDesc = new HashMap<>();
             for (RedirectMapping r : mapping.getRedirects()) {
-                redirectByDesc.computeIfAbsent(r.invokeDesc(), k -> new ArrayList<>()).add(r);
+                redirectByDesc.computeIfAbsent(r.invokeDesc(), _ -> new ArrayList<>()).add(r);
             }
 
             Map<String, String[]> synthetics = mapping.descriptor().synthetics();
@@ -120,7 +120,7 @@ public class MixinTransformer implements ClassFileTransformer {
             // Group @ModifyReturnValue handlers by [targetMethod -> by invokeDesc].
             Map<String, List<MixinDescriptor.ModifyReturnValueEntry>> mrvByDesc = new HashMap<>();
             for (MixinDescriptor.ModifyReturnValueEntry mrv : mapping.descriptor().modifyReturnValues()) {
-                mrvByDesc.computeIfAbsent(mrv.invokeDesc(), k -> new ArrayList<>()).add(mrv);
+                mrvByDesc.computeIfAbsent(mrv.invokeDesc(), _ -> new ArrayList<>()).add(mrv);
             }
             Class<?> mixinClassForMrv = mapping.getMixinClass();
 
@@ -128,17 +128,17 @@ public class MixinTransformer implements ClassFileTransformer {
 
             Map<String, List<MixinDescriptor.ModifyArgEntry>> masByDesc = new HashMap<>();
             for (MixinDescriptor.ModifyArgEntry ma : mapping.descriptor().modifyArgs()) {
-                masByDesc.computeIfAbsent(ma.invokeDesc(), k -> new ArrayList<>()).add(ma);
+                masByDesc.computeIfAbsent(ma.invokeDesc(), _ -> new ArrayList<>()).add(ma);
             }
 
             Map<String, List<MixinDescriptor.WrapConditionEntry>> wcsByDesc = new HashMap<>();
             for (MixinDescriptor.WrapConditionEntry wc : mapping.descriptor().wrapConditions()) {
-                wcsByDesc.computeIfAbsent(wc.invokeDesc(), k -> new ArrayList<>()).add(wc);
+                wcsByDesc.computeIfAbsent(wc.invokeDesc(), _ -> new ArrayList<>()).add(wc);
             }
 
             Map<String, List<MixinDescriptor.WrapOperationEntry>> wopsByDesc = new HashMap<>();
             for (MixinDescriptor.WrapOperationEntry wo : mapping.descriptor().wrapOperations()) {
-                wopsByDesc.computeIfAbsent(wo.invokeDesc(), k -> new ArrayList<>()).add(wo);
+                wopsByDesc.computeIfAbsent(wo.invokeDesc(), _ -> new ArrayList<>()).add(wo);
             }
             Set<String> wrapAdaptersGenerated = new HashSet<>();
 

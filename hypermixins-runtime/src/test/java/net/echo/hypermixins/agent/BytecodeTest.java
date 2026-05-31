@@ -7,9 +7,7 @@ import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class BytecodeTest {
 
@@ -51,8 +49,7 @@ class BytecodeTest {
     void isLoadOpcodeRejectsStoresAndIinc() {
         for (int op : new int[]{Opcodes.ISTORE, Opcodes.LSTORE, Opcodes.FSTORE,
                                  Opcodes.DSTORE, Opcodes.ASTORE, Opcodes.IINC, Opcodes.RET}) {
-            assertEquals(false, Bytecode.isLoadOpcode(op),
-                () -> "expected false for opcode " + op);
+            assertFalse(Bytecode.isLoadOpcode(op), () -> "expected false for opcode " + op);
         }
     }
 }

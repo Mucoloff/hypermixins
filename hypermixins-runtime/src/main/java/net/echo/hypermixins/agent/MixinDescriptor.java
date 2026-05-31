@@ -3,8 +3,6 @@ package net.echo.hypermixins.agent;
 import net.echo.hypermixins.annotations.At;
 import net.echo.hypermixins.annotations.Call;
 
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -197,7 +195,7 @@ public final class MixinDescriptor {
         this.redirects   = List.copyOf(redirects);
         this.injects     = List.copyOf(injects);
         this.injectLocals = List.copyOf(injectLocals);
-        this.injectShifts = Collections.unmodifiableMap(new HashMap<>(injectShifts));
+        this.injectShifts = Map.copyOf(injectShifts);
         this.shadows     = List.copyOf(shadows);
         this.shadowFields = List.copyOf(shadowFields);
         this.shadowStaticFields = List.copyOf(shadowStaticFields);
@@ -212,7 +210,7 @@ public final class MixinDescriptor {
         this.wrapConditions = List.copyOf(wrapConditions);
         this.wrapOperations = List.copyOf(wrapOperations);
         this.wrapMethods = List.copyOf(wrapMethods);
-        this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
+        this.synthetics  = Map.copyOf(synthetics);
         this.expressions = Map.of();
         this.staticTargetMethods = Set.copyOf(staticTargetMethods);
         this.privateShadowTargets = Set.copyOf(privateShadowTargets);
@@ -243,7 +241,7 @@ public final class MixinDescriptor {
         this.wrapOperations = base.wrapOperations;
         this.wrapMethods = base.wrapMethods;
         this.synthetics = base.synthetics;
-        this.expressions = Collections.unmodifiableMap(new HashMap<>(expressions));
+        this.expressions = Map.copyOf(expressions);
         this.staticTargetMethods = base.staticTargetMethods;
         this.privateShadowTargets = base.privateShadowTargets;
     }

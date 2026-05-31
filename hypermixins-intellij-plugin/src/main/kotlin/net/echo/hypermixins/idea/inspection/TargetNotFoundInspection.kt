@@ -36,7 +36,7 @@ class TargetNotFoundInspection : AbstractBaseJavaLocalInspectionTool() {
                 // @At#desc shape (legacy @Redirect-style) — only flag obvious malformed descriptors.
                 method.getAnnotation(MixinAnnotations.AT)?.let { atAnn ->
                     val desc = MixinPsiUtil.stringAttr(atAnn, "desc")
-                    if (desc != null && desc.isNotEmpty() && !desc.contains('(') && !desc.contains(':')) {
+                    if (!desc.isNullOrEmpty() && !desc.contains('(') && !desc.contains(':')) {
                         holder.registerProblem(atAnn, "@At desc '$desc' is not a valid invoke / field descriptor")
                     }
                 }

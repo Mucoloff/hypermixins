@@ -166,7 +166,7 @@ final class DescriptorReader {
         if (expressionRows.isEmpty()) return Map.of();
         Map<String, List<MixinDescriptor.DefinitionEntry>> defsByKey = new HashMap<>();
         for (String[] r : definitionRows) {
-            defsByKey.computeIfAbsent(r[0] + r[1], k -> new ArrayList<>())
+            defsByKey.computeIfAbsent(r[0] + r[1], _ -> new ArrayList<>())
                 .add(new MixinDescriptor.DefinitionEntry(r[2], r[3], r[4]));
         }
         Map<String, MixinDescriptor.ExpressionMetadata> out = new LinkedHashMap<>();

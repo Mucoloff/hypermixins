@@ -32,7 +32,7 @@ final class InjectLocalResolver {
     ) {
         Map<String, Map<Integer, MixinDescriptor.InjectLocalEntry>> out = new HashMap<>();
         for (MixinDescriptor.InjectLocalEntry le : descriptor.injectLocals()) {
-            out.computeIfAbsent(le.handlerName() + le.handlerDesc(), k -> new HashMap<>())
+            out.computeIfAbsent(le.handlerName() + le.handlerDesc(), _ -> new HashMap<>())
                 .put(le.paramIndex(), le);
         }
         return out;
@@ -99,7 +99,7 @@ final class InjectLocalResolver {
     /**
      * Frame-driven variant: walks the live locals at {@code site} (as computed by
      * {@link LocalFrameAnalyzer}) instead of the target's incoming parameters. Handles
-     * @Local(ordinal = N) and bare @Local; bare bindings fail on ambiguity, matching the
+     * {@code @Local(ordinal} = N) and bare @Local; bare bindings fail on ambiguity, matching the
      * static-param resolver's contract.
      */
     static Map<Integer, Integer> siteSlotMap(

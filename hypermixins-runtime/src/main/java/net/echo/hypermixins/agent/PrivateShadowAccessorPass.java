@@ -2,14 +2,8 @@ package net.echo.hypermixins.agent;
 
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.InsnList;
-import org.objectweb.asm.tree.InsnNode;
-import org.objectweb.asm.tree.MethodInsnNode;
-import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.VarInsnNode;
+import org.objectweb.asm.tree.*;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -27,11 +21,7 @@ final class PrivateShadowAccessorPass {
     }
 
     static String dropFirstArgFromDescriptor(String desc) {
-        Type[] all = Type.getArgumentTypes(desc);
-        if (all.length == 0) return desc;
-        Type ret = Type.getReturnType(desc);
-        Type[] rest = Arrays.copyOfRange(all, 1, all.length);
-        return Type.getMethodDescriptor(ret, rest);
+        return ReflectionProbes.dropFirstArg(desc);
     }
 
     static void add(

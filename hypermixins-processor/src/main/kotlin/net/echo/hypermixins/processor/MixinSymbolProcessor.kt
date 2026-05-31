@@ -1,17 +1,13 @@
 package net.echo.hypermixins.processor
 
-import com.google.devtools.ksp.getDeclaredFunctions
 import com.google.devtools.ksp.processing.*
-import com.google.devtools.ksp.symbol.*
+import com.google.devtools.ksp.symbol.KSAnnotated
+import com.google.devtools.ksp.symbol.KSClassDeclaration
+import com.google.devtools.ksp.symbol.KSFunctionDeclaration
+import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 import com.google.devtools.ksp.validate
-import com.squareup.javapoet.*
-import java.io.OutputStreamWriter
-import java.lang.reflect.Modifier as JMod
-import javax.lang.model.element.Modifier
-import net.echo.hypermixins.processor.JvmDescriptors.buildTargetDescriptor
-import net.echo.hypermixins.processor.JvmDescriptors.descriptor
-import net.echo.hypermixins.processor.JvmDescriptors.dropFirstArgDesc
 import net.echo.hypermixins.processor.JvmDescriptors.toJvmDesc
+import java.io.OutputStreamWriter
 
 // Generated descriptor ABI (must match MixinDescriptor.java in the runtime module):
 //   overwriteEntries:  [targetName, targetDesc, handlerName, handlerDesc]

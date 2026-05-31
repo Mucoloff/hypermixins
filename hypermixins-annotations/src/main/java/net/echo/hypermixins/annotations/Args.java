@@ -1,6 +1,5 @@
 package net.echo.hypermixins.annotations;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -26,8 +25,8 @@ public final class Args {
     }
 
     /** Returns the argument at {@code index} cast to {@code T}. */
-    @SuppressWarnings("unchecked")
     public <T> T get(int index) {
+        //noinspection unchecked
         return (T) args[index];
     }
 

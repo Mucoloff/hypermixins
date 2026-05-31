@@ -54,13 +54,11 @@ final class OriginalPass {
 
             InsnList insns = new InsnList();
             int slot;
-            if (targetIsStatic) {
-                slot = 2;
-            } else {
+            if (!targetIsStatic) {
                 insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
                 insns.add(new TypeInsnNode(Opcodes.CHECKCAST, mappedTarget));
-                slot = 2;
             }
+            slot = 2;
             for (Type arg : targetArgs) {
                 insns.add(new VarInsnNode(arg.getOpcode(Opcodes.ILOAD), slot));
                 slot += arg.getSize();

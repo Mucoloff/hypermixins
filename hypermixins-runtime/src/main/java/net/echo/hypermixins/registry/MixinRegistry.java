@@ -31,7 +31,7 @@ public final class MixinRegistry {
      * Resolves (or lazily installs) the {@link MutableCallSite} for the given key.
      */
     public static CallSite bootstrap(MethodHandles.Lookup lookup, String name, MethodType type, String key) {
-        MutableCallSite cs = SITES.computeIfAbsent(key, k -> new MutableCallSite(type));
+        MutableCallSite cs = SITES.computeIfAbsent(key, _ -> new MutableCallSite(type));
         if (!MIXINS.containsKey(key) && !ORIGINALS.containsKey(key)) {
             tryLazyInstall(lookup, type, key);
         }
@@ -56,7 +56,7 @@ public final class MixinRegistry {
         ORIGINALS.put(key, original);
         MIXINS.put(key, mixin);
         PENDING.remove(key);
-        MutableCallSite cs = SITES.computeIfAbsent(key, k -> new MutableCallSite(mixin.type()));
+        MutableCallSite cs = SITES.computeIfAbsent(key, _ -> new MutableCallSite(mixin.type()));
         cs.setTarget(mixin.asType(cs.type()));
     }
 

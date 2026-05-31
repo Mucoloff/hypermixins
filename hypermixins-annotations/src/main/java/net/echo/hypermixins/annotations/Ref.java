@@ -1,5 +1,8 @@
 package net.echo.hypermixins.annotations;
 
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+
 /**
  * Mutable reference box used with {@link Share} for exchanging values between injection handlers.
  *
@@ -30,5 +33,32 @@ public final class Ref<T> {
 
     public void set(T value) {
         this.value = value;
+    }
+
+    public boolean isPresent() {
+        return value != null;
+    }
+
+    public boolean isEmpty() {
+        return value == null;
+    }
+
+    public T orElse(T other) {
+        return value != null ? value : other;
+    }
+
+    public T orElseGet(Supplier<T> other) {
+        return orElse(other.get());
+    }
+
+    public void ifPresent(Consumer<? super T> consumer) {
+        if (value != null) {
+            consumer.accept(value);
+        }
+    }
+
+    public void ifPresentOrElse(Consumer<? super T> consumer, Runnable defaultAction) {
+        if (value != null) consumer.accept(value);
+        else defaultAction.run();
     }
 }

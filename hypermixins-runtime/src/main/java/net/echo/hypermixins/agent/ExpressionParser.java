@@ -158,8 +158,8 @@ final class ExpressionParser {
             throw new IllegalArgumentException(
                 "Expected identifier at offset " + pos + " in expression: " + src);
         }
-        pos++;
-        while (pos < src.length() && isIdentPart(src.charAt(pos))) pos++;
+        do pos++;
+        while (pos < src.length() && isIdentPart(src.charAt(pos)));
         return src.substring(start, pos);
     }
 

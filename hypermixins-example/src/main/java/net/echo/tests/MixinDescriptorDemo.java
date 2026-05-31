@@ -17,7 +17,7 @@ public final class MixinDescriptorDemo {
 
     private MixinDescriptorDemo() {}
 
-    public static void main(String[] args) throws Exception {
+    static void main() throws Exception {
         dump(MixinDescriptor.load(WorldMixin.class));
         System.out.println();
         dump(MixinDescriptor.load(WorldExtrasMixin.class));

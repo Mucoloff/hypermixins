@@ -1,5 +1,6 @@
 package net.echo.hypermixins.agent;
 
+import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -28,15 +29,7 @@ final class ConstructorPatch {
                 && mi.name.equals("<init>") && mi.owner.equals(owner.name)) return;
         }
 
-        AbstractInsnNode superCall = null;
-        for (AbstractInsnNode insn = ctor.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof MethodInsnNode mi
-                && mi.getOpcode() == Opcodes.INVOKESPECIAL
-                && mi.name.equals("<init>") && mi.owner.equals(owner.superName)) {
-                superCall = insn; break;
-            }
-        }
-        if (superCall == null) throw new IllegalStateException("No super() in constructor of " + owner.name);
+        AbstractInsnNode superCall = getAbstractInsnNode(ctor, owner);
 
         String mixinInternal = Type.getInternalName(mapping.getMixinClass());
         String mixinDesc     = Type.getDescriptor(mapping.getMixinClass());
@@ -47,5 +40,18 @@ final class ConstructorPatch {
         inject.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, mixinInternal, "<init>", "()V", false));
         inject.add(new FieldInsnNode(Opcodes.PUTFIELD, owner.name, mixinFieldName, mixinDesc));
         ctor.instructions.insert(superCall, inject);
+    }
+
+    private static @NotNull AbstractInsnNode getAbstractInsnNode(MethodNode ctor, ClassNode owner) {
+        AbstractInsnNode superCall = null;
+        for (AbstractInsnNode insn = ctor.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn instanceof MethodInsnNode mi
+                && mi.getOpcode() == Opcodes.INVOKESPECIAL
+                && mi.name.equals("<init>") && mi.owner.equals(owner.superName)) {
+                superCall = insn; break;
+            }
+        }
+        if (superCall == null) throw new IllegalStateException("No super() in constructor of " + owner.name);
+        return superCall;
     }
 }

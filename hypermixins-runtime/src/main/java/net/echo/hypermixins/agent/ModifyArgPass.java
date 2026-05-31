@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * @ModifyArg: rewrites a single argument at a matched INVOKE site. Last-arg case is a bare
+ * {@code @ModifyArg:} rewrites a single argument at a matched INVOKE site. Last-arg case is a bare
  * INVOKESTATIC; middle-arg cases stash trailing args into temp locals so the handler sees its
  * target on top of stack, then restore.
  */

@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * @Redirect: swaps each matched INVOKE / field-access site with a static INVOKESTATIC call to
+ * {@code @Redirect:} swaps each matched INVOKE / field-access site with a static INVOKESTATIC call to
  * the handler. Validates that the captured call kind (Call enum) matches the actual opcode and
  * that the handler descriptor is consistent (receiver-as-first-arg for virtual / interface;
  * arg count and return type match).

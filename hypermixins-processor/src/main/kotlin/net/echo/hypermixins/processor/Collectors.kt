@@ -367,7 +367,7 @@ internal class Collectors(private val logger: KSPLogger) {
             logger.error("@Invoker first parameter must be Object/Any: $handlerName", fn)
             return
         }
-        val targetName = if (explicit.isNotBlank()) explicit else deriveInvokerName(handlerName)
+        val targetName = explicit.ifBlank { deriveInvokerName(handlerName) }
         if (targetName.isBlank()) {
             logger.error("@Invoker cannot derive target method from $handlerName — set value()", fn)
             return
@@ -397,7 +397,7 @@ internal class Collectors(private val logger: KSPLogger) {
             logger.error("@Accessor must be (Object): T (getter) or (Object, T): void (setter): $handlerName", fn)
             return
         }
-        val targetField = if (explicit.isNotBlank()) explicit else deriveAccessorField(handlerName)
+        val targetField = explicit.ifBlank { deriveAccessorField(handlerName) }
         if (targetField.isBlank()) {
             logger.error("@Accessor cannot derive target field name from $handlerName — set value()", fn)
             return

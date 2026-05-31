@@ -4,14 +4,7 @@ import net.echo.hypermixins.annotations.Unique;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.AnnotationNode;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.FieldInsnNode;
-import org.objectweb.asm.tree.MethodInsnNode;
-import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.TypeInsnNode;
-import org.objectweb.asm.tree.VarInsnNode;
+import org.objectweb.asm.tree.*;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -134,23 +127,21 @@ final class UniquePass {
      */
     private static void rewriteInstanceUniqueBody(MethodNode copy, String mixinInternal, Class<?> mixinClass) {
         for (AbstractInsnNode insn = copy.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof FieldInsnNode f && mixinInternal.equals(f.owner)) {
-                throw new IllegalStateException(
-                    "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
-                    + " accesses mixin field " + f.name + " — only self-contained instance helpers are"
-                    + " supported. Move state to a @Shadow field on the target or pass it as a parameter.");
-            }
-            if (insn instanceof MethodInsnNode mi && mixinInternal.equals(mi.owner)) {
-                throw new IllegalStateException(
-                    "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
-                    + " calls mixin method " + mi.name + mi.desc
-                    + " — only self-contained instance helpers are supported.");
-            }
-            if (insn instanceof TypeInsnNode ti && mixinInternal.equals(ti.desc)) {
-                throw new IllegalStateException(
-                    "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
-                    + " references mixin type via " + Integer.toHexString(ti.getOpcode())
-                    + " — only self-contained instance helpers are supported.");
+            switch (insn) {
+                case FieldInsnNode f when mixinInternal.equals(f.owner) -> throw new IllegalStateException(
+                        "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
+                                + " accesses mixin field " + f.name + " — only self-contained instance helpers are"
+                                + " supported. Move state to a @Shadow field on the target or pass it as a parameter.");
+                case MethodInsnNode mi when mixinInternal.equals(mi.owner) -> throw new IllegalStateException(
+                        "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
+                                + " calls mixin method " + mi.name + mi.desc
+                                + " — only self-contained instance helpers are supported.");
+                case TypeInsnNode ti when mixinInternal.equals(ti.desc) -> throw new IllegalStateException(
+                        "Instance @Unique helper " + mixinClass.getName() + "." + copy.name
+                                + " references mixin type via " + Integer.toHexString(ti.getOpcode())
+                                + " — only self-contained instance helpers are supported.");
+                default -> {
+                }
             }
         }
     }

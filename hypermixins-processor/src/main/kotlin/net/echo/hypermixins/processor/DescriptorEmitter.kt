@@ -58,7 +58,7 @@ internal class DescriptorEmitter(private val codeGenerator: CodeGenerator) {
 
     fun emit(h: MixinHarvest): EmitResult? {
         val mixinFqn = h.mixinClass.qualifiedName?.asString() ?: return null
-        val descriptorFqn = "$mixinFqn\$\$Descriptor"
+        val descriptorFqn = $$$"$$$mixinFqn$$Descriptor"
         val pkg = if ('.' in descriptorFqn) descriptorFqn.substringBeforeLast('.') else ""
         val simpleName = descriptorFqn.substringAfterLast('.')
 
@@ -165,14 +165,14 @@ internal class DescriptorEmitter(private val codeGenerator: CodeGenerator) {
         MethodSpec.methodBuilder(name)
             .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
             .returns(String::class.java)
-            .addStatement("return \$S", value)
+            .addStatement($$"return $S", value)
             .build()
 
     private fun intConst(name: String, value: Int): MethodSpec =
         MethodSpec.methodBuilder(name)
             .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
             .returns(Int::class.javaPrimitiveType)
-            .addStatement("return \$L", value)
+            .addStatement($$"return $L", value)
             .build()
 
     companion object {

@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * @ModifyReceiver: captures the args of a matched INVOKEVIRTUAL / INVOKEINTERFACE into temp
+ * {@code @ModifyReceiver:} captures the args of a matched INVOKEVIRTUAL / INVOKEINTERFACE into temp
  * locals (in reverse order so the original push sequence is preserved), invokes the static
  * {@code T(T)} handler on the bare receiver, then pushes the args back.
  */

@@ -14,9 +14,9 @@ import javax.lang.model.element.Modifier
 internal fun entriesMethod(name: String, entries: List<Array<String>>): MethodSpec {
     val stringArrayType = ArrayTypeName.of(String::class.java)
     val listType = ParameterizedTypeName.get(ClassName.get(List::class.java), stringArrayType)
-    val block = CodeBlock.builder().add("return \$T.<\$T[]>of(\n", List::class.java, String::class.java)
+    val block = CodeBlock.builder().add($$"return $T.<$T[]>of(\n", List::class.java, String::class.java)
     entries.forEachIndexed { i, e ->
-        block.add("    new String[]{${e.joinToString(", ") { "\$S" }}}", *e)
+        block.add("    new String[]{${e.joinToString(", ") { $$"$S" }}}", *e)
         if (i < entries.size - 1) block.add(",\n")
     }
     block.add("\n)")

@@ -14,7 +14,7 @@ import java.lang.annotation.Target;
  * @Mixin("net.example.Target")
  * @Implements({ java.lang.Runnable.class })
  * public class TargetMixin {
- *     @Overwrite("run")
+ *     {@code @Overwrite("run")}
  *     public void run(Object self) { ... }
  * }
  * }</pre>

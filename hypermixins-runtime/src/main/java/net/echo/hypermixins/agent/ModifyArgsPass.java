@@ -5,7 +5,6 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
-import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
@@ -17,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * @ModifyArgs: captures every argument of the matched INVOKE into a fresh Object[] (boxing
+ * {@code @ModifyArgs:} captures every argument of the matched INVOKE into a fresh Object[] (boxing
  * primitives), hands the array to the handler (which may mutate elements), then reloads each
  * argument from the (possibly mutated) array before the INVOKE fires.
  */

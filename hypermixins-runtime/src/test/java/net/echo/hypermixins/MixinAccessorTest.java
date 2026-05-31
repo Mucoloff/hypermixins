@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * @Accessor-style getter/setter trampolines. The transformer rewrites native mixin methods to
+ * {@code @Accessor-style} getter/setter trampolines. The transformer rewrites native mixin methods to
  * read/write the named field on the target via the Object self parameter.
  */
 public class MixinAccessorTest {
