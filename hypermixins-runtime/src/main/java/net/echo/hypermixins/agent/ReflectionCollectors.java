@@ -10,6 +10,8 @@ import net.echo.hypermixins.annotations.ModifyConstant;
 import net.echo.hypermixins.annotations.ModifyExpressionValue;
 import net.echo.hypermixins.annotations.ModifyReceiver;
 import net.echo.hypermixins.annotations.ModifyReturnValue;
+import net.echo.hypermixins.annotations.Operation;
+import net.echo.hypermixins.annotations.WrapOperation;
 import net.echo.hypermixins.annotations.WrapWithCondition;
 import org.objectweb.asm.Type;
 
@@ -29,6 +31,26 @@ import java.util.Map;
 final class ReflectionCollectors {
 
     private ReflectionCollectors() {}
+
+    static List<MixinDescriptor.WrapOperationEntry> wrapOperations(Class<?> mixinClass) {
+        List<MixinDescriptor.WrapOperationEntry> out = new ArrayList<>();
+        for (Method m : mixinClass.getDeclaredMethods()) {
+            WrapOperation ann = m.getAnnotation(WrapOperation.class);
+            if (ann == null) continue;
+            if (ann.method().isEmpty())
+                throw new IllegalArgumentException("@WrapOperation#method() must not be empty on " + m);
+            if (ann.at().desc().isEmpty())
+                throw new IllegalArgumentException("@At#desc() must not be empty on @WrapOperation " + m);
+            if (!Modifier.isStatic(m.getModifiers()))
+                throw new IllegalArgumentException("@WrapOperation must be static: " + m);
+            Class<?>[] params = m.getParameterTypes();
+            if (params.length == 0 || params[params.length - 1] != Operation.class)
+                throw new IllegalArgumentException("@WrapOperation handler last parameter must be Operation<R>: " + m);
+            out.add(new MixinDescriptor.WrapOperationEntry(ann.method(), ann.at().desc(), ann.at().index(),
+                m.getName(), Type.getMethodDescriptor(m)));
+        }
+        return out;
+    }
 
     static List<MixinDescriptor.WrapConditionEntry> wrapConditions(Class<?> mixinClass) {
         List<MixinDescriptor.WrapConditionEntry> out = new ArrayList<>();

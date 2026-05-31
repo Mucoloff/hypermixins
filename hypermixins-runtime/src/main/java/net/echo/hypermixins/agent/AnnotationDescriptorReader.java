@@ -83,10 +83,11 @@ final class AnnotationDescriptorReader {
         List<MixinDescriptor.ModifyArgsEntry> mxa = ReflectionCollectors.modifyArgsAll(mixinClass);
         List<MixinDescriptor.ModifyReceiverEntry> mxr = ReflectionCollectors.modifyReceivers(mixinClass);
         List<MixinDescriptor.WrapConditionEntry> wcs = ReflectionCollectors.wrapConditions(mixinClass);
+        List<MixinDescriptor.WrapOperationEntry> wops = ReflectionCollectors.wrapOperations(mixinClass);
         Set<String> privateShadowMap = ReflectionProbes.privateShadowTargets(mixinClass, targetInternal, shadows, invs);
         return MixinDescriptor.buildWithMaps(mixinClass, targetInternal,
             overwrites, originals, redirects, injects, injectLocals, injectShifts,
-            shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, wcs,
+            shadows, shadowFields, shadowStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, wcs, wops,
             synths, staticMap, privateShadowMap);
     }
 

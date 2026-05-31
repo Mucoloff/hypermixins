@@ -136,6 +136,12 @@ public class MixinTransformer implements ClassFileTransformer {
                 wcsByDesc.computeIfAbsent(wc.invokeDesc(), k -> new ArrayList<>()).add(wc);
             }
 
+            Map<String, List<MixinDescriptor.WrapOperationEntry>> wopsByDesc = new HashMap<>();
+            for (MixinDescriptor.WrapOperationEntry wo : mapping.descriptor().wrapOperations()) {
+                wopsByDesc.computeIfAbsent(wo.invokeDesc(), k -> new ArrayList<>()).add(wo);
+            }
+            Set<String> wrapAdaptersGenerated = new HashSet<>();
+
             for (MethodNode method : new ArrayList<>(node.methods)) {
                 RedirectPass.apply(method, redirectByDesc);
                 if (!mrvByDesc.isEmpty()) ModifyReturnValuePass.apply(method, mrvByDesc, mixinClassForMrv);
@@ -149,6 +155,9 @@ public class MixinTransformer implements ClassFileTransformer {
                     ModifyReceiverPass.apply(method, mapping.descriptor().modifyReceivers(), mixinClassForMrv);
                 if (!wcsByDesc.isEmpty())
                     WrapWithConditionPass.apply(method, wcsByDesc, mixinClassForMrv);
+                if (!wopsByDesc.isEmpty())
+                    WrapOperationPass.apply(node, method, wopsByDesc, mixinClassForMrv,
+                        wrapAdaptersGenerated, extraMethods);
 
                 if (method.name.equals("<init>")) {
                     ConstructorPatch.apply(method, node, mapping, mixinField);

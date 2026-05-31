@@ -86,6 +86,8 @@ public final class MixinDescriptor {
                                       String handlerName, String handlerDesc) {}
     public record WrapConditionEntry(String targetMethod, String invokeDesc, int index,
                                      String handlerName, String handlerDesc) {}
+    public record WrapOperationEntry(String targetMethod, String invokeDesc, int index,
+                                     String handlerName, String handlerDesc) {}
 
     private static final ConcurrentHashMap<Class<?>, MixinDescriptor> CACHE = new ConcurrentHashMap<>();
 
@@ -109,6 +111,7 @@ public final class MixinDescriptor {
     private final List<ModifyArgsEntry> modifyArgsAll;
     private final List<ModifyReceiverEntry> modifyReceivers;
     private final List<WrapConditionEntry> wrapConditions;
+    private final List<WrapOperationEntry> wrapOperations;
     private final Map<String, String[]> synthetics;
     /** Target-method-key → true when the method is static. Populated best-effort at build time. */
     private final Set<String> staticTargetMethods;
@@ -133,12 +136,13 @@ public final class MixinDescriptor {
         List<ModifyArgsEntry> modifyArgsAll,
         List<ModifyReceiverEntry> modifyReceivers,
         List<WrapConditionEntry> wrapConditions,
+        List<WrapOperationEntry> wrapOperations,
         Map<String, String[]> synthetics
     ) {
         this(mixinClass, targetClass, overwrites, originals, redirects, injects, injectLocals,
             injectShifts, shadows, shadowFields, shadowStaticFields, modifyReturnValues,
             accessors, invokers, modifyConstants, modifyArgs, modifyExpressionValues,
-            modifyArgsAll, modifyReceivers, wrapConditions, synthetics, Set.of(), Set.of());
+            modifyArgsAll, modifyReceivers, wrapConditions, wrapOperations, synthetics, Set.of(), Set.of());
     }
 
     private MixinDescriptor(
@@ -159,6 +163,7 @@ public final class MixinDescriptor {
         List<ModifyArgsEntry> modifyArgsAll,
         List<ModifyReceiverEntry> modifyReceivers,
         List<WrapConditionEntry> wrapConditions,
+        List<WrapOperationEntry> wrapOperations,
         Map<String, String[]> synthetics,
         Set<String> staticTargetMethods,
         Set<String> privateShadowTargets
@@ -183,6 +188,7 @@ public final class MixinDescriptor {
         this.modifyArgsAll = List.copyOf(modifyArgsAll);
         this.modifyReceivers = List.copyOf(modifyReceivers);
         this.wrapConditions = List.copyOf(wrapConditions);
+        this.wrapOperations = List.copyOf(wrapOperations);
         this.synthetics  = Collections.unmodifiableMap(new HashMap<>(synthetics));
         this.staticTargetMethods = Set.copyOf(staticTargetMethods);
         this.privateShadowTargets = Set.copyOf(privateShadowTargets);
@@ -209,6 +215,7 @@ public final class MixinDescriptor {
     public List<ModifyArgsEntry> modifyArgsAll() { return modifyArgsAll; }
     public List<ModifyReceiverEntry> modifyReceivers() { return modifyReceivers; }
     public List<WrapConditionEntry> wrapConditions() { return wrapConditions; }
+    public List<WrapOperationEntry> wrapOperations() { return wrapOperations; }
     /** Map {@code targetName+targetDesc → [mangledOriginalName, dispatchName]}. */
     public Map<String, String[]> synthetics() { return synthetics; }
 
@@ -273,6 +280,7 @@ public final class MixinDescriptor {
         List<ModifyArgsEntry> modifyArgsAll,
         List<ModifyReceiverEntry> modifyReceivers,
         List<WrapConditionEntry> wrapConditions,
+        List<WrapOperationEntry> wrapOperations,
         Map<String, String[]> synthetics,
         Set<String> staticTargetMethods,
         Set<String> privateShadowTargets
@@ -280,7 +288,7 @@ public final class MixinDescriptor {
         return new MixinDescriptor(mixinClass, targetClass, overwrites, originals, redirects,
             injects, injectLocals, injectShifts, shadows, shadowFields, shadowStaticFields,
             modifyReturnValues, accessors, invokers, modifyConstants, modifyArgs,
-            modifyExpressionValues, modifyArgsAll, modifyReceivers, wrapConditions, synthetics,
+            modifyExpressionValues, modifyArgsAll, modifyReceivers, wrapConditions, wrapOperations, synthetics,
             staticTargetMethods, privateShadowTargets);
     }
 
@@ -303,12 +311,13 @@ public final class MixinDescriptor {
         List<ModifyArgsEntry> modifyArgsAll,
         List<ModifyReceiverEntry> modifyReceivers,
         List<WrapConditionEntry> wrapConditions,
+        List<WrapOperationEntry> wrapOperations,
         Map<String, String[]> synthetics
     ) {
         return new MixinDescriptor(mixinClass, targetClass, overwrites, originals, redirects,
             injects, injectLocals, injectShifts, shadows, shadowFields, shadowStaticFields,
             modifyReturnValues, accessors, invokers, modifyConstants, modifyArgs,
-            modifyExpressionValues, modifyArgsAll, modifyReceivers, wrapConditions, synthetics);
+            modifyExpressionValues, modifyArgsAll, modifyReceivers, wrapConditions, wrapOperations, synthetics);
     }
 
     static MixinDescriptor withTargetMaps(
@@ -321,7 +330,7 @@ public final class MixinDescriptor {
         for (String[] r : privateRows) priv.add(r[0] + r[1]);
         return new MixinDescriptor(base.mixinClass, base.targetClass,
             base.overwrites, base.originals, base.redirects, base.injects, base.injectLocals,
-            base.injectShifts, base.shadows, base.shadowFields, base.shadowStaticFields, base.modifyReturnValues, base.accessors, base.invokers, base.modifyConstants, base.modifyArgs, base.modifyExpressionValues, base.modifyArgsAll, base.modifyReceivers, base.wrapConditions, base.synthetics, stat, priv);
+            base.injectShifts, base.shadows, base.shadowFields, base.shadowStaticFields, base.modifyReturnValues, base.accessors, base.invokers, base.modifyConstants, base.modifyArgs, base.modifyExpressionValues, base.modifyArgsAll, base.modifyReceivers, base.wrapConditions, base.wrapOperations, base.synthetics, stat, priv);
     }
 
 }
