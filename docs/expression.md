@@ -22,11 +22,13 @@ relational  := additive (relop additive)?
 relop       := "==" | "!=" | "<" | "<=" | ">" | ">="
 additive    := multiplicative (("+" | "-") multiplicative)*
 multiplicative := unary (("*" | "/") unary)*
-unary       := "(" IDENT ")" unary
+unary       := "!" unary                 # logical not (comparison only)
+              | "(" IDENT ")" unary       # cast
               | primary
 primary     := "?"
               | "this"
               | literal
+              | "(" expression ")"        # parenthesised sub-expression
               | selector
 selector    := ("this" | member) ("." member)*
 member      := IDENT ("(" args? ")")?
@@ -149,6 +151,17 @@ opcode set, so `? < ?` matches both an `if (a < b)` and a
 `while (a < b)` site. Ternaries that emit a forward negated jump are
 covered; any exotic shape that emits neither a clean forward nor
 backward conditional jump is not.
+
+### v6 — logical not
+
+```java
+@Expression("!(? < ?)")
+public void onNotLess(Object self) { ... }
+```
+
+`!` folds into the negated operator at parse time — `!(? < ?)` is
+exactly `? >= ?`. Valid only over a comparison; `&&` / `||` are not
+supported (multi-instruction short-circuit chains).
 
 ### v5 — instanceof + cast
 

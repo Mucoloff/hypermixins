@@ -112,4 +112,30 @@ class ExpressionParserTest {
         ExpressionNode node = ExpressionParser.parse("this");
         assertInstanceOf(ExpressionNode.ThisRef.class, node);
     }
+
+    @Test
+    void notFoldsComparisonToNegatedOperator() {
+        ExpressionNode node = ExpressionParser.parse("!(? == ?)");
+        ExpressionNode.Comparison c = assertInstanceOf(ExpressionNode.Comparison.class, node);
+        assertEquals("!=", c.op());
+    }
+
+    @Test
+    void notFoldsLessThanToGreaterEqual() {
+        ExpressionNode node = ExpressionParser.parse("!(? < ?)");
+        ExpressionNode.Comparison c = assertInstanceOf(ExpressionNode.Comparison.class, node);
+        assertEquals(">=", c.op());
+    }
+
+    @Test
+    void parsesParenthesisedComparison() {
+        ExpressionNode node = ExpressionParser.parse("(? < ?)");
+        ExpressionNode.Comparison c = assertInstanceOf(ExpressionNode.Comparison.class, node);
+        assertEquals("<", c.op());
+    }
+
+    @Test
+    void rejectsNotOverNonComparison() {
+        assertThrows(IllegalArgumentException.class, () -> ExpressionParser.parse("!counter"));
+    }
 }

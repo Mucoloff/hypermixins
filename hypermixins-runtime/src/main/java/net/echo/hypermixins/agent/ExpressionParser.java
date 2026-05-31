@@ -110,6 +110,11 @@ final class ExpressionParser {
 
     private ExpressionNode unary() {
         skipWhitespace();
+        if (pos < src.length() && src.charAt(pos) == '!') {
+            pos++;
+            ExpressionNode operand = unary();
+            return negate(operand);
+        }
         if (pos < src.length() && src.charAt(pos) == '?') {
             pos++;
             return ExpressionNode.Wildcard.INSTANCE;
@@ -118,20 +123,57 @@ final class ExpressionParser {
             int save = pos;
             pos++;
             skipWhitespace();
+            // Cast: `(IDENT) unary`. Lookahead is non-destructive — rewind on miss.
             if (pos < src.length() && isIdentStart(src.charAt(pos))) {
                 int identStart = pos;
                 String ident = readIdent();
                 skipWhitespace();
                 if (pos < src.length() && src.charAt(pos) == ')') {
-                    pos++;
-                    ExpressionNode operand = unary();
-                    return new ExpressionNode.Cast(ident, operand);
+                    int afterParen = pos + 1;
+                    // A cast must be followed by an operand; otherwise treat `(IDENT)` as a
+                    // parenthesised bare reference (rare) and fall through to paren-expr.
+                    pos = afterParen;
+                    skipWhitespace();
+                    if (pos < src.length() && isUnaryStart(src.charAt(pos))) {
+                        ExpressionNode operand = unary();
+                        return new ExpressionNode.Cast(ident, operand);
+                    }
                 }
                 pos = identStart;
             }
-            pos = save;
+            // Parenthesised sub-expression: `( expression )`.
+            ExpressionNode inner = assignment();
+            skipWhitespace();
+            expect(')');
+            return inner;
         }
         return selector();
+    }
+
+    /** Folds {@code !} over a comparison into the negated operator. Only comparisons are valid. */
+    private ExpressionNode negate(ExpressionNode operand) {
+        if (!(operand instanceof ExpressionNode.Comparison c)) {
+            throw new IllegalArgumentException(
+                "`!` supports a comparison operand only (got " + operand.getClass().getSimpleName()
+                + ") in expression: " + src);
+        }
+        return new ExpressionNode.Comparison(negateOperator(c.op()), c.lhs(), c.rhs());
+    }
+
+    private static String negateOperator(String op) {
+        return switch (op) {
+            case "==" -> "!=";
+            case "!=" -> "==";
+            case "<"  -> ">=";
+            case "<=" -> ">";
+            case ">"  -> "<=";
+            case ">=" -> "<";
+            default   -> throw new IllegalArgumentException("Cannot negate comparison operator: " + op);
+        };
+    }
+
+    private static boolean isUnaryStart(char c) {
+        return c == '!' || c == '?' || c == '(' || isIdentStart(c) || c == '"' || c == '-' || isDigit(c);
     }
 
     private ExpressionNode selector() {

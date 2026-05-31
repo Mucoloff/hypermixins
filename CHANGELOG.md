@@ -6,6 +6,15 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Added
+- **`@Expression` logical not (`!`)** — `!(? < ?)` folds at parse time
+  into the negated comparison operator (`>=`), so no new AST or matcher
+  path is needed. A parenthesised sub-expression primary (`( … )`) was
+  added to support it. `!` is valid only over a comparison; over a
+  call / field / instanceof / literal it is a parse error. `&&` / `||`
+  remain out of scope — they expand to multi-`IF*` short-circuit chains
+  that don't fit the single-instruction anchor.
+
 ### Changed
 - **`@Expression` comparison branch-sense** — `==` / `!=`, `<` / `>=`,
   `<=` / `>` are now distinct. Previously each operator matched both
