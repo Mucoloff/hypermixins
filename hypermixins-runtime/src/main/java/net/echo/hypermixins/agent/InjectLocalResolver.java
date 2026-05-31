@@ -1,9 +1,11 @@
 package net.echo.hypermixins.agent;
 
+import net.echo.hypermixins.annotations.Coerce;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -60,13 +62,14 @@ final class InjectLocalResolver {
             Type wanted = le.argsOnly() && wantedRaw.getSort() == Type.ARRAY
                 ? wantedRaw.getElementType()
                 : wantedRaw;
+            boolean coerce = hasCoerceAnnotation(handler, e.getKey());
             Type[] targetArgs = Type.getArgumentTypes(target.desc);
             int slotCursor = 1;
             int seen = 0;
             int resolved = -1;
             int resolvedCount = 0;
             for (Type t : targetArgs) {
-                if (t.equals(wanted)) {
+                if (typeMatches(t, wanted, coerce, handler.getDeclaringClass().getClassLoader())) {
                     if (le.ordinal() >= 0) {
                         if (seen == le.ordinal()) { resolved = slotCursor; break; }
                         seen++;
@@ -123,13 +126,14 @@ final class InjectLocalResolver {
             Type wanted = le.argsOnly() && wantedRaw.getSort() == Type.ARRAY
                 ? wantedRaw.getElementType()
                 : wantedRaw;
+            boolean coerce = hasCoerceAnnotation(handler, e.getKey());
 
             int seen = 0;
             int resolved = -1;
             int resolvedCount = 0;
             // Iterate slots in ascending order so ordinal counts match declaration order.
             for (Map.Entry<Integer, Type> st : slotTypes.entrySet()) {
-                if (!st.getValue().equals(wanted)) continue;
+                if (!typeMatches(st.getValue(), wanted, coerce, handler.getDeclaringClass().getClassLoader())) continue;
                 if (le.ordinal() >= 0) {
                     if (seen == le.ordinal()) { resolved = st.getKey(); break; }
                     seen++;
@@ -152,5 +156,33 @@ final class InjectLocalResolver {
             out.put(e.getKey(), resolved);
         }
         return out;
+    }
+
+    private static boolean hasCoerceAnnotation(Method handler, int paramIndex) {
+        Annotation[][] paramAnns = handler.getParameterAnnotations();
+        if (paramIndex < 0 || paramIndex >= paramAnns.length) return false;
+        for (Annotation a : paramAnns[paramIndex]) {
+            if (a instanceof Coerce) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Strict type equality by default. When {@code coerce} is true AND both types are
+     * reference (object) types, accept the match when the slot's runtime class is assignable
+     * to the handler's declared parameter class. Primitives ignore {@code coerce}.
+     */
+    private static boolean typeMatches(Type slot, Type wanted, boolean coerce, ClassLoader loader) {
+        if (slot.equals(wanted)) return true;
+        if (!coerce) return false;
+        if (slot.getSort() != Type.OBJECT && slot.getSort() != Type.ARRAY) return false;
+        if (wanted.getSort() != Type.OBJECT && wanted.getSort() != Type.ARRAY) return false;
+        try {
+            Class<?> slotCls = Class.forName(slot.getClassName(), false, loader);
+            Class<?> wantedCls = Class.forName(wanted.getClassName(), false, loader);
+            return wantedCls.isAssignableFrom(slotCls);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 }

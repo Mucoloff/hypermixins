@@ -351,6 +351,40 @@ public class MixinInjectTest {
         assertEquals(java.util.List.of("after"), shiftOrder);
     }
 
+    // ---- @Coerce on @Local ----
+
+    public static volatile int coerceCaptured;
+
+    public static class CoerceTarget {
+        public int run() {
+            java.util.ArrayList<String> items = new java.util.ArrayList<>();
+            items.add("a"); items.add("b"); items.add("c");
+            return items.size();
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$CoerceTarget")
+    public static class CoerceMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/util/ArrayList.size()I"))
+        public void onSize(Object self,
+                           @net.echo.hypermixins.annotations.Local
+                           @net.echo.hypermixins.annotations.Coerce
+                           java.util.List<String> wider) {
+            coerceCaptured = wider.size();
+        }
+    }
+
+    @Test
+    void coerceWidensLocalTypeMatch() throws Exception {
+        coerceCaptured = -1;
+        Class<?> t = applyMixin(CoerceTarget.class, CoerceMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int result = (int) t.getMethod("run").invoke(inst);
+        assertEquals(3, result);
+        // Handler accessed the ArrayList through the wider List interface via @Coerce.
+        assertEquals(3, coerceCaptured);
+    }
+
     // ---- @At.Shift.BY ----
 
     public static volatile java.util.List<String> shiftByOrder;
