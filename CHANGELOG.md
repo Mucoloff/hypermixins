@@ -6,6 +6,24 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Added
+- **`@Expression` DSL v5** — type aliases + structural type checks:
+  - **`@Definition.type()`** — new third field naming a JVM internal
+    type (`"java/lang/String"`). Exactly one of `method` / `field` /
+    `type` must be non-empty. Schema version bumped 2 → 3; stale
+    processor pairings fail via the existing handshake.
+  - **`instanceof`**: `expr instanceof TypeId` matches the `INSTANCEOF`
+    opcode whose type operand matches the resolved `@Definition.type()`.
+  - **Cast**: `(TypeId) expr` matches the `CHECKCAST` opcode with the
+    same type alias. Parser uses non-destructive lookahead so legacy
+    paren-less expressions stay intact.
+  - Both shapes recurse through `matchesSubExpression` for the
+    operand, so any v3 / v4 capture / literal / arithmetic pattern can
+    appear inside.
+  - Boolean combinators (`&&`, `||`, `!`) remain deferred to v6 —
+    they compile to multi-`IF*` chains and don't fit the
+    single-instruction matcher.
+
 ## 1.6 — 2026-05-31
 
 ### Added

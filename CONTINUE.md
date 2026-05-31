@@ -49,7 +49,7 @@ injectEntries:     [targetMethod, point, atDesc, atIndex,
 shadowEntries:     [handlerName, handlerDesc, targetName]
 syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
 expressionEntries: [handlerName, handlerDesc, expression]
-definitionEntries: [handlerName, handlerDesc, id, method, field]
+definitionEntries: [handlerName, handlerDesc, id, method, field, type]
 ```
 
 ### `.mixins.yml` layout (sponge-style)
@@ -86,7 +86,7 @@ The legacy `hypermixins-api` module is removed — runtime is the single source 
 
 ```bash
 export JAVA_HOME=/home/sweety/.local/jdks/jdk-25.0.3+9   # KSP needs the JDK that built the processor
-./gradlew :hypermixins-runtime:test                       # ~157 tests: dispatch, inject, reload, @Local, @Final/@Mutable, @Soft, @Implements, @Slice, @Unique (static + instance), @Surrogate, @Definition/@Expression (v3 with this/chained/assign/? capture/named/arith/multi-segment), @Wrap*, @Shift.BY, @Coerce, Args, @Share, @Inject(require/allow), YAML
+./gradlew :hypermixins-runtime:test                       # ~159 tests: dispatch, inject, reload, @Local, @Final/@Mutable, @Soft, @Implements, @Slice, @Unique (static + instance), @Surrogate, @Definition/@Expression (v3 with this/chained/assign/? capture/named/arith/multi-segment), @Wrap*, @Shift.BY, @Coerce, Args, @Share, @Inject(require/allow), YAML
 ./gradlew :hypermixins-processor:test                     # 6 tests: NameMangling, JvmDescriptors, DescriptorBuilders
 ./gradlew :hypermixins-example:jar                        # KSP + descriptor + YAML
 ./gradlew :hypermixins-processor:jar                      # processor only
