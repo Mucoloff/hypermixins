@@ -3,29 +3,41 @@ package net.echo.hypermixins.agent;
 import net.echo.hypermixins.annotations.Definition;
 import net.echo.hypermixins.annotations.Definitions;
 import net.echo.hypermixins.annotations.Expression;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 /**
  * Compiled form of a handler's {@code @Definition} + {@code @Expression} pair. Built once per
- * mapping inside {@link InjectPass} and reused for every candidate target instruction. Resolves
- * the {@code @Definition.id()} referenced by the AST root to its target method / field
- * signature and compares against the incoming {@link AbstractInsnNode}.
+ * mapping inside {@link InjectPass} and reused for every candidate target instruction.
+ *
+ * <p>v2 capabilities:
+ * <ul>
+ *   <li>Unchained {@code Call} / {@code FieldRef} (v1 — unchanged).</li>
+ *   <li>{@code Chained(this, member)} — owner / receiver check against ALOAD 0.</li>
+ *   <li>{@code Assign(lhs, ?)} — PUTFIELD only.</li>
+ *   <li>{@code ?} capture: bind each placeholder to a target local via {@link
+ *       #captureSlots(AbstractInsnNode)} (backwalk to {@code *LOAD}).</li>
+ * </ul>
  */
 final class ExpressionMatcher {
 
     private final ExpressionNode root;
     private final Map<String, Definition> defsById;
+    /** Number of handler params after {@code Object self}. When 0, {@code ?} placeholders are inert. */
+    private final int captureArity;
 
-    private ExpressionMatcher(ExpressionNode root, Map<String, Definition> defsById) {
+    private ExpressionMatcher(ExpressionNode root, Map<String, Definition> defsById, int captureArity) {
         this.root = root;
         this.defsById = defsById;
+        this.captureArity = captureArity;
     }
 
     static ExpressionMatcher compile(Method handler) {
@@ -51,48 +63,179 @@ final class ExpressionMatcher {
         }
         ExpressionNode root = ExpressionParser.parse(expr.value());
         validate(root, defs, handler);
-        return new ExpressionMatcher(root, defs);
+        int handlerParams = handler.getParameterCount();
+        int captureArity = Math.max(0, handlerParams - 1);
+        return new ExpressionMatcher(root, defs, captureArity);
     }
 
     boolean matches(AbstractInsnNode insn) {
         return switch (root) {
-            case ExpressionNode.Call c -> matchesCall(insn, c);
-            case ExpressionNode.FieldRef f -> matchesFieldRef(insn, f);
+            case ExpressionNode.Call c -> matchesCall(insn, c, /*requireThis*/ false);
+            case ExpressionNode.FieldRef f -> matchesFieldRef(insn, f, /*requireThis*/ false, /*store*/ null);
+            case ExpressionNode.Chained ch -> matchesChained(insn, ch, /*store*/ null);
+            case ExpressionNode.Assign a -> matchesAssign(insn, a);
+            case ExpressionNode.ThisRef ignored -> false;
+            case ExpressionNode.Member ignored -> false;
         };
     }
 
-    private boolean matchesCall(AbstractInsnNode insn, ExpressionNode.Call call) {
-        if (!(insn instanceof MethodInsnNode mi)) return false;
-        Definition d = Objects.requireNonNull(defsById.get(call.defId()));
-        String actual = mi.owner + "." + mi.name + mi.desc;
-        if (!DescriptorMatcher.matches(d.method(), actual)) return false;
-        int paramCount = countParams(mi.desc);
-        return paramCount == call.args().size();
+    /**
+     * Returns {@code paramIndex → targetSlot} bindings for every {@code ?} placeholder in the
+     * matched expression. Caller must have already verified {@link #matches(AbstractInsnNode)}.
+     * Throws {@link InjectSignatureMismatch} when any {@code ?} argument cannot be resolved
+     * to a clean {@code *LOAD} predecessor — {@code @Surrogate} fallback can retry.
+     */
+    Map<Integer, Integer> captureSlots(AbstractInsnNode insn) {
+        if (captureArity == 0) return Map.of();
+        List<ExpressionNode.Arg> args = extractCallArgs(root);
+        if (args == null || args.isEmpty()) return Map.of();
+        boolean hasReceiver = receiverPresent(insn, root);
+        int totalStackInputs = args.size() + (hasReceiver ? 1 : 0);
+        Map<Integer, Integer> out = new HashMap<>();
+        for (int argIdx = 0; argIdx < args.size(); argIdx++) {
+            if (!(args.get(argIdx) instanceof ExpressionNode.Wildcard)) continue;
+            // Stack offset (0 = top) for argIdx: args are pushed in declaration order,
+            // so argIdx's stack-from-top offset is (args.size() - 1 - argIdx).
+            int stackOffset = args.size() - 1 - argIdx;
+            int slot = ExpressionStackWalker.findLoadSlotForStackPosition(insn, stackOffset);
+            if (slot < 0) {
+                throw new InjectSignatureMismatch(
+                    "@Expression ? arg " + argIdx + " at " + insn
+                    + " is not produced by a clean *LOAD — cannot bind to a target slot");
+            }
+            out.put(1 + argIdx, slot);
+        }
+        // Suppress unused-variable warnings; totalStackInputs is retained for future receiver
+        // captures in v3.
+        if (totalStackInputs < 0) throw new AssertionError();
+        return out;
     }
 
-    private boolean matchesFieldRef(AbstractInsnNode insn, ExpressionNode.FieldRef ref) {
+    private boolean matchesCall(AbstractInsnNode insn, ExpressionNode.Call call, boolean requireThis) {
+        if (!(insn instanceof MethodInsnNode mi)) return false;
+        Definition d = Objects.requireNonNull(defsById.get(call.defId()));
+        if (!DescriptorMatcher.matches(d.method(), mi.owner + "." + mi.name + mi.desc)) return false;
+        if (countParams(mi.desc) != call.args().size()) return false;
+        if (requireThis && !receiverIsThis(insn, call.args().size())) return false;
+        return true;
+    }
+
+    private boolean matchesFieldRef(
+        AbstractInsnNode insn, ExpressionNode.FieldRef ref, boolean requireThis, Boolean wantStore
+    ) {
         if (!(insn instanceof FieldInsnNode fi)) return false;
+        if (wantStore != null) {
+            boolean isStore = fi.getOpcode() == Opcodes.PUTFIELD || fi.getOpcode() == Opcodes.PUTSTATIC;
+            if (isStore != wantStore) return false;
+        }
         Definition d = Objects.requireNonNull(defsById.get(ref.defId()));
-        return DescriptorMatcher.matches(d.field(), fi.owner + "." + fi.name + ":" + fi.desc);
+        if (!DescriptorMatcher.matches(d.field(), fi.owner + "." + fi.name + ":" + fi.desc)) return false;
+        if (requireThis) {
+            int isStatic = (fi.getOpcode() == Opcodes.GETSTATIC || fi.getOpcode() == Opcodes.PUTSTATIC) ? 1 : 0;
+            if (isStatic == 1) return false;
+            boolean store = fi.getOpcode() == Opcodes.PUTFIELD;
+            int receiverStackOffset = store ? 1 : 0;
+            if (!ExpressionStackWalker.producerIsAload0(insn, receiverStackOffset)) return false;
+        }
+        return true;
+    }
+
+    private boolean matchesChained(AbstractInsnNode insn, ExpressionNode.Chained ch, Boolean wantStore) {
+        if (!(ch.receiver() instanceof ExpressionNode.ThisRef)) return false;
+        ExpressionNode.Member m = ch.member();
+        if (m.isCall()) {
+            return matchesCall(insn, new ExpressionNode.Call(m.defId(), m.args()), /*requireThis*/ true);
+        }
+        return matchesFieldRef(insn, new ExpressionNode.FieldRef(m.defId()), /*requireThis*/ true, wantStore);
+    }
+
+    private boolean matchesAssign(AbstractInsnNode insn, ExpressionNode.Assign a) {
+        if (!(insn instanceof FieldInsnNode)) return false;
+        return switch (a.lhs()) {
+            case ExpressionNode.FieldRef f -> matchesFieldRef(insn, f, false, Boolean.TRUE);
+            case ExpressionNode.Chained ch -> matchesChained(insn, ch, Boolean.TRUE);
+            default -> false;
+        };
+    }
+
+    private boolean receiverIsThis(AbstractInsnNode site, int argCount) {
+        return ExpressionStackWalker.producerIsAload0(site, argCount);
+    }
+
+    private static List<ExpressionNode.Arg> extractCallArgs(ExpressionNode root) {
+        return switch (root) {
+            case ExpressionNode.Call c -> c.args();
+            case ExpressionNode.Chained ch when ch.member().isCall() -> ch.member().args();
+            default -> null;
+        };
+    }
+
+    private static boolean receiverPresent(AbstractInsnNode insn, ExpressionNode root) {
+        if (!(insn instanceof MethodInsnNode mi)) return false;
+        return mi.getOpcode() != Opcodes.INVOKESTATIC;
     }
 
     private static void validate(ExpressionNode root, Map<String, Definition> defs, Method handler) {
-        String id = switch (root) {
-            case ExpressionNode.Call c -> c.defId();
-            case ExpressionNode.FieldRef f -> f.defId();
-        };
+        switch (root) {
+            case ExpressionNode.Call c -> validateMemberRef(c.defId(), defs, handler, /*isCall*/ true);
+            case ExpressionNode.FieldRef f -> validateMemberRef(f.defId(), defs, handler, /*isCall*/ false);
+            case ExpressionNode.Chained ch -> {
+                if (!(ch.receiver() instanceof ExpressionNode.ThisRef)) {
+                    throw new IllegalStateException(
+                        "@Expression chained receiver must be `this` on " + handler);
+                }
+                validateMemberRef(ch.member().defId(), defs, handler, ch.member().isCall());
+            }
+            case ExpressionNode.Assign a -> {
+                if (!(a.rhs() instanceof ExpressionNode.Wildcard)) {
+                    throw new IllegalStateException(
+                        "@Expression assignment rhs must be `?` on " + handler);
+                }
+                validate(a.lhs(), defs, handler);
+                // lhs cannot be a Call.
+                if (a.lhs() instanceof ExpressionNode.Call
+                    || (a.lhs() instanceof ExpressionNode.Chained ch && ch.member().isCall())) {
+                    throw new IllegalStateException(
+                        "@Expression assignment lhs cannot be a call on " + handler);
+                }
+            }
+            case ExpressionNode.ThisRef ignored -> throw new IllegalStateException(
+                "@Expression cannot be bare `this` on " + handler);
+            case ExpressionNode.Member ignored -> throw new IllegalStateException(
+                "Internal: bare Member should have been wrapped as Call or FieldRef on " + handler);
+        }
+        // Reject NamedArg uses anywhere (v3 reservation).
+        rejectNamedArgs(root, handler);
+    }
+
+    private static void validateMemberRef(String id, Map<String, Definition> defs, Method handler, boolean isCall) {
         Definition d = defs.get(id);
         if (d == null) {
             throw new IllegalStateException(
                 "@Expression references undefined id '" + id + "' on " + handler);
         }
-        if (root instanceof ExpressionNode.Call && d.method().isEmpty()) {
+        if (isCall && d.method().isEmpty()) {
             throw new IllegalStateException(
                 "@Expression uses '" + id + "' as a call but its @Definition sets field(), not method() on " + handler);
         }
-        if (root instanceof ExpressionNode.FieldRef && d.field().isEmpty()) {
+        if (!isCall && d.field().isEmpty()) {
             throw new IllegalStateException(
                 "@Expression uses '" + id + "' as a field but its @Definition sets method(), not field() on " + handler);
+        }
+    }
+
+    private static void rejectNamedArgs(ExpressionNode node, Method handler) {
+        List<ExpressionNode.Arg> args = switch (node) {
+            case ExpressionNode.Call c -> c.args();
+            case ExpressionNode.Chained ch when ch.member().isCall() -> ch.member().args();
+            default -> null;
+        };
+        if (args == null) return;
+        for (ExpressionNode.Arg a : args) {
+            if (a instanceof ExpressionNode.NamedArg na) {
+                throw new IllegalStateException(
+                    "@Expression named arg '" + na.name() + "' is reserved for v3 on " + handler);
+            }
         }
     }
 

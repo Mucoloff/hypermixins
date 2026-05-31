@@ -98,11 +98,11 @@ final class InjectPass {
             case JUMP -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
                 InjectSiteMatcher::isConditionalJump);
             case NEW -> injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
-                insn -> InjectSiteMatcher.matchesNew(insn, inject));
+                insn -> InjectSiteMatcher.matchesNew(insn, inject), null);
             case EXPRESSION -> {
                 ExpressionMatcher matcher = ExpressionMatcher.compile(inject.handler());
                 injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap, argsOnlyParams, shift, analyzer, entryMap,
-                    matcher::matches);
+                    matcher::matches, matcher::captureSlots);
             }
             default -> throw new IllegalStateException("Unsupported @Inject point: " + inject.point());
         }
@@ -129,6 +129,19 @@ final class InjectPass {
         LocalFrameAnalyzer analyzer,
         Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap,
         Predicate<AbstractInsnNode> predicate
+    ) {
+        injectAtMatchingSites(owner, target, inject, mixinField, targetReturn, staticSlotMap,
+            argsOnlyParams, shift, analyzer, entryMap, predicate, null);
+    }
+
+    private static void injectAtMatchingSites(
+        ClassNode owner, MethodNode target, InjectMapping inject,
+        String mixinField, Type targetReturn, Map<Integer, Integer> staticSlotMap,
+        Set<Integer> argsOnlyParams, At.Shift shift,
+        LocalFrameAnalyzer analyzer,
+        Map<Integer, MixinDescriptor.InjectLocalEntry> entryMap,
+        Predicate<AbstractInsnNode> predicate,
+        java.util.function.Function<AbstractInsnNode, Map<Integer, Integer>> captureProvider
     ) {
         Slice slice = inject.handler().getAnnotation(Slice.class);
         int[] window = slice != null ? SliceWindow.resolve(target, slice.from(), slice.to()) : null;
@@ -167,6 +180,14 @@ final class InjectPass {
             Map<Integer, Integer> slotMap = analyzer != null
                 ? InjectLocalResolver.siteSlotMap(target, inject.handler(), site, entryMap, analyzer)
                 : staticSlotMap;
+            if (captureProvider != null) {
+                Map<Integer, Integer> captures = captureProvider.apply(site);
+                if (!captures.isEmpty()) {
+                    Map<Integer, Integer> merged = new HashMap<>(slotMap);
+                    merged.putAll(captures);
+                    slotMap = merged;
+                }
+            }
             InsnList block = emitInjectCall(owner, target, inject, mixinField, targetReturn, slotMap, argsOnlyParams);
             if (shift == At.Shift.AFTER) {
                 target.instructions.insert(site, block);

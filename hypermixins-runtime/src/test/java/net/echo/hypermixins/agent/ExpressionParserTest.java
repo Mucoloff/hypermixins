@@ -60,4 +60,55 @@ class ExpressionParserTest {
         assertThrows(IllegalArgumentException.class,
             () -> ExpressionParser.parse("emit(?"));
     }
+
+    @Test
+    void parsesThisFieldAccess() {
+        ExpressionNode node = ExpressionParser.parse("this.counter");
+        ExpressionNode.Chained c = assertInstanceOf(ExpressionNode.Chained.class, node);
+        assertInstanceOf(ExpressionNode.ThisRef.class, c.receiver());
+        assertEquals("counter", c.member().defId());
+        assertEquals(false, c.member().isCall());
+    }
+
+    @Test
+    void parsesThisMethodCall() {
+        ExpressionNode node = ExpressionParser.parse("this.tick()");
+        ExpressionNode.Chained c = assertInstanceOf(ExpressionNode.Chained.class, node);
+        assertInstanceOf(ExpressionNode.ThisRef.class, c.receiver());
+        assertEquals("tick", c.member().defId());
+        assertEquals(true, c.member().isCall());
+        assertEquals(0, c.member().args().size());
+    }
+
+    @Test
+    void parsesAssignmentToThisField() {
+        ExpressionNode node = ExpressionParser.parse("this.counter = ?");
+        ExpressionNode.Assign a = assertInstanceOf(ExpressionNode.Assign.class, node);
+        assertInstanceOf(ExpressionNode.Chained.class, a.lhs());
+        assertInstanceOf(ExpressionNode.Wildcard.class, a.rhs());
+    }
+
+    @Test
+    void parsesBareAssignment() {
+        ExpressionNode node = ExpressionParser.parse("counter = ?");
+        ExpressionNode.Assign a = assertInstanceOf(ExpressionNode.Assign.class, node);
+        assertInstanceOf(ExpressionNode.FieldRef.class, a.lhs());
+    }
+
+    @Test
+    void parsesThisAsArg() {
+        ExpressionNode node = ExpressionParser.parse("emit(this, ?)");
+        ExpressionNode.Call c = assertInstanceOf(ExpressionNode.Call.class, node);
+        assertEquals(2, c.args().size());
+        assertInstanceOf(ExpressionNode.ThisRef.class, c.args().get(0));
+        assertInstanceOf(ExpressionNode.Wildcard.class, c.args().get(1));
+    }
+
+    @Test
+    void rejectsThisAlone() {
+        // `this` by itself parses to ThisRef, but the matcher (compile-time validation) rejects.
+        // Parser accepts; matcher tests cover the rejection.
+        ExpressionNode node = ExpressionParser.parse("this");
+        assertInstanceOf(ExpressionNode.ThisRef.class, node);
+    }
 }

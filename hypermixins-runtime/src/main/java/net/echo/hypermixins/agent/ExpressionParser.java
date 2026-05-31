@@ -4,12 +4,25 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Hand-written recursive-descent parser for the v1 {@code @Expression} DSL. Accepts either a
- * bare identifier (field reference) or {@code IDENT(args)} where each argument is the literal
- * {@code ?} wildcard. Whitespace is permitted between tokens; anything else throws
- * {@link IllegalArgumentException} with the source and the position of the offending character.
+ * Hand-written recursive-descent parser for the {@code @Expression} DSL.
+ *
+ * <p>v2 grammar:
+ * <pre>
+ *   expression  := assignment ;
+ *   assignment  := selector ("=" arg)? ;
+ *   selector    := "this" ("." member)? | member ;
+ *   member      := IDENT ("(" args? ")")? ;
+ *   args        := arg ("," arg)* ;
+ *   arg         := "?" | "this" | IDENT ;
+ *   IDENT       := [_A-Za-z][_A-Za-z0-9]* ;
+ * </pre>
+ *
+ * Whitespace is permitted between tokens. Any other character throws
+ * {@link IllegalArgumentException} with the source and offending offset.
  */
 final class ExpressionParser {
+
+    private static final String THIS = "this";
 
     private final String src;
     private int pos;
@@ -21,7 +34,7 @@ final class ExpressionParser {
 
     static ExpressionNode parse(String src) {
         ExpressionParser p = new ExpressionParser(src);
-        ExpressionNode node = p.expression();
+        ExpressionNode node = p.assignment();
         p.skipWhitespace();
         if (p.pos != src.length()) {
             throw new IllegalArgumentException(
@@ -30,23 +43,52 @@ final class ExpressionParser {
         return node;
     }
 
-    private ExpressionNode expression() {
+    private ExpressionNode assignment() {
+        ExpressionNode lhs = selector();
+        skipWhitespace();
+        if (pos < src.length() && src.charAt(pos) == '=') {
+            pos++;
+            ExpressionNode.Arg rhs = parseArg();
+            return new ExpressionNode.Assign(lhs, rhs);
+        }
+        return lhs;
+    }
+
+    private ExpressionNode selector() {
+        skipWhitespace();
+        if (peekKeyword(THIS)) {
+            pos += THIS.length();
+            skipWhitespace();
+            if (pos < src.length() && src.charAt(pos) == '.') {
+                pos++;
+                ExpressionNode.Member m = member();
+                return new ExpressionNode.Chained(ExpressionNode.ThisRef.INSTANCE, m);
+            }
+            return ExpressionNode.ThisRef.INSTANCE;
+        }
+        ExpressionNode.Member m = member();
+        // Bare member: surface as v1 Call or FieldRef for matcher-shape stability.
+        if (m.isCall()) return new ExpressionNode.Call(m.defId(), m.args());
+        return new ExpressionNode.FieldRef(m.defId());
+    }
+
+    private ExpressionNode.Member member() {
         skipWhitespace();
         String ident = readIdent();
         skipWhitespace();
         if (pos < src.length() && src.charAt(pos) == '(') {
-            return parseCall(ident);
+            return parseCallTail(ident);
         }
-        return new ExpressionNode.FieldRef(ident);
+        return new ExpressionNode.Member(ident, List.of(), false);
     }
 
-    private ExpressionNode parseCall(String defId) {
+    private ExpressionNode.Member parseCallTail(String defId) {
         expect('(');
         List<ExpressionNode.Arg> args = new ArrayList<>();
         skipWhitespace();
         if (pos < src.length() && src.charAt(pos) == ')') {
             pos++;
-            return new ExpressionNode.Call(defId, args);
+            return new ExpressionNode.Member(defId, args, true);
         }
         args.add(parseArg());
         skipWhitespace();
@@ -56,7 +98,7 @@ final class ExpressionParser {
             skipWhitespace();
         }
         expect(')');
-        return new ExpressionNode.Call(defId, args);
+        return new ExpressionNode.Member(defId, args, true);
     }
 
     private ExpressionNode.Arg parseArg() {
@@ -66,13 +108,11 @@ final class ExpressionParser {
                 "Expected argument at offset " + pos + " in expression: " + src);
         }
         char c = src.charAt(pos);
-        if (c == '?') {
-            pos++;
-            return ExpressionNode.Wildcard.INSTANCE;
-        }
+        if (c == '?') { pos++; return ExpressionNode.Wildcard.INSTANCE; }
+        if (peekKeyword(THIS)) { pos += THIS.length(); return ExpressionNode.ThisRef.INSTANCE; }
+        if (isIdentStart(c)) return new ExpressionNode.NamedArg(readIdent());
         throw new IllegalArgumentException(
-            "Unsupported argument at offset " + pos + " in expression: " + src
-            + " — v1 only accepts '?' placeholders");
+            "Unsupported argument at offset " + pos + " in expression: " + src);
     }
 
     private String readIdent() {
@@ -84,6 +124,14 @@ final class ExpressionParser {
         pos++;
         while (pos < src.length() && isIdentPart(src.charAt(pos))) pos++;
         return src.substring(start, pos);
+    }
+
+    private boolean peekKeyword(String kw) {
+        if (pos + kw.length() > src.length()) return false;
+        if (!src.regionMatches(pos, kw, 0, kw.length())) return false;
+        int after = pos + kw.length();
+        if (after < src.length() && isIdentPart(src.charAt(after))) return false;
+        return true;
     }
 
     private void expect(char c) {
