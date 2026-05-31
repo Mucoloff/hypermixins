@@ -58,6 +58,12 @@ final class ExpressionParser {
     private ExpressionNode comparison() {
         ExpressionNode lhs = additive();
         skipWhitespace();
+        if (peekKeyword("instanceof")) {
+            pos += "instanceof".length();
+            skipWhitespace();
+            String typeId = readIdent();
+            return new ExpressionNode.InstanceOf(lhs, typeId);
+        }
         String op = peekComparisonOp();
         if (op == null) return lhs;
         pos += op.length();

@@ -54,6 +54,12 @@ sealed interface ExpressionNode {
      */
     record Comparison(String op, ExpressionNode lhs, ExpressionNode rhs) implements ExpressionNode {}
 
+    /** {@code expr instanceof TypeId}. Matches an {@code INSTANCEOF} insn whose operand type matches the resolved {@code @Definition.type()}. */
+    record InstanceOf(ExpressionNode operand, String typeDefId) implements ExpressionNode {}
+
+    /** {@code (TypeId) expr}. Matches a {@code CHECKCAST} insn whose operand type matches the resolved {@code @Definition.type()}. */
+    record Cast(String typeDefId, ExpressionNode operand) implements ExpressionNode {}
+
     /** Argument shape inside a {@link Call} or {@link Member}. */
     sealed interface Arg {}
 

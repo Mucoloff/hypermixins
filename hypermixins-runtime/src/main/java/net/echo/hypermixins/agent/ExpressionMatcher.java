@@ -197,6 +197,8 @@ final class ExpressionMatcher {
             case ExpressionNode.Assign a -> matchesAssign(insn, a);
             case ExpressionNode.BinaryOp bo -> matchesBinaryOp(insn, bo);
             case ExpressionNode.Comparison c -> matchesComparison(insn, c);
+            case ExpressionNode.InstanceOf io -> matchesInstanceOf(insn, io);
+            case ExpressionNode.Cast ct -> matchesCast(insn, ct);
             case ExpressionNode.Wildcard ignored ->
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v && isLoadOpcode(v.getOpcode());
             case ExpressionNode.NamedArg ignored ->
@@ -220,6 +222,26 @@ final class ExpressionMatcher {
         if (rhsProducer == null || lhsProducer == null) return false;
         return matchesSubExpression(lhsProducer, bo.lhs())
             && matchesSubExpression(rhsProducer, bo.rhs());
+    }
+
+    private boolean matchesInstanceOf(AbstractInsnNode insn, ExpressionNode.InstanceOf io) {
+        if (insn.getOpcode() != Opcodes.INSTANCEOF) return false;
+        if (!(insn instanceof org.objectweb.asm.tree.TypeInsnNode ti)) return false;
+        MixinDescriptor.DefinitionEntry d = Objects.requireNonNull(defsById.get(io.typeDefId()));
+        if (!DescriptorMatcher.matches(d.type(), ti.desc)) return false;
+        AbstractInsnNode operandProducer = ExpressionStackWalker.findProducerAt(insn, 0);
+        if (operandProducer == null) return false;
+        return matchesSubExpression(operandProducer, io.operand());
+    }
+
+    private boolean matchesCast(AbstractInsnNode insn, ExpressionNode.Cast ct) {
+        if (insn.getOpcode() != Opcodes.CHECKCAST) return false;
+        if (!(insn instanceof org.objectweb.asm.tree.TypeInsnNode ti)) return false;
+        MixinDescriptor.DefinitionEntry d = Objects.requireNonNull(defsById.get(ct.typeDefId()));
+        if (!DescriptorMatcher.matches(d.type(), ti.desc)) return false;
+        AbstractInsnNode operandProducer = ExpressionStackWalker.findProducerAt(insn, 0);
+        if (operandProducer == null) return false;
+        return matchesSubExpression(operandProducer, ct.operand());
     }
 
     private boolean matchesComparison(AbstractInsnNode insn, ExpressionNode.Comparison c) {
@@ -372,6 +394,14 @@ final class ExpressionMatcher {
                 validateOperand(c.lhs(), defs, handler, paramIndexByName);
                 validateOperand(c.rhs(), defs, handler, paramIndexByName);
             }
+            case ExpressionNode.InstanceOf io -> {
+                validateTypeRef(io.typeDefId(), defs, handler);
+                validateOperand(io.operand(), defs, handler, paramIndexByName);
+            }
+            case ExpressionNode.Cast ct -> {
+                validateTypeRef(ct.typeDefId(), defs, handler);
+                validateOperand(ct.operand(), defs, handler, paramIndexByName);
+            }
             case ExpressionNode.LiteralArg lit -> throw new IllegalStateException(
                 "@Expression cannot be a bare literal '" + lit.value() + "' on " + handler);
             case ExpressionNode.Wildcard ignored -> throw new IllegalStateException(
@@ -417,6 +447,18 @@ final class ExpressionMatcher {
                     "@Expression: captures inside an inner (non-leaf) chained call are not"
                     + " supported in v3 on " + handler);
             }
+        }
+    }
+
+    private static void validateTypeRef(String id, Map<String, MixinDescriptor.DefinitionEntry> defs, Method handler) {
+        MixinDescriptor.DefinitionEntry d = defs.get(id);
+        if (d == null) {
+            throw new IllegalStateException(
+                "@Expression references undefined type id '" + id + "' on " + handler);
+        }
+        if (d.type().isEmpty()) {
+            throw new IllegalStateException(
+                "@Expression uses '" + id + "' as a type but its @Definition does not set type() on " + handler);
         }
     }
 
