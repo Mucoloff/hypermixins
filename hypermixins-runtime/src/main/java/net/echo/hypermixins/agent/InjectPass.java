@@ -112,12 +112,25 @@ final class InjectPass {
             matchCount++;
             if (inject.index() > 0 && matchCount > inject.index()) break;
         }
+        Inject injectAnn = inject.handler().getAnnotation(Inject.class);
+        int totalMatched = sites.size();
+        int require = injectAnn != null ? injectAnn.require() : 0;
+        int allow = injectAnn != null ? injectAnn.allow() : -1;
+        if (require > 0 && totalMatched < require) {
+            throw new IllegalStateException(
+                "@Inject(require=" + require + ") matched " + totalMatched + " site(s) for "
+                + inject.handler() + " (atDesc=" + inject.atDesc() + ")");
+        }
+        if (allow >= 0 && totalMatched > allow) {
+            throw new IllegalStateException(
+                "@Inject(allow=" + allow + ") matched " + totalMatched + " site(s) for "
+                + inject.handler() + " (atDesc=" + inject.atDesc() + ")");
+        }
         if (sites.isEmpty()) {
             throw new IllegalStateException(
                 "@Inject " + inject.point() + " found no matching site for "
                 + inject.handler() + " (atDesc=" + inject.atDesc() + ", index=" + inject.index() + ")");
         }
-        Inject injectAnn = inject.handler().getAnnotation(Inject.class);
         int byOffset = (injectAnn != null && injectAnn.at().shift() == At.Shift.BY) ? injectAnn.at().by() : 0;
         boolean shiftIsBy = injectAnn != null && injectAnn.at().shift() == At.Shift.BY;
         for (AbstractInsnNode site : sites) {

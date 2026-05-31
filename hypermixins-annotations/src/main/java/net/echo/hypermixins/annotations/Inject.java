@@ -30,4 +30,18 @@ public @interface Inject {
 
     /** When {@code true}, the callback may cancel method execution via {@link CallbackInfo#cancel()}. */
     boolean cancellable() default false;
+
+    /**
+     * Minimum number of matched call sites required. When the matcher finds fewer than
+     * {@code require} sites, the transformer fails loudly instead of silently producing a
+     * no-op binding. {@code 0} (the default) disables the lower bound.
+     */
+    int require() default 0;
+
+    /**
+     * Maximum number of matched call sites allowed. When the matcher finds more than
+     * {@code allow} sites, the transformer fails loudly. Negative values (the default)
+     * disable the upper bound. Useful to assert a refactor didn't introduce extra matches.
+     */
+    int allow() default -1;
 }

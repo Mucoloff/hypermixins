@@ -385,6 +385,33 @@ public class MixinInjectTest {
         assertEquals(3, coerceCaptured);
     }
 
+    // ---- @Inject(require, allow) ----
+
+    public static class RequireTarget {
+        public int run() {
+            String a = String.valueOf(1);
+            String b = String.valueOf(2);
+            return a.length() + b.length();
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$RequireTarget")
+    public static class RequireTooManyMixin {
+        @Inject(method = "run", at = @At(point = At.Point.INVOKE,
+            desc = "java/lang/String.valueOf(I)Ljava/lang/String;"),
+            require = 3)
+        public void onValueOf(Object self) {}
+    }
+
+    @Test
+    void requireMismatchFailsTransform() {
+        IllegalStateException ex = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> applyMixin(RequireTarget.class, RequireTooManyMixin.class));
+        org.junit.jupiter.api.Assertions.assertTrue(
+            ex.getMessage().contains("require=3") && ex.getMessage().contains("matched 2"),
+            () -> "expected require/matched counts in message, got: " + ex.getMessage());
+    }
+
     // ---- @At.Shift.BY ----
 
     public static volatile java.util.List<String> shiftByOrder;
