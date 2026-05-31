@@ -32,11 +32,18 @@ public @interface At {
     /** Injection point for {@link Inject}: position within the method body. */
     Point point() default Point.INVOKE;
 
-    /** Anchor: insert {@link Shift#BEFORE before} or {@link Shift#AFTER after} the matched instruction. */
+    /** Anchor: insert {@link Shift#BEFORE before}, {@link Shift#AFTER after}, or {@link Shift#BY} an instruction offset away from the matched site. */
     Shift shift() default Shift.BEFORE;
 
+    /**
+     * Signed instruction-offset applied when {@link #shift()} is {@link Shift#BY}. Negative
+     * values pull the insertion point earlier in the method body, positive push it later.
+     * Ignored for {@link Shift#BEFORE} / {@link Shift#AFTER}.
+     */
+    int by() default 0;
+
     /** Anchor relative to the matched instruction. */
-    enum Shift { BEFORE, AFTER }
+    enum Shift { BEFORE, AFTER, BY }
 
     /** Injection point positions for {@link Inject}. */
     enum Point {

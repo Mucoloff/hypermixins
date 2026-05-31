@@ -1,6 +1,7 @@
 package net.echo.hypermixins.agent;
 
 import net.echo.hypermixins.annotations.At;
+import net.echo.hypermixins.annotations.Inject;
 import net.echo.hypermixins.annotations.Slice;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -116,6 +117,9 @@ final class InjectPass {
                 "@Inject " + inject.point() + " found no matching site for "
                 + inject.handler() + " (atDesc=" + inject.atDesc() + ", index=" + inject.index() + ")");
         }
+        Inject injectAnn = inject.handler().getAnnotation(Inject.class);
+        int byOffset = (injectAnn != null && injectAnn.at().shift() == At.Shift.BY) ? injectAnn.at().by() : 0;
+        boolean shiftIsBy = injectAnn != null && injectAnn.at().shift() == At.Shift.BY;
         for (AbstractInsnNode site : sites) {
             Map<Integer, Integer> slotMap = analyzer != null
                 ? InjectLocalResolver.siteSlotMap(target, inject.handler(), site, entryMap, analyzer)
@@ -125,11 +129,31 @@ final class InjectPass {
                 target.instructions.insert(site, block);
                 continue;
             }
+            if (shiftIsBy) {
+                AbstractInsnNode anchor = walkByOffset(site, byOffset);
+                if (anchor == null) {
+                    throw new IllegalStateException(
+                        "@At.Shift.BY(by=" + byOffset + ") walked past the method body for "
+                        + inject.handler() + " at " + target.name + target.desc);
+                }
+                target.instructions.insertBefore(anchor, block);
+                continue;
+            }
             AbstractInsnNode insertBefore = analyzer != null
                 ? findArgsOnlyAnchor(site, slotMap, argsOnlyParams, site)
                 : site;
             target.instructions.insertBefore(insertBefore, block);
         }
+    }
+
+    private static AbstractInsnNode walkByOffset(AbstractInsnNode site, int by) {
+        AbstractInsnNode n = site;
+        if (by >= 0) {
+            for (int i = 0; i < by && n != null; i++) n = n.getNext();
+        } else {
+            for (int i = 0; i > by && n != null; i--) n = n.getPrevious();
+        }
+        return n;
     }
 
     /**

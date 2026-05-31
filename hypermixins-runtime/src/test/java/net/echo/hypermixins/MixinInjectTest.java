@@ -351,6 +351,34 @@ public class MixinInjectTest {
         assertEquals(java.util.List.of("after"), shiftOrder);
     }
 
+    // ---- @At.Shift.BY ----
+
+    public static volatile java.util.List<String> shiftByOrder;
+
+    public static class ShiftByTarget {
+        public int run() {
+            int x = 999999;
+            return x + 1;
+        }
+    }
+    @Mixin("net.echo.hypermixins.MixinInjectTest$ShiftByTarget")
+    public static class ShiftByMixin {
+        // shift = BY, by = 1 → insertion lands one insn past the LDC 999999,
+        // i.e. at the ISTORE that follows; handler still fires before that ISTORE.
+        @Inject(method = "run", at = @At(point = At.Point.CONSTANT, desc = "I:999999",
+            shift = At.Shift.BY, by = 1))
+        public void onShiftBy(Object self) { shiftByOrder.add("shifted"); }
+    }
+
+    @Test
+    void shiftByOffsetsInsertionPoint() throws Exception {
+        shiftByOrder = new java.util.ArrayList<>();
+        Class<?> t = applyMixin(ShiftByTarget.class, ShiftByMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        assertEquals(1_000_000, t.getMethod("run").invoke(inst));
+        assertEquals(java.util.List.of("shifted"), shiftByOrder);
+    }
+
     // ---- @At#desc wildcard ----
 
     public static volatile int wildcardCalls;
