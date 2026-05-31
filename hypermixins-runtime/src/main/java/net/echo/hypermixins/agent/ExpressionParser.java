@@ -44,7 +44,7 @@ final class ExpressionParser {
     }
 
     private ExpressionNode assignment() {
-        ExpressionNode lhs = selector();
+        ExpressionNode lhs = additive();
         skipWhitespace();
         if (pos < src.length() && src.charAt(pos) == '=') {
             pos++;
@@ -52,6 +52,39 @@ final class ExpressionParser {
             return new ExpressionNode.Assign(lhs, rhs);
         }
         return lhs;
+    }
+
+    private ExpressionNode additive() {
+        ExpressionNode left = multiplicative();
+        skipWhitespace();
+        while (pos < src.length() && (src.charAt(pos) == '+' || src.charAt(pos) == '-')) {
+            char op = src.charAt(pos++);
+            ExpressionNode right = multiplicative();
+            left = new ExpressionNode.BinaryOp(op, left, right);
+            skipWhitespace();
+        }
+        return left;
+    }
+
+    private ExpressionNode multiplicative() {
+        ExpressionNode left = unary();
+        skipWhitespace();
+        while (pos < src.length() && (src.charAt(pos) == '*' || src.charAt(pos) == '/')) {
+            char op = src.charAt(pos++);
+            ExpressionNode right = unary();
+            left = new ExpressionNode.BinaryOp(op, left, right);
+            skipWhitespace();
+        }
+        return left;
+    }
+
+    private ExpressionNode unary() {
+        skipWhitespace();
+        if (pos < src.length() && src.charAt(pos) == '?') {
+            pos++;
+            return ExpressionNode.Wildcard.INSTANCE;
+        }
+        return selector();
     }
 
     private ExpressionNode selector() {

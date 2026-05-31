@@ -87,14 +87,7 @@ final class ExpressionMatcher {
     }
 
     boolean matches(AbstractInsnNode insn) {
-        return switch (root) {
-            case ExpressionNode.Call c -> matchesCall(insn, c, /*requireThis*/ false);
-            case ExpressionNode.FieldRef f -> matchesFieldRef(insn, f, /*requireThis*/ false, /*store*/ null);
-            case ExpressionNode.Chained ch -> matchesChained(insn, ch, /*store*/ null);
-            case ExpressionNode.Assign a -> matchesAssign(insn, a);
-            case ExpressionNode.ThisRef ignored -> false;
-            case ExpressionNode.Member ignored -> false;
-        };
+        return matchesSubExpression(insn, root);
     }
 
     /**
@@ -199,11 +192,45 @@ final class ExpressionMatcher {
             case ExpressionNode.Call c -> matchesCall(insn, c, /*requireThis*/ false);
             case ExpressionNode.FieldRef f -> matchesFieldRef(insn, f, /*requireThis*/ false, /*store*/ null);
             case ExpressionNode.Chained ch -> matchesChained(insn, ch, /*store*/ null);
+            case ExpressionNode.Assign a -> matchesAssign(insn, a);
+            case ExpressionNode.BinaryOp bo -> matchesBinaryOp(insn, bo);
+            case ExpressionNode.Wildcard ignored ->
+                insn instanceof org.objectweb.asm.tree.VarInsnNode v && isLoadOpcode(v.getOpcode());
+            case ExpressionNode.NamedArg ignored ->
+                insn instanceof org.objectweb.asm.tree.VarInsnNode v && isLoadOpcode(v.getOpcode());
             case ExpressionNode.ThisRef ignored ->
                 insn instanceof org.objectweb.asm.tree.VarInsnNode v
                     && v.getOpcode() == Opcodes.ALOAD && v.var == 0;
+            case ExpressionNode.Member ignored -> false;
+        };
+    }
+
+    private boolean matchesBinaryOp(AbstractInsnNode insn, ExpressionNode.BinaryOp bo) {
+        int op = insn.getOpcode();
+        if (!opcodeMatchesOperator(op, bo.op())) return false;
+        // Pre-IADD stack: [..., lhs, rhs]. Top-of-stack = rhs (offset 0); lhs at offset 1.
+        // For long/double the operands are wide; producer accounting still walks one
+        // logical producer per slot in v3-C.
+        AbstractInsnNode rhsProducer = ExpressionStackWalker.findProducerAt(insn, 0);
+        AbstractInsnNode lhsProducer = ExpressionStackWalker.findProducerAt(insn, 1);
+        if (rhsProducer == null || lhsProducer == null) return false;
+        return matchesSubExpression(lhsProducer, bo.lhs())
+            && matchesSubExpression(rhsProducer, bo.rhs());
+    }
+
+    private static boolean opcodeMatchesOperator(int op, char operator) {
+        return switch (operator) {
+            case '+' -> op == Opcodes.IADD || op == Opcodes.LADD || op == Opcodes.FADD || op == Opcodes.DADD;
+            case '-' -> op == Opcodes.ISUB || op == Opcodes.LSUB || op == Opcodes.FSUB || op == Opcodes.DSUB;
+            case '*' -> op == Opcodes.IMUL || op == Opcodes.LMUL || op == Opcodes.FMUL || op == Opcodes.DMUL;
+            case '/' -> op == Opcodes.IDIV || op == Opcodes.LDIV || op == Opcodes.FDIV || op == Opcodes.DDIV;
             default -> false;
         };
+    }
+
+    private static boolean isLoadOpcode(int op) {
+        return op == Opcodes.ILOAD || op == Opcodes.LLOAD || op == Opcodes.FLOAD
+            || op == Opcodes.DLOAD || op == Opcodes.ALOAD;
     }
 
     private boolean matchesAssign(AbstractInsnNode insn, ExpressionNode.Assign a) {
@@ -267,12 +294,39 @@ final class ExpressionMatcher {
                         "@Expression assignment lhs cannot be a call on " + handler);
                 }
             }
+            case ExpressionNode.BinaryOp bo -> {
+                validateOperand(bo.lhs(), defs, handler, paramIndexByName);
+                validateOperand(bo.rhs(), defs, handler, paramIndexByName);
+            }
+            case ExpressionNode.Wildcard ignored -> throw new IllegalStateException(
+                "@Expression cannot be bare `?` on " + handler);
+            case ExpressionNode.NamedArg na -> throw new IllegalStateException(
+                "@Expression cannot be bare named arg '" + na.name() + "' on " + handler);
             case ExpressionNode.ThisRef ignored -> throw new IllegalStateException(
                 "@Expression cannot be bare `this` on " + handler);
             case ExpressionNode.Member ignored -> throw new IllegalStateException(
                 "Internal: bare Member should have been wrapped as Call or FieldRef on " + handler);
         }
         validateArgNames(root, handler, paramIndexByName);
+    }
+
+    /**
+     * Validates an arithmetic operand: Wildcard / NamedArg / ThisRef are leaves (no further
+     * shape constraints); calls / fields / chains delegate to the root validator; nested
+     * BinaryOps recurse.
+     */
+    private static void validateOperand(ExpressionNode node, Map<String, Definition> defs,
+                                        Method handler, Map<String, Integer> paramIndexByName) {
+        switch (node) {
+            case ExpressionNode.Wildcard ignored -> {}
+            case ExpressionNode.NamedArg ignored -> {}
+            case ExpressionNode.ThisRef ignored -> {}
+            case ExpressionNode.BinaryOp bo -> {
+                validateOperand(bo.lhs(), defs, handler, paramIndexByName);
+                validateOperand(bo.rhs(), defs, handler, paramIndexByName);
+            }
+            default -> validate(node, defs, handler, paramIndexByName);
+        }
     }
 
     private static void rejectInnerCaptures(List<ExpressionNode.Arg> args, Method handler) {

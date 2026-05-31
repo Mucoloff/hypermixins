@@ -40,14 +40,21 @@ sealed interface ExpressionNode {
         public static final ThisRef INSTANCE = new ThisRef();
     }
 
+    /**
+     * Binary arithmetic operator. {@code op} is one of {@code '+'}, {@code '-'}, {@code '*'},
+     * {@code '/'}. Matches the corresponding IADD/LADD/FADD/DADD (and variants) instruction
+     * whose two stack inputs back to sub-expressions {@code lhs} and {@code rhs}.
+     */
+    record BinaryOp(char op, ExpressionNode lhs, ExpressionNode rhs) implements ExpressionNode {}
+
     /** Argument shape inside a {@link Call} or {@link Member}. */
     sealed interface Arg {}
 
-    /** {@code ?} — unbound capture slot. */
-    record Wildcard() implements Arg {
+    /** {@code ?} — unbound capture slot (matcher) or expression operand (parser). */
+    record Wildcard() implements ExpressionNode, Arg {
         public static final Wildcard INSTANCE = new Wildcard();
     }
 
-    /** Named identifier in arg position. Reserved for v3 named captures; v2 rejects at use. */
-    record NamedArg(String name) implements Arg {}
+    /** Named identifier in arg position. Resolves to a handler param by {@code -parameters} name. */
+    record NamedArg(String name) implements ExpressionNode, Arg {}
 }
