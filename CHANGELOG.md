@@ -7,6 +7,25 @@ master is the only published surface so far.
 ## Unreleased
 
 ### Added
+- **`@Surrogate`** — fallback handler chain for `@Inject`. A sibling
+  `@Inject`-annotated method also marked `@Surrogate` is collected at
+  `MixinMapping` build time and attached to every primary on the same
+  target method name (or narrowed via `@Surrogate(value=)`). When the
+  primary fails capture / `@Local` / slot resolution at transform time
+  (now a dedicated `InjectSignatureMismatch` subclass of
+  `IllegalStateException`), `InjectPass` retries with each surrogate in
+  order. Site-matching failures remain fatal — a silent fallthrough
+  would hide real bugs. Surrogate failures are reported via
+  `Throwable#addSuppressed` on the primary exception.
+- **Instance `@Unique`** — `UniquePass` now accepts non-static `@Unique`
+  helpers. The clone is a public static synthetic with `Object self`
+  prepended (matching the `@Overwrite` dispatch convention). The
+  implicit `this` slot is reused for `self` so no slot shift is needed.
+  Limitation: the body must be self-contained — references to mixin
+  fields / methods / type are rejected at transform with a clear error.
+  Caller-side rewrite of instance-style invocations from other mixin
+  bodies is deferred.
+
 - **`@Inject(require, allow)`** — match-count enforcement. `require` is the
   minimum number of matched call sites (default 0 disables); `allow` is the
   maximum (negative default disables). Mismatches fail the transform with
