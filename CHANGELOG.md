@@ -6,6 +6,8 @@ master is the only published surface so far.
 
 ## Unreleased
 
+## 1.7 — 2026-06-01
+
 ### Added
 - **`@Expression` logical not (`!`)** — `!(? < ?)` folds at parse time
   into the negated comparison operator (`>=`), so no new AST or matcher
