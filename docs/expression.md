@@ -181,7 +181,6 @@ When the handler has no capture params (only `Object self`), every
 - Backslash escapes in string literals.
 - Multi-instruction sequence patterns (`a.b(); c.d()`).
 - Long / float / double literals beyond `int`.
-- Capture through arithmetic / comparison operands (the `?` operand
-  acting as a binding rather than just a constraint).
-- Capture inside non-leaf chained calls (`a.b(?).c()`).
+- (v6) See list below — capture-through-arithmetic and inner-chain
+  captures landed and are no longer deferred.
 - IntelliJ syntax highlight for the DSL string.

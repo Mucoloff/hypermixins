@@ -7,6 +7,21 @@ master is the only published surface so far.
 ## Unreleased
 
 ### Added
+- **`@Expression` inner-chain captures** — the v3-B restriction
+  banning `?` / named captures inside non-leaf chained calls is
+  lifted. `pick(?).emit(?)` binds the inner argument to handler param
+  1 and the outer to param 2; `captureSlots` walks the AST
+  depth-first in source order, threading the matched anchor through
+  each receiver-producer step.
+- **`@Expression` capture-through-arithmetic** — `?` / NamedArg
+  operands of `BinaryOp`, `Comparison`, `InstanceOf`, and `Cast` now
+  bind to handler params instead of being constraint-only. Each
+  operand's producer is resolved via the existing `findProducerAt`
+  walker; non-`*LOAD` producers throw `InjectSignatureMismatch` so
+  `@Surrogate` can fall back. Hybrid shapes like
+  `pick(?).emit(? + ?)` extract every leaf in source order.
+
+### Added
 - **`@Expression` DSL v5** — type aliases + structural type checks:
   - **`@Definition.type()`** — new third field naming a JVM internal
     type (`"java/lang/String"`). Exactly one of `method` / `field` /
