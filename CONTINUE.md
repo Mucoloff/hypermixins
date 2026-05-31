@@ -48,6 +48,8 @@ injectEntries:     [targetMethod, point, atDesc, atIndex,
                     cancellable, returnable, handlerName, handlerDesc]
 shadowEntries:     [handlerName, handlerDesc, targetName]
 syntheticNames:    [targetName, targetDesc, mangledOriginalName, dispatchName]
+expressionEntries: [handlerName, handlerDesc, expression]
+definitionEntries: [handlerName, handlerDesc, id, method, field]
 ```
 
 ### `.mixins.yml` layout (sponge-style)

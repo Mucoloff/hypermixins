@@ -6,6 +6,17 @@ master is the only published surface so far.
 
 ## Unreleased
 
+### Changed
+- **`@Expression` / `@Definition` baked into descriptor schema** —
+  these were the last annotations the runtime read via reflection.
+  KSP now emits `expressionEntries` and `definitionEntries` tables
+  joined on handler key; `ExpressionMatcher.compile` resolves both
+  off the descriptor without touching the handler's annotations.
+  Schema version bumped 1 → 2; a stale processor pairing fails loud
+  via the existing handshake. The reflection-only
+  `AnnotationDescriptorReader` fallback (for source-only fixtures)
+  pre-bakes the same shape, so the runtime code path is single.
+
 ### Added
 - **Caller-side instance `@Unique` dispatch** — `CallerSideUniquePass`
   rewrites `INVOKEVIRTUAL <mixin>.<helper>` in mixin handler bodies to
