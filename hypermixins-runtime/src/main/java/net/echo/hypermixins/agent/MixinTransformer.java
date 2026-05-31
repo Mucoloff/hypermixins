@@ -91,6 +91,7 @@ public class MixinTransformer implements ClassFileTransformer {
 
         for (MixinMapping mapping : mappings) {
             ImplementsPass.apply(node, mapping);
+            UniquePass.apply(node, mapping);
 
             String mixinField = "__mixin$" + mapping.getMixinClass().getName().replace('.', '$');
             String mixinDesc  = Type.getDescriptor(mapping.getMixinClass());
