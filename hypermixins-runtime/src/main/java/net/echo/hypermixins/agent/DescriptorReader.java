@@ -57,6 +57,7 @@ final class DescriptorReader {
             List<String[]> modifyExprRows = invokeStringListOrEmpty(lookup, desc, "modifyExpressionValueEntries");
             List<String[]> modifyArgsRows = invokeStringListOrEmpty(lookup, desc, "modifyArgsEntries");
             List<String[]> modifyRecvRows = invokeStringListOrEmpty(lookup, desc, "modifyReceiverEntries");
+            List<String[]> wrapCondRows = invokeStringListOrEmpty(lookup, desc, "wrapConditionEntries");
             List<String[]> staticTargetRows = invokeStringListOrEmpty(lookup, desc, "staticTargetMethods");
             List<String[]> privateShadowRows = invokeStringListOrEmpty(lookup, desc, "privateShadowTargetMethods");
             List<String[]> syntheticRows = invokeStringList(lookup, desc, "syntheticNames");
@@ -123,11 +124,15 @@ final class DescriptorReader {
             List<MixinDescriptor.ModifyReceiverEntry> mxr = new ArrayList<>(modifyRecvRows.size());
             for (String[] r : modifyRecvRows) mxr.add(new MixinDescriptor.ModifyReceiverEntry(r[0], r[1], r[2], r[3]));
 
+            List<MixinDescriptor.WrapConditionEntry> wcs = new ArrayList<>(wrapCondRows.size());
+            for (String[] r : wrapCondRows) wcs.add(new MixinDescriptor.WrapConditionEntry(
+                r[0], r[1], Integer.parseInt(r[2]), r[3], r[4]));
+
             Map<String, String[]> synths = new LinkedHashMap<>();
             for (String[] r : syntheticRows) synths.put(r[0] + r[1], new String[]{r[2], r[3]});
 
             MixinDescriptor base = MixinDescriptor.build(
-                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, injShifts, shads, shadFields, shadStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, synths);
+                mixinClass, targetInternal, ows, orig, reds, injs, injLocals, injShifts, shads, shadFields, shadStaticFields, mrvs, accs, invs, mcs, mas, mxs, mxa, mxr, wcs, synths);
             return MixinDescriptor.withTargetMaps(base, staticTargetRows, privateShadowRows);
         } catch (Throwable t) {
             throw new IllegalStateException("Failed to read generated $$Descriptor for " + mixinClass.getName(), t);

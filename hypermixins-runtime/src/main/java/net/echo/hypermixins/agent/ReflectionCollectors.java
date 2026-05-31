@@ -10,6 +10,7 @@ import net.echo.hypermixins.annotations.ModifyConstant;
 import net.echo.hypermixins.annotations.ModifyExpressionValue;
 import net.echo.hypermixins.annotations.ModifyReceiver;
 import net.echo.hypermixins.annotations.ModifyReturnValue;
+import net.echo.hypermixins.annotations.WrapWithCondition;
 import org.objectweb.asm.Type;
 
 import java.lang.reflect.Method;
@@ -28,6 +29,26 @@ import java.util.Map;
 final class ReflectionCollectors {
 
     private ReflectionCollectors() {}
+
+    static List<MixinDescriptor.WrapConditionEntry> wrapConditions(Class<?> mixinClass) {
+        List<MixinDescriptor.WrapConditionEntry> out = new ArrayList<>();
+        for (Method m : mixinClass.getDeclaredMethods()) {
+            WrapWithCondition ann = m.getAnnotation(WrapWithCondition.class);
+            if (ann == null) continue;
+            if (ann.method().isEmpty())
+                throw new IllegalArgumentException("@WrapWithCondition#method() must not be empty on " + m);
+            if (ann.at().desc().isEmpty())
+                throw new IllegalArgumentException("@At#desc() must not be empty on @WrapWithCondition " + m);
+            if (!Modifier.isStatic(m.getModifiers()))
+                throw new IllegalArgumentException("@WrapWithCondition must be static: " + m);
+            String handlerDesc = Type.getMethodDescriptor(m);
+            if (!handlerDesc.endsWith(")Z"))
+                throw new IllegalArgumentException("@WrapWithCondition handler must return boolean: " + m);
+            out.add(new MixinDescriptor.WrapConditionEntry(ann.method(), ann.at().desc(), ann.at().index(),
+                m.getName(), handlerDesc));
+        }
+        return out;
+    }
 
     static List<MixinDescriptor.ModifyReceiverEntry> modifyReceivers(Class<?> mixinClass) {
         List<MixinDescriptor.ModifyReceiverEntry> out = new ArrayList<>();

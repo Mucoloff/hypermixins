@@ -32,6 +32,7 @@ internal data class MixinHarvest(
     val modifyExprs: List<ModifyExpressionValueEntry>,
     val modifyArgsList: List<ModifyArgsEntry>,
     val modifyReceivers: List<ModifyReceiverEntry>,
+    val wrapConditions: List<WrapConditionEntry>,
     val accessors: List<AccessorEntry>,
     val invokers: List<InvokerEntry>,
     val staticTargets: Set<String>,
@@ -114,6 +115,9 @@ internal class DescriptorEmitter(private val codeGenerator: CodeGenerator) {
         }))
         classBuilder.addMethod(entriesMethod("modifyReceiverEntries", h.modifyReceivers.map {
             arrayOf(it.targetMethod, it.invokeDesc, it.handlerName, it.handlerDesc)
+        }))
+        classBuilder.addMethod(entriesMethod("wrapConditionEntries", h.wrapConditions.map {
+            arrayOf(it.targetMethod, it.invokeDesc, it.index.toString(), it.handlerName, it.handlerDesc)
         }))
         classBuilder.addMethod(entriesMethod("staticTargetMethods", h.staticTargets.map {
             val paren = it.indexOf('(')

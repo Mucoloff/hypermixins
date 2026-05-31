@@ -124,6 +124,7 @@ class MixinSymbolProcessor(
         val modifyExprs = mutableListOf<ModifyExpressionValueEntry>()
         val modifyArgsList = mutableListOf<ModifyArgsEntry>()
         val modifyReceivers = mutableListOf<ModifyReceiverEntry>()
+        val wrapConditions = mutableListOf<WrapConditionEntry>()
 
         cls.declarations.filterIsInstance<KSFunctionDeclaration>().forEach { fn ->
             when {
@@ -140,6 +141,7 @@ class MixinSymbolProcessor(
                 fn.hasAnnotation(MODIFY_EXPR_FQN) -> collectors.modifyExpr(fn, modifyExprs)
                 fn.hasAnnotation(MODIFY_ARGS_FQN) -> collectors.modifyArgs(fn, modifyArgsList)
                 fn.hasAnnotation(MODIFY_RECV_FQN) -> collectors.modifyReceiver(fn, modifyReceivers)
+                fn.hasAnnotation(WRAP_COND_FQN)  -> collectors.wrapWithCondition(fn, wrapConditions)
             }
         }
         cls.declarations.filterIsInstance<KSPropertyDeclaration>().forEach { prop ->
@@ -171,7 +173,7 @@ class MixinSymbolProcessor(
         val harvest = MixinHarvest(
             cls, targetClass, overwrites, originals, redirects, injects, injectLocals,
             shadows, shadowFields, shadowStaticFields, modifyRvs, modifyConsts, modifyArgs,
-            modifyExprs, modifyArgsList, modifyReceivers, accessors, invokers,
+            modifyExprs, modifyArgsList, modifyReceivers, wrapConditions, accessors, invokers,
             staticTargets, privateShadowTargets,
         )
         val result = emitter.emit(harvest) ?: return

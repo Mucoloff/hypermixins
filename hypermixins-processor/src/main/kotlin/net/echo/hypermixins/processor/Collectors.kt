@@ -22,6 +22,7 @@ internal const val MODIFY_ARG_FQN   = "net.echo.hypermixins.annotations.ModifyAr
 internal const val MODIFY_EXPR_FQN  = "net.echo.hypermixins.annotations.ModifyExpressionValue"
 internal const val MODIFY_ARGS_FQN  = "net.echo.hypermixins.annotations.ModifyArgs"
 internal const val MODIFY_RECV_FQN  = "net.echo.hypermixins.annotations.ModifyReceiver"
+internal const val WRAP_COND_FQN    = "net.echo.hypermixins.annotations.WrapWithCondition"
 internal const val AT_FQN           = "net.echo.hypermixins.annotations.At"
 internal const val LOCAL_FQN        = "net.echo.hypermixins.annotations.Local"
 
@@ -145,6 +146,32 @@ internal class Collectors(private val logger: KSPLogger) {
             }
         }
         out += RedirectEntry(method, desc, index, call, fn.simpleName.asString(), handlerDesc)
+    }
+
+    fun wrapWithCondition(fn: KSFunctionDeclaration, out: MutableList<WrapConditionEntry>) {
+        val ann = fn.findAnnotation(WRAP_COND_FQN)!!
+        val method = (ann.arg("method") as? String).orEmpty()
+        if (method.isBlank()) {
+            logger.error("@WrapWithCondition#method() must not be empty on ${fn.simpleName.asString()}", fn)
+            return
+        }
+        if (Modifier.STATIC !in fn.javaModifiers()) {
+            logger.error("@WrapWithCondition method must be static: ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val atAnn = ann.arg("at") as? KSAnnotation
+        val desc = (atAnn?.arg("desc") as? String).orEmpty()
+        if (desc.isBlank()) {
+            logger.error("@At#desc() must not be empty on @WrapWithCondition ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val handlerDesc = descriptor(fn)
+        if (!handlerDesc.endsWith(")Z")) {
+            logger.error("@WrapWithCondition handler must return boolean (got $handlerDesc): ${fn.simpleName.asString()}", fn)
+            return
+        }
+        val index = (atAnn?.arg("index") as? Int) ?: 0
+        out += WrapConditionEntry(method, desc, index, fn.simpleName.asString(), handlerDesc)
     }
 
     fun modifyReceiver(fn: KSFunctionDeclaration, out: MutableList<ModifyReceiverEntry>) {
