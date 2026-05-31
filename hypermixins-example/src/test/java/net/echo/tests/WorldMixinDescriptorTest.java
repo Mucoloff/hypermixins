@@ -78,6 +78,33 @@ class WorldMixinDescriptorTest {
     }
 
     @Test
+    void injectPointsSurviveKspRoundTrip() {
+        MixinDescriptor d = MixinDescriptor.load(WorldPointsMixin.class);
+        java.util.Map<String, net.echo.hypermixins.annotations.At.Point> byHandler =
+            new java.util.HashMap<>();
+        for (MixinDescriptor.InjectEntry e : d.injects()) byHandler.put(e.handlerName(), e.point());
+
+        assertEquals(net.echo.hypermixins.annotations.At.Point.INVOKE, byHandler.get("onInvoke"));
+        assertEquals(net.echo.hypermixins.annotations.At.Point.FIELD, byHandler.get("onField"));
+        assertEquals(net.echo.hypermixins.annotations.At.Point.CONSTANT, byHandler.get("onConstant"));
+        assertEquals(net.echo.hypermixins.annotations.At.Point.NEW, byHandler.get("onNew"));
+    }
+
+    @Test
+    void injectShiftsSurviveKspRoundTrip() {
+        MixinDescriptor d = MixinDescriptor.load(WorldPointsMixin.class);
+        String afterKey = "onShiftAfter(Ljava/lang/Object;)V";
+        String byKey = "onShiftBy(Ljava/lang/Object;)V";
+        // AFTER is the only shift baked into the descriptor; reading it the wrong way (the
+        // a096a55 bug) would have left it absent / defaulted to BEFORE.
+        assertEquals(net.echo.hypermixins.annotations.At.Shift.AFTER, d.injectShifts().get(afterKey));
+        // BY (with by()) is resolved reflectively off the handler @At at transform time, so it
+        // is intentionally NOT baked into the injectShifts table.
+        assertFalse(d.injectShifts().containsKey(byKey),
+            "BY shift must stay out of the descriptor — it is read reflectively");
+    }
+
+    @Test
     void yamlDiscoveredOnClasspath() throws IOException {
         List<MixinsConfig> configs = MixinsConfig.discoverAll(getClass().getClassLoader());
         boolean found = configs.stream()
