@@ -6,6 +6,8 @@ master is the only published surface so far.
 
 ## Unreleased
 
+## 1.8 — 2026-06-01
+
 ### Added
 - **`@Expression` DSL v9 — mixed-operator boolean** — the logical
   matcher is now a recursive structural recogniser (`matchCond`) that

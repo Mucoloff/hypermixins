@@ -43,7 +43,7 @@ descriptor string would.
 ### 1. Add the dependencies
 
 Published via [JitPack](https://jitpack.io/#Mucoloff/hypermixins). Add the
-repository, then depend on the three modules at a released tag (e.g. `1.7`):
+repository, then depend on the three modules at a released tag (e.g. `1.8`):
 
 ```kotlin
 repositories {
@@ -51,9 +51,9 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.Mucoloff.hypermixins:hypermixins-annotations:1.7")
-    implementation("com.github.Mucoloff.hypermixins:hypermixins-runtime:1.7")
-    ksp("com.github.Mucoloff.hypermixins:hypermixins-processor:1.7")
+    implementation("com.github.Mucoloff.hypermixins:hypermixins-annotations:1.8")
+    implementation("com.github.Mucoloff.hypermixins:hypermixins-runtime:1.8")
+    ksp("com.github.Mucoloff.hypermixins:hypermixins-processor:1.8")
 }
 ```
 
@@ -208,7 +208,7 @@ See [docs/expression.md](docs/expression.md) for the full `@Expression` DSL gram
 
 ## Status
 
-- 170 runtime tests + 6 processor tests + 5 example tests + 1 agent test green (1.7).
+- 190 runtime tests + 6 processor tests + 5 example tests + 1 agent test green (1.8).
 - Supported `@At.Point` for `@Inject`: HEAD, RETURN, TAIL, INVOKE, FIELD,
   CONSTANT (LDC values), JUMP (conditional), NEW (object allocations).
 - `@At#shift = BEFORE | AFTER` lets handlers anchor either side of the
