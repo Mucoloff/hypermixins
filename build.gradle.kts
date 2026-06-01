@@ -55,6 +55,11 @@ subprojects {
         useJUnitPlatform()
     }
 
+    // Published sources/javadoc jars must not fail the build on pre-existing doclint nits.
+    tasks.withType<Javadoc>().configureEach {
+        (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
+    }
+
     configure<JavaPluginExtension> {
         withSourcesJar()
         withJavadocJar()
