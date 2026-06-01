@@ -21,6 +21,8 @@ public class MixinExpressionLogicalTest {
     public static volatile int andHits;
     public static volatile int orHits;
     public static volatile int capA, capB, capC, capD;
+    public static volatile int and3Hits, or3Hits;
+    public static volatile int n0, n1, n2, n3, n4, n5;
 
     public static class LogicalTarget {
         public int andCase(int a, int b, int c, int d) {
@@ -30,6 +32,21 @@ public class MixinExpressionLogicalTest {
 
         public int orCase(int a, int b, int c, int d) {
             if (a < b || c > d) return 1;
+            return 0;
+        }
+
+        public int and3(int a, int b, int c, int d, int e, int f) {
+            if (a < b && c < d && e < f) return 1;
+            return 0;
+        }
+
+        public int or3(int a, int b, int c, int d, int e, int f) {
+            if (a < b || c < d || e < f) return 1;
+            return 0;
+        }
+
+        public int mixed(int a, int b, int c, int d, int e, int f) {
+            if (a < b && (c < d || e < f)) return 1;
             return 0;
         }
     }
@@ -58,10 +75,33 @@ public class MixinExpressionLogicalTest {
     }
 
     @Mixin("net.echo.hypermixins.MixinExpressionLogicalTest$LogicalTarget")
-    public static class NestedMixin {
-        @Expression("? < ? && ? > ? && ? == ?")
-        @Inject(method = "andCase", at = @At(point = At.Point.EXPRESSION))
-        public void onNested(Object self) {}
+    public static class And3Mixin {
+        @Expression("? < ? && ? < ? && ? < ?")
+        @Inject(method = "and3", at = @At(point = At.Point.EXPRESSION))
+        public void onAnd3(Object self) { and3Hits++; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinExpressionLogicalTest$LogicalTarget")
+    public static class Or3Mixin {
+        @Expression("? < ? || ? < ? || ? < ?")
+        @Inject(method = "or3", at = @At(point = At.Point.EXPRESSION))
+        public void onOr3(Object self) { or3Hits++; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinExpressionLogicalTest$LogicalTarget")
+    public static class NaryCaptureMixin {
+        @Expression("? < ? && ? < ? && ? < ?")
+        @Inject(method = "and3", at = @At(point = At.Point.EXPRESSION))
+        public void onAnd3(Object self, int p0, int p1, int p2, int p3, int p4, int p5) {
+            n0 = p0; n1 = p1; n2 = p2; n3 = p3; n4 = p4; n5 = p5;
+        }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinExpressionLogicalTest$LogicalTarget")
+    public static class MixedMixin {
+        @Expression("? < ? && (? < ? || ? < ?)")
+        @Inject(method = "mixed", at = @At(point = At.Point.EXPRESSION))
+        public void onMixed(Object self) {}
     }
 
     @Test
@@ -100,8 +140,46 @@ public class MixinExpressionLogicalTest {
     }
 
     @Test
-    void nestedLogicalRejected() {
+    void and3MatchesSharedLabel() throws Exception {
+        and3Hits = 0;
+        Class<?> t = applyMixin(LogicalTarget.class, And3Mixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int out = (int) t.getMethod("and3", int.class, int.class, int.class, int.class, int.class, int.class)
+            .invoke(inst, 1, 2, 3, 4, 5, 6);
+        assertEquals(1, out);
+        assertTrue(and3Hits >= 1);
+    }
+
+    @Test
+    void or3MatchesShortCircuit() throws Exception {
+        or3Hits = 0;
+        Class<?> t = applyMixin(LogicalTarget.class, Or3Mixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int out = (int) t.getMethod("or3", int.class, int.class, int.class, int.class, int.class, int.class)
+            .invoke(inst, 1, 2, 9, 0, 9, 0);
+        assertEquals(1, out);
+        assertTrue(or3Hits >= 1);
+    }
+
+    @Test
+    void naryCapturesAllOperands() throws Exception {
+        n0 = n1 = n2 = n3 = n4 = n5 = -1;
+        Class<?> t = applyMixin(LogicalTarget.class, NaryCaptureMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        t.getMethod("and3", int.class, int.class, int.class, int.class, int.class, int.class)
+            .invoke(inst, 1, 2, 3, 4, 5, 6);
+        assertEquals(1, n0);
+        assertEquals(2, n1);
+        assertEquals(3, n2);
+        assertEquals(4, n3);
+        assertEquals(5, n4);
+        assertEquals(6, n5);
+    }
+
+    @Test
+    void mixedOperatorRejected() {
+        // `? < ? && (? < ? || ? < ?)` mixes && and || → flatten fails → compile-time reject.
         assertThrows(IllegalStateException.class,
-            () -> applyMixin(LogicalTarget.class, NestedMixin.class));
+            () -> applyMixin(LogicalTarget.class, MixedMixin.class));
     }
 }

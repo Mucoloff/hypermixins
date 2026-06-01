@@ -159,4 +159,14 @@ class ExpressionParserTest {
     void rejectsLoneAmpersand() {
         assertThrows(IllegalArgumentException.class, () -> ExpressionParser.parse("? < ? & ? > ?"));
     }
+
+    @Test
+    void parsesNaryAndAsLeftAssocChain() {
+        ExpressionNode node = ExpressionParser.parse("? < ? && ? < ? && ? < ?");
+        ExpressionNode.LogicalOp outer = assertInstanceOf(ExpressionNode.LogicalOp.class, node);
+        assertEquals("&&", outer.op());
+        // Left-associative: ((a && b) && c) — lhs is itself a LogicalOp, rhs a Comparison.
+        assertInstanceOf(ExpressionNode.LogicalOp.class, outer.lhs());
+        assertInstanceOf(ExpressionNode.Comparison.class, outer.rhs());
+    }
 }
