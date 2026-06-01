@@ -196,7 +196,7 @@ final class DescriptorReader {
      * lack the method entirely — those go through the same error path with a clear "rebuild
      * against matching processor" message.
      */
-    private static void validateSchemaVersion(MethodHandles.Lookup lookup, Class<?> desc, Class<?> mixinClass) {
+    static void validateSchemaVersion(MethodHandles.Lookup lookup, Class<?> desc, Class<?> mixinClass) {
         int generated;
         try {
             generated = (int) lookup.findStatic(desc, "schemaVersion",

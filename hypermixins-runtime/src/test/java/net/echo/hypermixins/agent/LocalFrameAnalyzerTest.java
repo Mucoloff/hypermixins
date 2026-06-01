@@ -51,4 +51,23 @@ class LocalFrameAnalyzerTest {
         assertEquals(Type.INT_TYPE, atMid.get(1));
         assertEquals(Type.INT_TYPE, atMid.get(2));
     }
+
+    @Test
+    void unknownProbeLabelDegradesWithoutThrowing() {
+        MethodNode m = new MethodNode(Opcodes.ACC_PUBLIC, "run", "(I)V", null, null);
+        LabelNode start = new LabelNode(new Label());
+        LabelNode end   = new LabelNode(new Label());
+        m.instructions.add(start);
+        m.instructions.add(new VarInsnNode(Opcodes.ILOAD, 1));
+        m.instructions.add(end);
+        m.localVariables = new java.util.ArrayList<>();
+        m.localVariables.add(new LocalVariableNode("seed", "I", null, start, end, 1));
+
+        LocalFrameAnalyzer a = new LocalFrameAnalyzer(m);
+        // A probe label that was never added to the method body must not throw — it has no
+        // index in the table, so nothing is live there.
+        LabelNode stray = new LabelNode(new Label());
+        Map<Integer, Type> atStray = a.liveLocalsAt(stray);
+        assertTrue(atStray.isEmpty());
+    }
 }
