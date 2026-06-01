@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Handle returned by {@link HyperMixins#register} representing a single registered mixin.
+ * Handle returned by {@link net.echo.hypermixins.HyperMixins#register} representing a single registered mixin.
  * <p>
  * Allows the mixin to be disabled/enabled at runtime without retransforming bytecode —
  * the dispatch flips atomically via {@link MixinRegistry} {@link java.lang.invoke.MutableCallSite}.
@@ -44,7 +44,7 @@ public final class MixinHandle {
         this.active = true;
     }
 
-    /** Factory — used by {@link HyperMixins} after registering a mixin. */
+    /** Factory — used by {@link net.echo.hypermixins.HyperMixins} after registering a mixin. */
     public static MixinHandle of(Instrumentation inst, ClassFileTransformer transformer, List<String> keys) {
         return new MixinHandle(inst, transformer, keys);
     }

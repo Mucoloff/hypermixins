@@ -14,6 +14,30 @@ runtime ASM bytecode rewriting + atomic INVOKEDYNAMIC dispatch.
 - **Layered mixins** — multiple mixin classes may target the same class
   (overwrite + inject from independent mods compose cleanly).
 
+## Why HyperMixins
+
+If you know SpongePowered Mixin / MixinExtras, the model is familiar:
+`@Overwrite` / `@Inject` / `@Redirect` / `@Shadow` plus a MixinExtras-style
+`@Definition` + `@Expression` DSL for matching call / field / comparison /
+boolean sites by *shape* rather than a hand-counted `@At` index.
+
+What's different:
+
+- **No reflection at runtime.** Mixin entries are baked into a generated
+  `$$Descriptor` at compile time by a KSP processor; the runtime never reads
+  an annotation. Lower per-class load cost, no annotation classes pinned.
+- **`INVOKEDYNAMIC` dispatch with hot-swap.** `@Overwrite` routes through a
+  `MutableCallSite`, so a handler can be disabled / enabled / reinstalled at
+  runtime without retransforming the target.
+- **Self-contained.** ASM is shaded into the runtime jar — one dependency, no
+  transitive ASM version clash with the host.
+- **Plain JVM, not Minecraft-coupled.** No mod-loader assumptions; attach the
+  agent to any JVM process.
+
+Use it when you need to patch a class you don't own (a library, a closed
+artifact) and want the patch to survive target refactors better than a raw
+descriptor string would.
+
 ## Quick start
 
 ### 1. Add the dependencies
@@ -193,6 +217,23 @@ See [docs/expression.md](docs/expression.md) for the full `@Expression` DSL gram
   overwrites + injects; duplicate overwrites on the same key are rejected at
   transform time.
 
+## Limitations
+
+- **`@Expression` matches the `if`-condition short-circuit shape.** A
+  comparison / boolean expression is recognised where javac emits it as a
+  branch (`if`, `while`, ternary condition). The boolean-materialisation
+  form (`boolean r = a && b;`, ICONST/GOTO) is not matched.
+- **`@Local` at non-HEAD points needs `-g`.** Type-/ordinal-driven local
+  capture mid-method reads the target's `LocalVariableTable`; targets
+  compiled without debug info must use `@Local(index = …)`.
+- **Instance `@Unique` helpers must be self-contained** — references to the
+  mixin class itself are rejected at transform.
+- **`MixinHandle.reload(Class<?>)` across a *different* mixin class is not
+  shipped** — the `__mixin$X` field is typed against the original class; use
+  `uninstall` + a fresh `register`, or redefine the class bytecode in place.
+- **JDK 25 toolchain** required to build (KSP + `-parameters`); consumers run
+  on any JVM the agent attaches to.
+
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).
