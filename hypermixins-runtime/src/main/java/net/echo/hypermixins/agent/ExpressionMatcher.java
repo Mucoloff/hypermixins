@@ -51,7 +51,7 @@ final class ExpressionMatcher {
         MixinDescriptor.ExpressionMetadata meta = descriptor.expressions().get(handlerKey);
         if (meta == null) {
             throw new IllegalStateException(
-                "@At(point = EXPRESSION) requires @Expression on " + handler);
+                "@At(point = EXPRESSION) requires @Expression on " + sig(handler));
         }
         Map<String, MixinDescriptor.DefinitionEntry> defs = getStringDefinitionEntryMap(handler, meta);
         ExpressionNode root = ExpressionParser.parse(meta.expression());
@@ -66,17 +66,17 @@ final class ExpressionMatcher {
         Map<String, MixinDescriptor.DefinitionEntry> defs = new HashMap<>();
         for (MixinDescriptor.DefinitionEntry d : meta.definitions()) {
             if (d.id().isEmpty()) {
-                throw new IllegalStateException("@Definition.id() must be non-empty on " + handler);
+                throw new IllegalStateException("@Definition.id() must be non-empty on " + sig(handler));
             }
             int nonEmpty = (d.method().isEmpty() ? 0 : 1) + (d.field().isEmpty() ? 0 : 1) + (d.type().isEmpty() ? 0 : 1);
             if (nonEmpty != 1) {
                 throw new IllegalStateException(
-                    "@Definition id='" + d.id() + "' on " + handler
+                    "@Definition id='" + d.id() + "' on " + sig(handler)
                     + " must set exactly one of method() / field() / type()");
             }
             if (defs.put(d.id(), d) != null) {
                 throw new IllegalStateException(
-                    "Duplicate @Definition id='" + d.id() + "' on " + handler);
+                    "Duplicate @Definition id='" + d.id() + "' on " + sig(handler));
             }
         }
         return defs;
@@ -195,7 +195,7 @@ final class ExpressionMatcher {
                 Integer resolved = paramIndexByName.get(na.name());
                 if (resolved == null) {
                     throw new InjectSignatureMismatch(
-                        "@Expression named capture '" + na.name() + "' did not resolve to a handler param on " + handler);
+                        "@Expression named capture '" + na.name() + "' did not resolve to a handler param on " + sig(handler));
                 }
                 if (!(producer instanceof org.objectweb.asm.tree.VarInsnNode v) || !isLoadOpcode(v.getOpcode())) {
                     throw new InjectSignatureMismatch(
@@ -219,7 +219,7 @@ final class ExpressionMatcher {
                 Integer resolved = paramIndexByName.get(name);
                 if (resolved == null) {
                     throw new InjectSignatureMismatch(
-                        "@Expression named capture '" + name + "' did not resolve to a handler param on " + handler);
+                        "@Expression named capture '" + name + "' did not resolve to a handler param on " + sig(handler));
                 }
                 paramIdx = resolved;
             } else {
@@ -495,6 +495,12 @@ final class ExpressionMatcher {
             || op == Opcodes.DLOAD || op == Opcodes.ALOAD;
     }
 
+    /** Compact JVM-style signature for diagnostics: {@code owner.name(desc)ret}. */
+    private static String sig(Method handler) {
+        return handler.getDeclaringClass().getName() + "." + handler.getName()
+            + Type.getMethodDescriptor(handler);
+    }
+
     private boolean literalArgsMatch(AbstractInsnNode insn, List<ExpressionNode.Arg> args) {
         for (int i = 0; i < args.size(); i++) {
             if (!(args.get(i) instanceof ExpressionNode.LiteralArg lit)) continue;
@@ -573,20 +579,20 @@ final class ExpressionMatcher {
                     case ExpressionNode.Chained innerCh ->
                         validate(innerCh, defs, handler, paramIndexByName);
                     default -> throw new IllegalStateException(
-                        "@Expression chained receiver must be `this`, a call, or another chain on " + handler);
+                        "@Expression chained receiver must be `this`, a call, or another chain on " + sig(handler));
                 }
             }
             case ExpressionNode.Assign a -> {
                 if (!(a.rhs() instanceof ExpressionNode.Wildcard)) {
                     throw new IllegalStateException(
-                        "@Expression assignment rhs must be `?` on " + handler);
+                        "@Expression assignment rhs must be `?` on " + sig(handler));
                 }
                 validate(a.lhs(), defs, handler, paramIndexByName);
                 // lhs cannot be a Call.
                 if (a.lhs() instanceof ExpressionNode.Call
                     || (a.lhs() instanceof ExpressionNode.Chained ch && ch.member().isCall())) {
                     throw new IllegalStateException(
-                        "@Expression assignment lhs cannot be a call on " + handler);
+                        "@Expression assignment lhs cannot be a call on " + sig(handler));
                 }
             }
             case ExpressionNode.BinaryOp bo -> {
@@ -602,7 +608,7 @@ final class ExpressionMatcher {
                 if (flat == null) {
                     throw new IllegalStateException(
                         "@Expression `&&` / `||` requires a single-operator chain of comparisons; "
-                        + "mixed operators and non-comparison operands are deferred on " + handler);
+                        + "mixed operators and non-comparison operands are deferred on " + sig(handler));
                 }
                 for (ExpressionNode.Comparison c : flat.operands()) {
                     validate(c, defs, handler, paramIndexByName);
@@ -617,15 +623,15 @@ final class ExpressionMatcher {
                 validateOperand(ct.operand(), defs, handler, paramIndexByName);
             }
             case ExpressionNode.LiteralArg lit -> throw new IllegalStateException(
-                "@Expression cannot be a bare literal '" + lit.value() + "' on " + handler);
+                "@Expression cannot be a bare literal '" + lit.value() + "' on " + sig(handler));
             case ExpressionNode.Wildcard ignored -> throw new IllegalStateException(
-                "@Expression cannot be bare `?` on " + handler);
+                "@Expression cannot be bare `?` on " + sig(handler));
             case ExpressionNode.NamedArg na -> throw new IllegalStateException(
-                "@Expression cannot be bare named arg '" + na.name() + "' on " + handler);
+                "@Expression cannot be bare named arg '" + na.name() + "' on " + sig(handler));
             case ExpressionNode.ThisRef ignored -> throw new IllegalStateException(
-                "@Expression cannot be bare `this` on " + handler);
+                "@Expression cannot be bare `this` on " + sig(handler));
             case ExpressionNode.Member ignored -> throw new IllegalStateException(
-                "Internal: bare Member should have been wrapped as Call or FieldRef on " + handler);
+                "Internal: bare Member should have been wrapped as Call or FieldRef on " + sig(handler));
         }
         validateArgNames(root, handler, paramIndexByName);
     }
@@ -659,7 +665,7 @@ final class ExpressionMatcher {
             if (a instanceof ExpressionNode.Wildcard || a instanceof ExpressionNode.NamedArg) {
                 throw new IllegalStateException(
                     "@Expression: captures inside an inner (non-leaf) chained call are not"
-                    + " supported in v3 on " + handler);
+                    + " supported in v3 on " + sig(handler));
             }
         }
     }
@@ -668,11 +674,11 @@ final class ExpressionMatcher {
         MixinDescriptor.DefinitionEntry d = defs.get(id);
         if (d == null) {
             throw new IllegalStateException(
-                "@Expression references undefined type id '" + id + "' on " + handler);
+                "@Expression references undefined type id '" + id + "' on " + sig(handler));
         }
         if (d.type().isEmpty()) {
             throw new IllegalStateException(
-                "@Expression uses '" + id + "' as a type but its @Definition does not set type() on " + handler);
+                "@Expression uses '" + id + "' as a type but its @Definition does not set type() on " + sig(handler));
         }
     }
 
@@ -680,15 +686,15 @@ final class ExpressionMatcher {
         MixinDescriptor.DefinitionEntry d = defs.get(id);
         if (d == null) {
             throw new IllegalStateException(
-                "@Expression references undefined id '" + id + "' on " + handler);
+                "@Expression references undefined id '" + id + "' on " + sig(handler));
         }
         if (isCall && d.method().isEmpty()) {
             throw new IllegalStateException(
-                "@Expression uses '" + id + "' as a call but its @Definition sets field(), not method() on " + handler);
+                "@Expression uses '" + id + "' as a call but its @Definition sets field(), not method() on " + sig(handler));
         }
         if (!isCall && d.field().isEmpty()) {
             throw new IllegalStateException(
-                "@Expression uses '" + id + "' as a field but its @Definition sets method(), not field() on " + handler);
+                "@Expression uses '" + id + "' as a field but its @Definition sets method(), not field() on " + sig(handler));
         }
     }
 
@@ -705,19 +711,19 @@ final class ExpressionMatcher {
             if (!(a instanceof ExpressionNode.NamedArg(String name))) continue;
             if (paramIndexByName.isEmpty()) {
                 throw new IllegalStateException(
-                    "@Expression named capture '" + name + "' on " + handler
+                    "@Expression named capture '" + name + "' on " + sig(handler)
                     + " requires the handler to be compiled with -parameters."
                     + " Add `tasks.withType<JavaCompile> { options.compilerArgs.add(\"-parameters\") }`"
                     + " (or the Kotlin equivalent) or use `?` positional captures.");
             }
             if (!paramIndexByName.containsKey(name)) {
                 throw new IllegalStateException(
-                    "@Expression named capture '" + name + "' on " + handler
+                    "@Expression named capture '" + name + "' on " + sig(handler)
                     + " does not match any handler param. Available: " + paramIndexByName.keySet());
             }
             if (!seen.add(name)) {
                 throw new IllegalStateException(
-                    "@Expression on " + handler + " binds the same name '" + name
+                    "@Expression on " + sig(handler) + " binds the same name '" + name
                     + "' more than once");
             }
         }
