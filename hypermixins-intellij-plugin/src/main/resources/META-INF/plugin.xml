@@ -36,5 +36,19 @@
                 language="JAVA"
                 implementationClass="net.echo.hypermixins.idea.completion.AtDescCompletionContributor"/>
 
+        <!-- @Expression DSL syntax errors highlighted inline -->
+        <annotator
+                language="JAVA"
+                implementationClass="net.echo.hypermixins.idea.annotator.ExpressionAnnotator"/>
+
+        <!-- Inspection: @Definition shape (exactly-one-of method/field/type, non-empty id, no dup id) -->
+        <localInspection
+                language="JAVA"
+                displayName="HyperMixins: @Definition shape"
+                groupName="HyperMixins"
+                implementationClass="net.echo.hypermixins.idea.inspection.DefinitionInspection"
+                enabledByDefault="true"
+                level="ERROR"/>
+
     </extensions>
 </idea-plugin>

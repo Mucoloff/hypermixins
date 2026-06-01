@@ -18,6 +18,8 @@ repositories {
 }
 
 dependencies {
+    // Runtime ExpressionValidator (pure, no ASM) drives the @Expression syntax annotator.
+    implementation(project(":hypermixins-runtime"))
     intellijPlatform {
         local(file(System.getProperty("user.home") + "/Applications/IntelliJ IDEA.app"))
         bundledPlugin("com.intellij.java")
@@ -36,8 +38,9 @@ intellijPlatform {
             IDE support for HyperMixins — a Java-agent mixin library.
             <ul>
               <li>Gutter icons with navigation to mixin target classes and methods</li>
-              <li>Inspections: target class/method not found, signature mismatch</li>
+              <li>Inspections: target class/method not found, signature mismatch, @Definition shape</li>
               <li>Autocomplete for <code>@At(desc = "...")</code> call-site descriptors</li>
+              <li>Inline @Expression DSL syntax validation</li>
             </ul>
         """.trimIndent()
 
