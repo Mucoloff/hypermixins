@@ -7,6 +7,14 @@ master is the only published surface so far.
 ## Unreleased
 
 ### Added
+- **`@Expression` DSL v8 — N-ary same-operator `&&` / `||`** — extends
+  v7 to a chain of the same operator (`? < ? && ? < ? && ? < ?`,
+  `? < ? || ? < ? || ? < ?`). `flattenLogical` folds the left-assoc
+  `LogicalOp` tree into its comparison list; the matcher checks the
+  N-jump structure (one shared false-label for `&&`; a body-label run
+  plus a distinct false-label for `||`). Captures bind every operand
+  left-to-right. Mixed-operator (`a && (b || c)`) still rejected —
+  deferred to v9.
 - **`@Expression` DSL v7 — `&&` / `||`** — short-circuit logical
   operators match as a two-jump region anchored on the first
   comparison's conditional jump. `&&` requires both operands to negate

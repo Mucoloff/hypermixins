@@ -164,10 +164,11 @@ public void onAnd(Object self, int a, int b, int c, int d) { ... }
 public void onOr(Object self) { ... }
 ```
 
-A single `&&` / `||` of two comparisons, matched as a two-jump region
-anchored on the first comparison. Captures bind across both operands in
-source order. The handler fires before the first comparison's branch.
-Nested logical (`a && b && c`), boolean-materialisation context
+An N-ary chain of the **same** operator (`? < ? && ? < ? && ?  < ?`,
+`? < ? || ? < ? || ? < ?`), matched as a multi-jump region anchored on
+the first comparison. Captures bind across every operand in source
+order. The handler fires before the first comparison's branch.
+Mixed-operator (`a && (b || c)`), boolean-materialisation context
 (`boolean r = a && b;`), and non-comparison operands are not supported.
 
 ### v6 — logical not
@@ -228,11 +229,13 @@ When the handler has no capture params (only `Object self`), every
 | `@Expression("instanceof Foo")`    | `@Expression("? instanceof Foo")` (with @Definition.type) |
 | `@Expression("(Foo) ?")`           | Same                                                    |
 
-## Out of scope (v8)
+## Out of scope (v9)
 
-- Nested / N-ary logical (`a && b && c`, mixed `&&` / `||`).
+- Mixed-operator boolean (`a && (b || c)`, `(a || b) && c`) — needs a
+  recursive tree-from-CFG recogniser keyed on per-jump label targets.
 - Boolean-materialisation context (`boolean r = a && b;`).
 - Logical operands that aren't comparisons (`call() && ? < ?`).
+- `!` over a logical group.
 - Backslash escapes in string literals.
 - Multi-instruction sequence patterns (`a.b(); c.d()`).
 - Long / float / double literals beyond `int`.
