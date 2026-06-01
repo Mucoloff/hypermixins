@@ -164,12 +164,14 @@ public void onAnd(Object self, int a, int b, int c, int d) { ... }
 public void onOr(Object self) { ... }
 ```
 
-An N-ary chain of the **same** operator (`? < ? && ? < ? && ?  < ?`,
-`? < ? || ? < ? || ? < ?`), matched as a multi-jump region anchored on
-the first comparison. Captures bind across every operand in source
-order. The handler fires before the first comparison's branch.
-Mixed-operator (`a && (b || c)`), boolean-materialisation context
-(`boolean r = a && b;`), and non-comparison operands are not supported.
+Any `&&` / `||` tree of comparisons — same-operator chains
+(`? < ? && ? < ? && ? < ?`) and mixed nesting (`a && (b || c)`,
+`(a || b) && c`). A recursive structural recogniser walks the boolean
+tree against the short-circuit jump sequence, resolving intermediate
+join labels. Captures bind across every operand in source order; the
+handler fires before the first comparison's branch.
+Boolean-materialisation context (`boolean r = a && b;`) and
+non-comparison operands are not supported.
 
 ### v6 — logical not
 
@@ -229,13 +231,12 @@ When the handler has no capture params (only `Object self`), every
 | `@Expression("instanceof Foo")`    | `@Expression("? instanceof Foo")` (with @Definition.type) |
 | `@Expression("(Foo) ?")`           | Same                                                    |
 
-## Out of scope (v9)
+## Out of scope
 
-- Mixed-operator boolean (`a && (b || c)`, `(a || b) && c`) — needs a
-  recursive tree-from-CFG recogniser keyed on per-jump label targets.
-- Boolean-materialisation context (`boolean r = a && b;`).
+- Boolean-materialisation context (`boolean r = a && b;`) — compiles to
+  ICONST/GOTO, a different shape from the short-circuit `if` form.
 - Logical operands that aren't comparisons (`call() && ? < ?`).
-- `!` over a logical group.
+- `!` over a logical group (only over a single comparison).
 - Backslash escapes in string literals.
 - Multi-instruction sequence patterns (`a.b(); c.d()`).
 - Long / float / double literals beyond `int`.

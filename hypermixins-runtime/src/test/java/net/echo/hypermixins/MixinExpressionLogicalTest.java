@@ -21,7 +21,7 @@ public class MixinExpressionLogicalTest {
     public static volatile int andHits;
     public static volatile int orHits;
     public static volatile int capA, capB, capC, capD;
-    public static volatile int and3Hits, or3Hits;
+    public static volatile int and3Hits, or3Hits, mixedHits, mixedLeftHits;
     public static volatile int n0, n1, n2, n3, n4, n5;
 
     public static class LogicalTarget {
@@ -47,6 +47,11 @@ public class MixinExpressionLogicalTest {
 
         public int mixed(int a, int b, int c, int d, int e, int f) {
             if (a < b && (c < d || e < f)) return 1;
+            return 0;
+        }
+
+        public int mixedLeft(int a, int b, int c, int d, int e, int f) {
+            if ((a < b || c < d) && e < f) return 1;
             return 0;
         }
     }
@@ -98,10 +103,17 @@ public class MixinExpressionLogicalTest {
     }
 
     @Mixin("net.echo.hypermixins.MixinExpressionLogicalTest$LogicalTarget")
-    public static class MixedMixin {
+    public static class MixedRightMixin {
         @Expression("? < ? && (? < ? || ? < ?)")
         @Inject(method = "mixed", at = @At(point = At.Point.EXPRESSION))
-        public void onMixed(Object self) {}
+        public void onMixed(Object self) { mixedHits++; }
+    }
+
+    @Mixin("net.echo.hypermixins.MixinExpressionLogicalTest$LogicalTarget")
+    public static class MixedLeftMixin {
+        @Expression("(? < ? || ? < ?) && ? < ?")
+        @Inject(method = "mixedLeft", at = @At(point = At.Point.EXPRESSION))
+        public void onMixedLeft(Object self) { mixedLeftHits++; }
     }
 
     @Test
@@ -177,9 +189,26 @@ public class MixinExpressionLogicalTest {
     }
 
     @Test
-    void mixedOperatorRejected() {
-        // `? < ? && (? < ? || ? < ?)` mixes && and || → flatten fails → compile-time reject.
-        assertThrows(IllegalStateException.class,
-            () -> applyMixin(LogicalTarget.class, MixedMixin.class));
+    void mixedRightNestedMatches() throws Exception {
+        // `a && (b || c)` — 2-label, recognised by the recursive matcher.
+        mixedHits = 0;
+        Class<?> t = applyMixin(LogicalTarget.class, MixedRightMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int out = (int) t.getMethod("mixed", int.class, int.class, int.class, int.class, int.class, int.class)
+            .invoke(inst, 1, 2, 9, 0, 3, 4);
+        assertEquals(1, out);
+        assertTrue(mixedHits >= 1);
+    }
+
+    @Test
+    void mixedLeftNestedMatches() throws Exception {
+        // `(a || b) && c` — needs an intermediate label; the recursive matcher resolves it.
+        mixedLeftHits = 0;
+        Class<?> t = applyMixin(LogicalTarget.class, MixedLeftMixin.class);
+        Object inst = t.getDeclaredConstructor().newInstance();
+        int out = (int) t.getMethod("mixedLeft", int.class, int.class, int.class, int.class, int.class, int.class)
+            .invoke(inst, 1, 2, 9, 0, 3, 4);
+        assertEquals(1, out);
+        assertTrue(mixedLeftHits >= 1);
     }
 }

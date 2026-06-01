@@ -158,13 +158,14 @@ final class ExpressionMatcher {
                 collectArithOperand(ct.operand(), producer, ctx);
             }
             case ExpressionNode.LogicalOp lo -> {
-                // Walk the flattened comparison chain, advancing the anchor jump for each operand.
-                FlatLogical flat = flattenLogical(lo);
-                if (flat != null) {
+                // Walk the in-order comparison leaves, advancing the anchor jump for each.
+                List<ExpressionNode.Comparison> leaves = new java.util.ArrayList<>();
+                collectLeaves(lo, leaves);
+                {
                     AbstractInsnNode jump = anchor;
-                    for (int i = 0; i < flat.operands().size() && jump != null; i++) {
-                        collectCaptures(flat.operands().get(i), jump, ctx);
-                        jump = (i + 1 < flat.operands().size()) ? nextConditionalJump(jump.getNext()) : jump;
+                    for (int i = 0; i < leaves.size() && jump != null; i++) {
+                        collectCaptures(leaves.get(i), jump, ctx);
+                        jump = (i + 1 < leaves.size()) ? nextConditionalJump(jump.getNext()) : jump;
                     }
                 }
             }
@@ -355,41 +356,124 @@ final class ExpressionMatcher {
             && matchesSubExpression(rhsProducer, c.rhs());
     }
 
-    /** Flattened same-operator logical chain: {@code op} plus the left-to-right comparison list. */
-    private record FlatLogical(String op, List<ExpressionNode.Comparison> operands) {}
+    /** Overall branch-target slot during short-circuit recognition (BODY = then-block, ELSE = else-block). */
+    private enum Target { BODY, ELSE }
 
     /**
-     * Flattens a left-associative same-operator {@code LogicalOp} tree into its comparison
-     * operands. Returns null when the tree mixes operators or contains a non-comparison leaf
-     * (those shapes are deferred to v9).
+     * Recognises the short-circuit compilation of a (possibly mixed) {@code &&} / {@code ||}
+     * tree of comparisons, following javac's {@code genCond(node, trueTarget, falseTarget)}
+     * rule with an explicit fall-through side. A leaf emits one jump to its non-fall-through
+     * target; that target must be BODY (direct jump) or ELSE (negated jump). Returns {@code null}
+     * when a leaf would have to jump to an INTERMEDIATE label (e.g. {@code (a||b) && c}, where the
+     * left group's short-circuit-true exits to the start of {@code c}, not the body). 2-label
+     * trees: same-operator chains and right-nested mixes like {@code a && (b || c)}.
      */
-    private static FlatLogical flattenLogical(ExpressionNode.LogicalOp root) {
-        List<ExpressionNode.Comparison> out = new java.util.ArrayList<>();
-        if (!collectLogical(root, root.op(), out)) return null;
-        return new FlatLogical(root.op(), out);
+    /** In-order leaf-count of a comparison/logical tree (each comparison is one short-circuit jump). */
+    private static int leafCount(ExpressionNode node) {
+        if (node instanceof ExpressionNode.LogicalOp lo) {
+            return leafCount(lo.lhs()) + leafCount(lo.rhs());
+        }
+        return 1; // comparison (or unsupported leaf — rejected elsewhere)
     }
 
-    private static boolean collectLogical(ExpressionNode node, String op, List<ExpressionNode.Comparison> out) {
-        if (node instanceof ExpressionNode.Comparison c) { out.add(c); return true; }
-        if (node instanceof ExpressionNode.LogicalOp lo && lo.op().equals(op)) {
-            return collectLogical(lo.lhs(), op, out) && collectLogical(lo.rhs(), op, out);
+    /** True when every leaf of a logical tree is a comparison (no calls / fields / etc.). */
+    private static boolean allLeavesAreComparisons(ExpressionNode node) {
+        if (node instanceof ExpressionNode.LogicalOp lo) {
+            return allLeavesAreComparisons(lo.lhs()) && allLeavesAreComparisons(lo.rhs());
         }
-        return false;
+        return node instanceof ExpressionNode.Comparison;
+    }
+
+    /** Appends the in-order comparison leaves of a logical tree. */
+    private static void collectLeaves(ExpressionNode node, List<ExpressionNode.Comparison> out) {
+        if (node instanceof ExpressionNode.LogicalOp lo) {
+            collectLeaves(lo.lhs(), out);
+            collectLeaves(lo.rhs(), out);
+        } else if (node instanceof ExpressionNode.Comparison c) {
+            out.add(c);
+        }
+    }
+
+    /** Unifies the two overall targets (then-block / else-block), whose labels are unknown a priori. */
+    private static final class TargetBox {
+        org.objectweb.asm.tree.LabelNode body;
+        org.objectweb.asm.tree.LabelNode elseL;
+        boolean check(Target t, org.objectweb.asm.tree.LabelNode actual) {
+            if (t == Target.BODY) {
+                if (body == null) { body = actual; return true; }
+                return body == actual;
+            }
+            if (elseL == null) { elseL = actual; return true; }
+            return elseL == actual;
+        }
+    }
+
+    /** Nearest {@code LabelNode} preceding {@code insn} — the entry label of the region it starts. */
+    private static org.objectweb.asm.tree.LabelNode entryLabel(AbstractInsnNode insn) {
+        for (AbstractInsnNode n = insn; n != null; n = n.getPrevious()) {
+            if (n instanceof org.objectweb.asm.tree.LabelNode l) return l;
+        }
+        return null;
     }
 
     /**
-     * Matches an N-ary same-operator {@code &&} / {@code ||} region, anchored on the first
-     * comparison's conditional jump. {@code &&}: every operand negates (forward) to ONE shared
-     * false-label. {@code ||}: the first K-1 operands jump DIRECT (forward) to a shared body
-     * label, the last negates to a DIFFERENT false-label. Each comparison's operands are matched
-     * against its own jump's stack producers.
+     * Recursively matches a {@code &&} / {@code ||} tree of comparisons against the short-circuit
+     * jump sequence {@code jumps[lo..hi]}, threading the true / false branch targets (each either
+     * one of the overall BODY/ELSE slots — unified through {@code box} — or a concrete
+     * intermediate {@link org.objectweb.asm.tree.LabelNode} discovered between sibling regions).
+     * Handles arbitrary nesting including mixed operators like {@code (a||b) && c}.
+     *
+     * <p>{@code trueT} / {@code falseT} are {@link Target} (BODY/ELSE slot) or {@code LabelNode}
+     * (intermediate). {@code trueIsFallthrough} marks which branch continues physically (no jump).
+     */
+    private boolean matchCond(ExpressionNode node, List<org.objectweb.asm.tree.JumpInsnNode> jumps,
+                              int lo, int hi, Object trueT, Object falseT, boolean trueIsFallthrough,
+                              TargetBox box) {
+        if (node instanceof ExpressionNode.Comparison c) {
+            if (lo != hi) return false;
+            org.objectweb.asm.tree.JumpInsnNode j = jumps.get(lo);
+            if (trueIsFallthrough) {
+                // true falls through; the jump fires on false → falseT, negated opcode.
+                if (!forwardOpcodeMatches(j.getOpcode(), c.op())) return false;
+                if (!matchesTarget(falseT, j.label, box)) return false;
+            } else {
+                // false falls through; the jump fires on true → trueT, direct opcode.
+                if (!backwardOpcodeMatches(j.getOpcode(), c.op())) return false;
+                if (!matchesTarget(trueT, j.label, box)) return false;
+            }
+            return comparisonOperandsMatch(j, c);
+        }
+        if (node instanceof ExpressionNode.LogicalOp op) {
+            int leftCount = leafCount(op.lhs());
+            int mid = lo + leftCount - 1;
+            if (mid >= hi) return false; // both sides need at least one jump
+            org.objectweb.asm.tree.LabelNode boundary = entryLabel(jumps.get(mid + 1));
+            if (boundary == null) return false;
+            if ("&&".equals(op.op())) {
+                // a && b: a-true falls into b (boundary); a-false short-circuits to falseT.
+                if (!matchCond(op.lhs(), jumps, lo, mid, boundary, falseT, true, box)) return false;
+                return matchCond(op.rhs(), jumps, mid + 1, hi, trueT, falseT, trueIsFallthrough, box);
+            } else { // "||"
+                // a || b: a-true short-circuits to trueT; a-false falls into b (boundary).
+                if (!matchCond(op.lhs(), jumps, lo, mid, trueT, boundary, false, box)) return false;
+                return matchCond(op.rhs(), jumps, mid + 1, hi, trueT, falseT, trueIsFallthrough, box);
+            }
+        }
+        return false; // non-comparison leaf
+    }
+
+    private static boolean matchesTarget(Object target, org.objectweb.asm.tree.LabelNode actual, TargetBox box) {
+        if (target instanceof org.objectweb.asm.tree.LabelNode l) return l == actual;
+        return box.check((Target) target, actual);
+    }
+
+    /**
+     * Matches a {@code &&} / {@code ||} tree (any nesting / mixed operators) anchored on the first
+     * comparison's conditional jump, via the recursive {@link #matchCond} structural recogniser.
      */
     private boolean matchesLogicalOp(AbstractInsnNode insn, ExpressionNode.LogicalOp lo) {
         if (!(insn instanceof org.objectweb.asm.tree.JumpInsnNode)) return false;
-        FlatLogical flat = flattenLogical(lo);
-        if (flat == null) return false;
-        int k = flat.operands().size();
-
+        int k = leafCount(lo);
         List<org.objectweb.asm.tree.JumpInsnNode> jumps = new java.util.ArrayList<>(k);
         AbstractInsnNode cursor = insn;
         for (int i = 0; i < k; i++) {
@@ -397,28 +481,10 @@ final class ExpressionMatcher {
             jumps.add(j);
             cursor = (i + 1 < k) ? nextConditionalJump(j.getNext()) : cursor;
         }
-
-        if ("&&".equals(flat.op())) {
-            org.objectweb.asm.tree.LabelNode shared = jumps.get(0).label;
-            for (int i = 0; i < k; i++) {
-                if (!forwardOpcodeMatches(jumps.get(i).getOpcode(), flat.operands().get(i).op())) return false;
-                if (jumps.get(i).label != shared) return false;
-            }
-        } else { // "||"
-            org.objectweb.asm.tree.LabelNode body = jumps.get(0).label;
-            for (int i = 0; i < k - 1; i++) {
-                if (!backwardOpcodeMatches(jumps.get(i).getOpcode(), flat.operands().get(i).op())) return false;
-                if (jumps.get(i).label != body) return false;
-            }
-            org.objectweb.asm.tree.JumpInsnNode last = jumps.get(k - 1);
-            if (!forwardOpcodeMatches(last.getOpcode(), flat.operands().get(k - 1).op())) return false;
-            if (last.label == body) return false;
-        }
-
-        for (int i = 0; i < k; i++) {
-            if (!comparisonOperandsMatch(jumps.get(i), flat.operands().get(i))) return false;
-        }
-        return true;
+        TargetBox box = new TargetBox();
+        if (!matchCond(lo, jumps, 0, k - 1, Target.BODY, Target.ELSE, true, box)) return false;
+        // BODY and ELSE must be distinct program points when both were observed.
+        return box.body == null || box.elseL == null || box.body != box.elseL;
     }
 
     private boolean comparisonOperandsMatch(AbstractInsnNode jump, ExpressionNode.Comparison c) {
@@ -604,13 +670,13 @@ final class ExpressionMatcher {
                 validateOperand(c.rhs(), defs, handler, paramIndexByName);
             }
             case ExpressionNode.LogicalOp lo -> {
-                FlatLogical flat = flattenLogical(lo);
-                if (flat == null) {
+                if (!allLeavesAreComparisons(lo)) {
                     throw new IllegalStateException(
-                        "@Expression `&&` / `||` requires a single-operator chain of comparisons; "
-                        + "mixed operators and non-comparison operands are deferred on " + sig(handler));
+                        "@Expression `&&` / `||` operands must all be comparisons on " + sig(handler));
                 }
-                for (ExpressionNode.Comparison c : flat.operands()) {
+                List<ExpressionNode.Comparison> leaves = new java.util.ArrayList<>();
+                collectLeaves(lo, leaves);
+                for (ExpressionNode.Comparison c : leaves) {
                     validate(c, defs, handler, paramIndexByName);
                 }
             }

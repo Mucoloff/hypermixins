@@ -7,6 +7,20 @@ master is the only published surface so far.
 ## Unreleased
 
 ### Added
+- **`@Expression` DSL v9 — mixed-operator boolean** — the logical
+  matcher is now a recursive structural recogniser (`matchCond`) that
+  walks the `&&` / `||` binary tree against the short-circuit jump
+  sequence, threading each branch's true/false target (the overall
+  BODY/ELSE slots unify by first use; intermediate join labels are read
+  from the bytecode between sibling regions). Handles arbitrary nesting
+  including `a && (b || c)` AND `(a || b) && c` — the latter needs an
+  intermediate label, which the recogniser resolves rather than
+  rejecting. Supersedes the v8 same-operator-only limitation. Operands
+  must still all be comparisons; boolean-materialisation context
+  (`boolean r = a && b`) remains out of scope (different bytecode
+  shape).
+
+### Added
 - **`@Expression` DSL v8 — N-ary same-operator `&&` / `||`** — extends
   v7 to a chain of the same operator (`? < ? && ? < ? && ? < ?`,
   `? < ? || ? < ? || ? < ?`). `flattenLogical` folds the left-assoc
