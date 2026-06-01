@@ -18,13 +18,23 @@ runtime ASM bytecode rewriting + atomic INVOKEDYNAMIC dispatch.
 
 ### 1. Add the dependencies
 
+Published via [JitPack](https://jitpack.io/#Mucoloff/hypermixins). Add the
+repository, then depend on the three modules at a released tag (e.g. `1.7`):
+
 ```kotlin
+repositories {
+    maven { url = uri("https://jitpack.io") }
+}
+
 dependencies {
-    implementation("net.echo:hypermixins-annotations:1.7")
-    implementation("net.echo:hypermixins-runtime:1.7")
-    ksp("net.echo:hypermixins-processor:1.7")
+    implementation("com.github.Mucoloff.hypermixins:hypermixins-annotations:1.7")
+    implementation("com.github.Mucoloff.hypermixins:hypermixins-runtime:1.7")
+    ksp("com.github.Mucoloff.hypermixins:hypermixins-processor:1.7")
 }
 ```
+
+(Maven: group `com.github.Mucoloff.hypermixins`, artifact = module name,
+version = git tag.)
 
 ### 2. Write a mixin
 

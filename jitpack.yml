@@ -1,0 +1,13 @@
+# JitPack build config.
+#
+# Gradle 9.2 needs a JDK 17+ to launch; the project's toolchain (JDK 25) is then
+# auto-provisioned by the foojay-resolver plugin during compilation. Only the three
+# consumable modules are published — the example and the IntelliJ plugin are skipped
+# (the plugin resolves a local IDEA install that does not exist on JitPack).
+jdk:
+  - openjdk17
+install:
+  - ./gradlew --no-daemon
+      :hypermixins-annotations:publishToMavenLocal
+      :hypermixins-runtime:publishToMavenLocal
+      :hypermixins-processor:publishToMavenLocal
